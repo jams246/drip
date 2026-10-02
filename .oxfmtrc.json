@@ -1,0 +1,8 @@
+{
+  "printWidth": 160,
+  "semi": false,
+  "singleQuote": true,
+  "sortPackageJson": false,
+  "trailingComma": "none",
+  "ignorePatterns": [".perry/**", ".xwin-cache/**", "dist/**", "node_modules/**", ".idea/**", ".agents/**", "AGENTS.md"]
+}

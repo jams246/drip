@@ -1,0 +1,72 @@
+{
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "plugins": ["eslint", "typescript", "unicorn", "react", "react-perf", "nextjs", "oxc", "import", "jsx-a11y", "node", "promise"],
+  "rules": {
+    "eslint/func-style": "allow",
+    "eslint/max-statements": ["error", 20],
+    "eslint/max-lines-per-function": "allow",
+    "eslint/no-magic-numbers": [
+      "error",
+      {
+        "ignore": [-1, 0, 1, 2],
+        "ignoreArrayIndexes": true,
+        "ignoreDefaultValues": true,
+        "ignoreNumericLiteralTypes": true,
+        "ignoreTypeIndexes": true
+      }
+    ],
+    "eslint/no-void": [
+      "error",
+      {
+        "allowAsStatement": true
+      }
+    ],
+    "eslint/no-ternary": "allow",
+    "eslint/no-undefined": "allow",
+    "eslint/require-await": "allow",
+    "eslint/sort-keys": "allow",
+    "eslint/sort-imports": [
+      "error",
+      {
+        "ignoreDeclarationSort": true
+      }
+    ],
+    "import/consistent-type-specifier-style": "allow",
+    "import/exports-last": "allow",
+    "import/group-exports": "allow",
+    "import/no-unassigned-import": "allow",
+    "import/no-default-export": "allow",
+    "import/no-named-export": "allow",
+    "import/no-namespace": "allow",
+    "import/prefer-default-export": "allow",
+    "jsx-a11y/label-has-associated-control": "allow",
+    "oxc/no-async-await": "allow",
+    "oxc/no-accumulating-spread": "allow",
+    "oxc/no-map-spread": "allow",
+    "oxc/no-optional-chaining": "allow",
+    "oxc/no-rest-spread-properties": "allow",
+    "react/forbid-component-props": "allow",
+    "react/jsx-filename-extension": "allow",
+    "react/jsx-max-depth": "allow",
+    "react/jsx-no-literals": "allow",
+    "react/jsx-props-no-spreading": "allow",
+    "react/no-multi-comp": "allow",
+    "react/only-export-components": "allow",
+    "react/react-in-jsx-scope": "allow",
+    "react-perf/jsx-no-new-object-as-prop": "allow",
+    "typescript/explicit-function-return-type": "allow",
+    "typescript/explicit-module-boundary-types": "allow",
+    "typescript/prefer-readonly-parameter-types": "allow",
+    "unicorn/prefer-spread": "allow"
+  },
+  "options": {
+    "typeAware": true,
+    "typeCheck": true,
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "error"
+  },
+  "ignorePatterns": [".perry/**", ".xwin-cache/**", "dist/**", "node_modules/**", ".idea/**"]
+}
