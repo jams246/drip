@@ -2,9 +2,26 @@
   "name": "drip",
   "version": "0.1.0",
   "private": true,
-  "main": "src/main.ts",
+  "main": "src/desktop/main.ts",
   "type": "module",
+  "scripts": {
+    "dev": "vite src/desktop",
+    "build": "npm run typecheck && node scripts/build-frontend.mjs",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview src/desktop --outDir ../../dist/desktop"
+  },
   "perry": {
     "compilePackages": []
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vite-plugin-singlefile": "^2.3.3"
   }
 }

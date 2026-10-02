@@ -4,11 +4,13 @@ $projectRoot = Split-Path $PSScriptRoot -Parent
 Push-Location $projectRoot
 try {
     $env:PERRY_RUNTIME_DIR = Join-Path $projectRoot '.perry'
+    & npm.cmd run build
+    if ($LASTEXITCODE -ne 0) { throw "React build failed with exit code $LASTEXITCODE." }
     $configuration = if ($Production) { 'production' } else { 'testing' }
     $outputDirectory = Join-Path $projectRoot "dist/$configuration"
     New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
     $buildPath = Join-Path $outputDirectory 'drip.build.exe'
-    $arguments = @('compile', 'src/desktop/main.ts', '-o', $buildPath, '--target', 'windows', '--march', 'generic')
+    $arguments = @('compile', 'src/desktop/main.ts', '-o', $buildPath, '--target', 'windows', '--march', 'generic', '--embed', 'dist/desktop/index.html')
     if ($Production) {
         if (-not $env:PERRY_WORKSPACE_ROOT) {
             $env:PERRY_WORKSPACE_ROOT = Join-Path $projectRoot '.perry/source'
@@ -29,7 +31,6 @@ try {
         Remove-Item -LiteralPath $buildPath
         throw 'Production build requires optimized runtime libraries.'
     }
-    Copy-Item -LiteralPath 'src/index.html' -Destination $outputDirectory -Force
     Move-Item -LiteralPath $buildPath -Destination (Join-Path $outputDirectory 'drip.exe') -Force
 } finally {
     Pop-Location
