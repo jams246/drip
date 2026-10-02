@@ -8,7 +8,7 @@ try {
     $outputDirectory = Join-Path $projectRoot "dist/$configuration"
     New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
     $buildPath = Join-Path $outputDirectory 'drip.build.exe'
-    $arguments = @('compile', 'src/main.ts', '-o', $buildPath, '--target', 'windows', '--march', 'generic')
+    $arguments = @('compile', 'src/desktop/main.ts', '-o', $buildPath, '--target', 'windows', '--march', 'generic')
     if ($Production) {
         if (-not $env:PERRY_WORKSPACE_ROOT) {
             $env:PERRY_WORKSPACE_ROOT = Join-Path $projectRoot '.perry/source'
