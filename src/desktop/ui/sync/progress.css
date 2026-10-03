@@ -52,16 +52,6 @@
   background: var(--progress-color, var(--accent));
   animation: progress-scan 1.5s ease-in-out infinite alternate;
 }
-.file-progress--paused .file-progress__label {
-  color: var(--muted);
-}
-.file-progress--paused .file-progress__bar::-webkit-progress-value {
-  background: var(--muted);
-}
-.file-progress--paused .file-progress__track--indeterminate::after {
-  animation-play-state: paused;
-  background: var(--muted);
-}
 @keyframes progress-scan {
   to {
     transform: translateX(185%);

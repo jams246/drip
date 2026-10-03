@@ -1,0 +1,29 @@
+diff --git a/crates/perry-stdlib/src/worker_threads.rs b/crates/perry-stdlib/src/worker_threads.rs
+index d67fff9..08138b0 100644
+--- a/crates/perry-stdlib/src/worker_threads.rs
++++ b/crates/perry-stdlib/src/worker_threads.rs
+@@ -1245,6 +1245,8 @@ pub extern "C" fn js_worker_threads_worker_new(entry_ptr: i64, options: f64) ->
+     let class_image = perry_runtime::object::class_image::current_image_handle();
+     std::thread::spawn(move || {
+         perry_runtime::object::class_image::adopt_image(class_image);
++        // Give this worker its own heap ownership before allocation or queueing.
++        let worker_agent = perry_runtime::agent::enter_worker_agent();
+         let previous_env = apply_worker_env(&thread_options.env);
+         CURRENT_WORKER_ID.with(|id| id.set(worker_id));
+         CURRENT_WORKER_DATA.with(|slot| *slot.borrow_mut() = worker_data);
+@@ -1315,6 +1317,7 @@ pub extern "C" fn js_worker_threads_worker_new(entry_ptr: i64, options: f64) ->
+             }
+         };
+         push_parent_event(WorkerEvent::Exit(worker_id, exit_code));
++        perry_runtime::agent::retire_agent(worker_agent);
+     });
+ 
+     object_value(worker_obj)
+@@ -1440,6 +1443,7 @@ pub extern "C" fn js_worker_threads_resource_limits() -> f64 {
+ /// parentPort.on(event, callback) - Register event callback
+ #[no_mangle]
+ pub extern "C" fn js_worker_threads_on(event_ptr: i64, callback: i64) -> f64 {
++    ensure_parent_port_event_gc_scanner();
+     // Extract event name
+     let event_name = {
+         let raw_ptr =

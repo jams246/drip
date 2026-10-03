@@ -26,10 +26,6 @@
   font-size: 15px;
   font-weight: 600;
 }
-.desktop__sample {
-  font-size: 12px;
-  color: var(--muted);
-}
 .navigation {
   display: flex;
   padding: 0 clamp(16px, 3vw, 40px);

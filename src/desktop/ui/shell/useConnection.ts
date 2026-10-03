@@ -19,25 +19,21 @@ function connectionResult(url: string, code: string): Connection {
   }
 }
 
-export function useConnection(paused: boolean, onPauseChange: (paused: boolean) => void, addActivity: (entry: Omit<ActivityEntry, 'id' | 'time'>) => void) {
+export function useConnection(addActivity: (entry: Omit<ActivityEntry, 'id' | 'time'>) => void) {
   const [connection, setConnection] = useState<Connection>({ status: 'connected', url: sampleUrl })
   const [serverUrl, setServerUrl] = useState(sampleUrl)
   const [registrationCode, setRegistrationCode] = useState('')
   const connecting = useRef(false)
-  const pauseBeforeConnection = useRef(paused)
 
   async function connect(url: string, code: string) {
     if (connecting.current) return
     connecting.current = true
-    if (connection.status === 'connected') pauseBeforeConnection.current = paused
-    onPauseChange(true)
     setConnection({ status: 'connecting', url, message: 'Connecting to your server…' })
     addActivity({ title: 'Connecting to server', detail: url, severity: 'info' })
     await new Promise((resolve) => setTimeout(resolve, connectionDelay))
     const result = connectionResult(url.trim(), code.trim())
     setConnection(result)
     connecting.current = false
-    if (result.status === 'connected') onPauseChange(pauseBeforeConnection.current)
     addActivity({
       title: result.status === 'connected' ? 'Connected to server' : 'Connection failed',
       detail: result.message ?? result.url,

@@ -6,6 +6,8 @@ import './settings.css'
 type SettingsProps = {
   theme: ThemeName
   onThemeChange: (theme: ThemeName) => void
+  advanced: boolean
+  onAdvancedChange: (advanced: boolean) => void
   connection: Connection
   onConnect: (url: string, code: string) => void
   serverUrl: string
@@ -17,6 +19,8 @@ type SettingsProps = {
 export function Settings({
   theme,
   onThemeChange,
+  advanced,
+  onAdvancedChange,
   connection,
   onConnect,
   serverUrl,
@@ -112,6 +116,25 @@ export function Settings({
         </section>
         <section className="settings__panel settings__panel--appearance">
           <ThemePicker theme={theme} onThemeChange={onThemeChange} />
+        </section>
+        <section className="settings__panel" aria-labelledby="display-title">
+          <h2 className="settings__title" id="display-title">
+            Display
+          </h2>
+          <p className="settings__description" id="advanced-description">
+            Show processing details and performance statistics on Home.
+          </p>
+          <label className="settings__toggle">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={advanced}
+              aria-checked={advanced}
+              aria-describedby="advanced-description"
+              onChange={(event) => onAdvancedChange(event.target.checked)}
+            />
+            <span>Advanced</span>
+          </label>
         </section>
       </div>
     </section>

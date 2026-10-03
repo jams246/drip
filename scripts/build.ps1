@@ -1,37 +1,58 @@
 param([switch]$Production)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
+$stagingDirectory = $null
 Push-Location $projectRoot
 try {
-    $env:PERRY_RUNTIME_DIR = Join-Path $projectRoot '.perry'
+    & "$PSScriptRoot/build-native-libs.ps1"
     & npm.cmd run build
     if ($LASTEXITCODE -ne 0) { throw "React build failed with exit code $LASTEXITCODE." }
+    & node.exe scripts/build-workers.mjs
+    if ($LASTEXITCODE -ne 0) { throw 'Scan worker generation failed.' }
     $configuration = if ($Production) { 'production' } else { 'testing' }
-    $outputDirectory = Join-Path $projectRoot "dist/$configuration"
-    New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-    $buildPath = Join-Path $outputDirectory 'drip.build.exe'
+    $distRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'dist'))
+    New-Item -ItemType Directory -Path $distRoot -Force | Out-Null
+    $runId = [Guid]::NewGuid().ToString('N')
+    $stagingDirectory = Join-Path $distRoot ".$configuration-build-$runId"
+    New-Item -ItemType Directory -Path $stagingDirectory | Out-Null
+    $buildPath = Join-Path $stagingDirectory 'drip.exe'
     $arguments = @('compile', 'src/desktop/main.ts', '-o', $buildPath, '--target', 'windows', '--march', 'generic', '--embed', 'dist/desktop/index.html')
-    if ($Production) {
-        if (-not $env:PERRY_WORKSPACE_ROOT) {
-            $env:PERRY_WORKSPACE_ROOT = Join-Path $projectRoot '.perry/source'
-        }
-        if (-not (Test-Path '.perry/source/Cargo.toml')) {
-            & git -c advice.detachedHead=false clone --depth 1 --branch v0.5.1520 https://github.com/PerryTS/perry.git .perry/source
-            if ($LASTEXITCODE -ne 0) { throw 'Could not fetch the pinned Perry runtime source.' }
-        }
-        $env:PERRY_SIZE_OPT = 'z'
-        $env:PERRY_NO_AUTO_OPTIMIZE = $null
-        $env:PATH = "$env:USERPROFILE/.cargo/bin;$env:PATH"
-    } else {
-        $arguments += @('--debug-symbols', '--no-auto-optimize')
+    $env:PERRY_SIZE_OPT = $null
+    $env:PERRY_LL_SIZE_OPT = '0'
+    if (-not $Production) {
+        $arguments += '--debug-symbols'
     }
-    & ./.perry/perry.exe @arguments 2>&1 | Tee-Object -Variable buildOutput | Out-Host
+    & ./.perry/perry.exe @arguments
     if ($LASTEXITCODE -ne 0) { throw "Perry compilation failed with exit code $LASTEXITCODE." }
-    if ($Production -and $buildOutput -match 'workspace source not found|using prebuilt|Skipping auto-optimize') {
-        Remove-Item -LiteralPath $buildPath
-        throw 'Production build requires optimized runtime libraries.'
+    $outputDirectory = Join-Path $distRoot $configuration
+    $previousDirectory = Join-Path $distRoot ".$configuration-previous-$runId"
+    if (Test-Path -LiteralPath $outputDirectory) {
+        Move-Item -LiteralPath $outputDirectory -Destination $previousDirectory
     }
-    Move-Item -LiteralPath $buildPath -Destination (Join-Path $outputDirectory 'drip.exe') -Force
+    try {
+        Move-Item -LiteralPath $stagingDirectory -Destination $outputDirectory
+        $stagingDirectory = $null
+    } catch {
+        if (Test-Path -LiteralPath $previousDirectory) {
+            Move-Item -LiteralPath $previousDirectory -Destination $outputDirectory
+        }
+        throw
+    }
+    if (Test-Path -LiteralPath $previousDirectory) {
+        $resolvedPrevious = [IO.Path]::GetFullPath($previousDirectory)
+        if (-not $resolvedPrevious.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Build cleanup target is outside dist.'
+        }
+        Remove-Item -LiteralPath $resolvedPrevious -Recurse -Force
+    }
 } finally {
+    if ($stagingDirectory -and (Test-Path -LiteralPath $stagingDirectory)) {
+        $resolvedStaging = [IO.Path]::GetFullPath($stagingDirectory)
+        $allowedRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'dist')) + [IO.Path]::DirectorySeparatorChar
+        if (-not $resolvedStaging.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Build cleanup target is outside dist.'
+        }
+        Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
+    }
     Pop-Location
 }

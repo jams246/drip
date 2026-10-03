@@ -1,0 +1,95 @@
+diff --git a/crates/perry-ui-windows/src/widgets/webview.rs b/crates/perry-ui-windows/src/widgets/webview.rs
+index 026f09c..8b4d398 100644
+--- a/crates/perry-ui-windows/src/widgets/webview.rs
++++ b/crates/perry-ui-windows/src/widgets/webview.rs
+@@ -159,6 +159,7 @@ struct WebViewState {
+ #[cfg(target_os = "windows")]
+ thread_local! {
+     static WEBVIEW_STATES: RefCell<HashMap<i64, WebViewState>> = RefCell::new(HashMap::new());
++    static PENDING_EVALUATIONS: RefCell<HashMap<i64, f64>> = RefCell::new(HashMap::new());
+     /// HWND.0 (as isize) → widget handle reverse-lookup for the WM_SIZE
+     /// subclass which only sees the HWND.
+     static HWND_TO_HANDLE: RefCell<HashMap<isize, i64>> = RefCell::new(HashMap::new());
+@@ -174,6 +175,42 @@ pub(crate) fn scan_windows_webview_gc_roots(visitor: &mut perry_ffi::GcRootVisit
+             visitor.visit_nanbox_f64_slot(&mut state.on_error);
+         }
+     });
++    PENDING_EVALUATIONS.with(|pending| {
++        for callback in pending.borrow_mut().values_mut() {
++            visitor.visit_nanbox_f64_slot(callback);
++        }
++    });
++}
++
++#[cfg(target_os = "windows")]
++struct PendingEvaluation {
++    id: i64,
++}
++
++#[cfg(target_os = "windows")]
++impl PendingEvaluation {
++    fn new(callback: f64) -> Self {
++        static NEXT_EVALUATION_ID: AtomicI64 = AtomicI64::new(1);
++        let id = NEXT_EVALUATION_ID.fetch_add(1, Ordering::Relaxed);
++        PENDING_EVALUATIONS.with(|pending| {
++            pending.borrow_mut().insert(id, callback);
++        });
++        perry_runtime::gc::js_write_barrier_root_nanbox(callback.to_bits());
++        Self { id }
++    }
++
++    fn callback(&self) -> f64 {
++        PENDING_EVALUATIONS.with(|pending| pending.borrow().get(&self.id).copied().unwrap_or(0.0))
++    }
++}
++
++#[cfg(target_os = "windows")]
++impl Drop for PendingEvaluation {
++    fn drop(&mut self) {
++        let _ = PENDING_EVALUATIONS.try_with(|pending| {
++            pending.borrow_mut().remove(&self.id);
++        });
++    }
+ }
+ 
+ #[cfg(target_os = "windows")]
+@@ -763,8 +800,13 @@ pub fn evaluate_js(handle: i64, js_ptr: *const u8, callback: f64) {
+             None => return,
+         };
+ 
++        // COM owns the guard while ExecuteScript is pending. Its scanned slot
++        // stays live through result allocation and callback execution.
++        let evaluation = PendingEvaluation::new(callback);
++        let evaluation_id = evaluation.id;
+         let cb_handler =
+             ExecuteScriptCompletedHandler::create(Box::new(move |error_code, result_json| {
++                let evaluation = evaluation;
+                 let s = if error_code.is_err() {
+                     String::new()
+                 } else {
+@@ -783,7 +825,8 @@ pub fn evaluate_js(handle: i64, js_ptr: *const u8, callback: f64) {
+                     }
+                 };
+                 let nb = nanbox_str(&s);
+-                let closure_ptr = unsafe { js_nanbox_get_pointer(callback) } as *const u8;
++                let closure_ptr =
++                    unsafe { js_nanbox_get_pointer(evaluation.callback()) } as *const u8;
+                 if !closure_ptr.is_null() {
+                     catch_panic(
+                         "webview evaluateJs callback",
+@@ -797,7 +840,14 @@ pub fn evaluate_js(handle: i64, js_ptr: *const u8, callback: f64) {
+ 
+         let js_wide = to_wide(&js);
+         unsafe {
+-            let _ = webview.ExecuteScript(PCWSTR(js_wide.as_ptr()), &cb_handler);
++            if webview
++                .ExecuteScript(PCWSTR(js_wide.as_ptr()), &cb_handler)
++                .is_err()
++            {
++                PENDING_EVALUATIONS.with(|pending| {
++                    pending.borrow_mut().remove(&evaluation_id);
++                });
++            }
+         }
+     }
+     #[cfg(not(target_os = "windows"))]

@@ -1,69 +1,44 @@
-import { type Dispatch, type SetStateAction, useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Activity } from '../activity/Activity'
 import { Brand } from '../brand/Brand'
 import { Home } from '../home/Home'
 import { Settings } from '../settings/Settings'
 import type { ThemeName } from '../settings/themes'
-import { sampleActivity, sampleWatches } from '../sync/samples'
-import type { ActivityEntry, SyncFile } from '../sync/types'
+import type { ActivityEntry } from '../sync/types'
 import { Watch } from '../watch/Watch'
 import { useConnection } from './useConnection'
+import { useScans } from './useScans'
 import './common.css'
 import './shell.css'
 
 const pages = ['Home', 'Watch', 'Activity', 'Settings'] as const
+const retainedActivityEntries = 200
 type Page = (typeof pages)[number]
 
-interface DesktopAppProps {
-  files: SyncFile[]
-  onFilesChange: Dispatch<SetStateAction<SyncFile[]>>
-  paused: boolean
-  onPauseChange: (paused: boolean) => void
-}
-
-export function DesktopApp({ files, onFilesChange, paused, onPauseChange }: DesktopAppProps) {
+export function DesktopApp() {
   const [page, setPage] = useState<Page>('Home')
   const [theme, setTheme] = useState<ThemeName>('graphite')
-  const [watches, setWatches] = useState(sampleWatches)
-  const [entries, setEntries] = useState(sampleActivity)
-  const [highlightedId, setHighlightedId] = useState<string>()
+  const [advanced, setAdvanced] = useState(false)
+  const [paused, setPaused] = useState(false)
+  const [entries, setEntries] = useState<ActivityEntry[]>([])
   const content = useRef<HTMLElement>(null)
   const addActivity = useCallback((entry: Omit<ActivityEntry, 'id' | 'time'>) => {
     const time = new Date().toISOString()
-    setEntries((current) => [{ ...entry, id: `${time}-${current.length}`, time }, ...current])
+    // ponytail: retain 200 recent entries; add persistent history when that phase starts.
+    setEntries((current) => [{ ...entry, id: `${time}-${current.length}`, time }, ...current].slice(0, retainedActivityEntries))
   }, [])
-  const registration = useConnection(paused, onPauseChange, addActivity)
+  const onSelected = useCallback(() => setPage('Home'), [])
+  const scans = useScans(onSelected, addActivity)
+  const registration = useConnection(addActivity)
   const { connection } = registration
-  const viewActivity = useCallback((id: string) => {
-    setHighlightedId(id)
-    setPage('Activity')
-  }, [])
 
   function changePause(next: boolean) {
-    onPauseChange(next)
-    addActivity({
-      title: next ? 'Syncing paused' : 'Syncing resumed',
-      detail: next ? 'Current progress is saved. Resume when you are ready.' : 'Watched files can continue uploading.',
-      severity: 'info'
-    })
-  }
-
-  function removeWatch(id: string) {
-    const item = watches.find((watch) => watch.id === id)
-    if (!item) return
-    setWatches((current) => current.filter((watch) => watch.id !== id))
-    onFilesChange((current) => current.filter((file) => file.watchId !== id))
-    addActivity({
-      title: 'Item removed from watch list',
-      detail: 'DRIP will no longer watch this item. The local file or folder is unchanged.',
-      path: item.path,
-      severity: 'info'
-    })
+    setPaused(next)
+    addActivity({ title: next ? 'Syncing paused' : 'Syncing resumed', detail: 'Local file processing continues.', severity: 'info' })
   }
 
   function navigate(next: Page) {
     setPage(next)
-    setHighlightedId(undefined)
     content.current?.scrollTo({ top: 0 })
   }
 
@@ -72,7 +47,6 @@ export function DesktopApp({ files, onFilesChange, paused, onPauseChange }: Desk
     <div className="desktop" data-theme={theme}>
       <header className="desktop__header">
         <Brand />
-        <span className="desktop__sample">Sample data</span>
       </header>
       <nav className="navigation" aria-label="Main navigation">
         {pages.map((name) => (
@@ -88,13 +62,36 @@ export function DesktopApp({ files, onFilesChange, paused, onPauseChange }: Desk
         ))}
       </nav>
       <main className="desktop__content" id="main-content" ref={content}>
-        {page === 'Home' && <Home files={files} paused={paused} connection={connection} onPauseChange={changePause} onViewActivity={viewActivity} />}
-        {page === 'Watch' && <Watch items={watches} onRemove={removeWatch} />}
-        {page === 'Activity' && <Activity entries={entries} highlightedId={highlightedId} />}
+        {page === 'Home' && (
+          <Home
+            locations={scans.locations}
+            scans={scans.scans}
+            picking={scans.picking}
+            error={scans.error}
+            advanced={advanced}
+            paused={paused}
+            connection={connection}
+            onPauseChange={changePause}
+          />
+        )}
+        {page === 'Watch' && (
+          <Watch
+            items={scans.locations}
+            scans={scans.scans}
+            busy={scans.busy}
+            picking={scans.picking}
+            error={scans.error}
+            onSelect={scans.select}
+            onRemove={scans.remove}
+          />
+        )}
+        {page === 'Activity' && <Activity entries={entries} />}
         {page === 'Settings' && (
           <Settings
             theme={theme}
             onThemeChange={setTheme}
+            advanced={advanced}
+            onAdvancedChange={setAdvanced}
             connection={connection}
             serverUrl={registration.serverUrl}
             registrationCode={registration.registrationCode}

@@ -1,67 +1,81 @@
+import type { ScanLocation, ScanSnapshot } from '../../scan/types'
+import type { Connection } from '../sync/types'
 import { FileRow } from './FileRow'
-import type { Connection, SyncFile } from '../sync/types'
 import './home.css'
 
 interface HomeProps {
-  files: readonly SyncFile[]
+  locations: readonly ScanLocation[]
+  scans: readonly ScanSnapshot[]
+  picking: boolean
+  error?: string
+  advanced: boolean
   paused: boolean
   connection: Connection
   onPauseChange: (paused: boolean) => void
-  onViewActivity: (id: string) => void
 }
 
-export function Home({ files, paused, connection, onPauseChange, onViewActivity }: HomeProps) {
-  const counts = { syncing: 0, preparing: 0, synced: 0, error: 0 }
-  for (const file of files) counts[file.status] += 1
-  const blocked = connection.status !== 'connected'
+export function Home({ locations, scans, picking, error, advanced, paused, connection, onPauseChange }: HomeProps) {
+  const counts = { scanning: 0, pending: 0, queued: 0, completed: 0, error: 0 }
+  for (const scan of scans) {
+    if (scan.state === 'pending' || scan.state === 'scanning' || scan.state === 'queued') counts[scan.state] += 1
+    else if (scan.state === 'error' || scan.state === 'completed-with-errors') counts.error += 1
+    else counts.completed += 1
+  }
   return (
     <section className="home" aria-labelledby="home-title">
       <header className="page-heading">
         <h1 id="home-title" className="page-heading__title">
           Home
         </h1>
-        <button className="button button--secondary" type="button" disabled={blocked || files.length === 0} onClick={() => onPauseChange(!paused)}>
+        <button
+          className="button button--secondary"
+          type="button"
+          disabled={connection.status !== 'connected' || locations.length === 0}
+          aria-pressed={paused}
+          onClick={() => onPauseChange(!paused)}
+        >
           <span aria-hidden="true">{paused ? '▷' : 'Ⅱ'}</span>
-          {paused ? 'Resume syncing' : 'Pause syncing'}
+          {paused ? 'Resume Syncing' : 'Pause Syncing'}
         </button>
       </header>
-      <div className="home__summary" aria-label="Sync summary">
-        <div className="home__stat">
-          <span className="home__stat-value">{counts.syncing}</span>
-          <span className="home__stat-label">Syncing</span>
-          <span className="home__stat-mark home__stat-mark--syncing" />
-        </div>
-        <div className="home__stat">
-          <span className="home__stat-value">{counts.preparing}</span>
-          <span className="home__stat-label">Preparing</span>
-          <span className="home__stat-mark home__stat-mark--preparing" />
-        </div>
-        <div className="home__stat">
-          <span className="home__stat-value">{counts.synced}</span>
-          <span className="home__stat-label">Synced</span>
-          <span className="home__stat-mark home__stat-mark--synced" />
-        </div>
-        <div className="home__stat">
-          <span className="home__stat-value">{counts.error}</span>
-          <span className="home__stat-label">Needs attention</span>
-          <span className="home__stat-mark home__stat-mark--error" />
-        </div>
+      {error && (
+        <p className="home__error" role="alert">
+          {error}
+        </p>
+      )}
+      {picking && <output className="home__notice">Choose a file or folder in the selection dialog.</output>}
+      {paused && <output className="home__notice">Syncing is paused. Local file processing continues.</output>}
+      <div className="home__summary" aria-label="Scan summary">
+        {(['scanning', 'pending', 'queued', 'completed', 'error'] as const).map((state) => (
+          <div className="home__stat" key={state}>
+            <span className="home__stat-value">{counts[state]}</span>
+            <span className="home__stat-label">
+              {
+                { scanning: advanced ? 'Scanning' : 'Processing', pending: 'Preparing', queued: 'Queued', completed: 'Completed', error: 'Needs attention' }[
+                  state
+                ]
+              }
+            </span>
+            <span className={`home__stat-mark home__stat-mark--${state}`} />
+          </div>
+        ))}
       </div>
       <div className="surface home__files">
         <div className="home__list-heading">
           <h2>File status</h2>
-          <span>{files.length} items</span>
+          <span>{locations.length} locations</span>
         </div>
-        {files.length === 0 && (
+        {locations.length === 0 && (
           <div className="empty-state">
-            <h2>No watched files</h2>
-            <p>There are no files or folders in your watch list.</p>
+            <h2>No scans yet</h2>
+            <p>Select a file or folder from Watch to start scanning.</p>
           </div>
         )}
         <ul className="home__file-list">
-          {files.map((file) => (
-            <FileRow key={file.id} file={file} paused={paused} blocked={blocked} onViewActivity={onViewActivity} />
-          ))}
+          {locations.map((location) => {
+            const scan = scans.find((entry) => entry.id === location.id)
+            return scan && <FileRow key={location.id} location={location} scan={scan} advanced={advanced} />
+          })}
         </ul>
       </div>
     </section>

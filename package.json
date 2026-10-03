@@ -19,10 +19,12 @@
     "preview": "vite preview src/desktop --outDir ../../dist/desktop"
   },
   "dependencies": {
+    "@noble/hashes": "2.4.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "oxfmt": "^0.71.0",
@@ -36,8 +38,13 @@
     "allow": {
       "nativeLibrary": [
         "#drip-window-icon"
+      ],
+      "compilePackages": [
+        "@noble/hashes"
       ]
     },
-    "compilePackages": []
+    "compilePackages": [
+      "@noble/hashes"
+    ]
   }
 }

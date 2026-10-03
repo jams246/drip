@@ -13,6 +13,16 @@
   border-radius: 8px;
 }
 
+.settings__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.settings__toggle input {
+  accent-color: var(--accent);
+}
+
 .settings__title,
 .theme-picker__legend {
   margin: 0;

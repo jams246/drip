@@ -45,7 +45,7 @@ export function Activity({ entries, highlightedId }: ActivityProps) {
         {entries.length === 0 ? (
           <div className="empty-state">
             <h3>No activity yet</h3>
-            <p>Changes and sync events will appear here.</p>
+            <p>Scan results and connection events will appear here.</p>
           </div>
         ) : (
           <ol className="activity__entries">
