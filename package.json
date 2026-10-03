@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "main": "src/desktop/main.ts",
+  "imports": {
+    "#drip-window-icon": "./src/desktop/ui/native/icon.ts"
+  },
   "scripts": {
     "dev": "vite src/desktop",
     "build": "npm run typecheck && node scripts/build-frontend.mjs",
@@ -30,6 +33,11 @@
     "vite-plugin-singlefile": "^2.3.3"
   },
   "perry": {
+    "allow": {
+      "nativeLibrary": [
+        "#drip-window-icon"
+      ]
+    },
     "compilePackages": []
   }
 }

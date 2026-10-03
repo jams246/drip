@@ -1,0 +1,27 @@
+{
+  "name": "drip-window-icon",
+  "private": true,
+  "type": "module",
+  "perry": {
+    "nativeLibrary": {
+      "abiVersion": "0.5",
+      "functions": [
+        {
+          "name": "js_drip_set_window_icon",
+          "params": [],
+          "returns": "void"
+        }
+      ],
+      "targets": {
+        "windows": {
+          "crate": ".",
+          "lib": "drip_window_icon",
+          "libs": [
+            "user32",
+            "kernel32"
+          ]
+        }
+      }
+    }
+  }
+}

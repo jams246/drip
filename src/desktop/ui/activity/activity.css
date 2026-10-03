@@ -1,0 +1,102 @@
+.activity__list {
+  overflow: hidden;
+}
+.activity__list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.activity__list-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.activity__order {
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.activity__entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.activity__entry {
+  display: grid;
+  grid-template-columns: 5.5rem 4rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-left: 3px solid transparent;
+  scroll-margin-block: 1rem;
+}
+.activity__entry + .activity__entry {
+  border-top: 1px solid var(--border);
+}
+.activity__entry--highlighted {
+  background: var(--surface-raised);
+  border-left-color: var(--error);
+}
+.activity__entry:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.activity__time {
+  color: var(--muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.activity__severity {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.activity__entry--success .activity__severity {
+  color: var(--success);
+}
+.activity__entry--warning .activity__severity {
+  color: var(--warning);
+}
+.activity__entry--error .activity__severity {
+  color: var(--error);
+}
+.activity__entry-copy {
+  min-width: 0;
+}
+.activity__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.activity__path {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.activity__detail {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .activity__list-heading {
+    padding: 1rem;
+  }
+  .activity__entry {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.65rem;
+    padding: 1rem;
+  }
+  .activity__entry-copy {
+    grid-column: 1 / -1;
+  }
+}

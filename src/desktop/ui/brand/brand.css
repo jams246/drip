@@ -1,0 +1,47 @@
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.brand__logo {
+  flex: 0 0 auto;
+  width: 33px;
+  height: 40px;
+  color: var(--accent);
+}
+
+.brand__arrow {
+  color: var(--accent-text);
+}
+
+.brand__copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.brand__name {
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  line-height: 1;
+}
+
+.brand__meaning {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.brand__initial {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}

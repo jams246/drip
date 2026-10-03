@@ -1,0 +1,12 @@
+[package]
+name = "drip-window-icon"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "icon.rs"
+crate-type = ["staticlib"]
+
+[profile.release]
+opt-level = "z"
+panic = "abort"
