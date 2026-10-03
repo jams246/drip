@@ -75,6 +75,12 @@ if (process.argv.includes('--verification')) {
     ['src/verification/reader-width.ts', '.perry/generated/reader-width.ts']
   )
 }
+if (process.argv.includes('--sqlite-verification')) {
+  entries.push(
+    ['src/checks/sqlite-performance-worker.ts', '.perry/generated/sqlite-performance-worker.ts'],
+    ['src/checks/sqlite-native-worker.ts', '.perry/generated/sqlite-native-worker.ts']
+  )
+}
 for (const [input, file] of entries) {
   await writeFile(file, await flattenWorker(input))
 }

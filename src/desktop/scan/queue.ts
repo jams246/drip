@@ -1,11 +1,16 @@
 import { initialScan, isScanFinished } from './state'
 import type { ScanEvent, ScanLocation, ScanSnapshot } from './types'
 
-export function createScanQueue(send: (item: ScanLocation) => void, publish: (event: ScanEvent) => void) {
+export function createScanQueue(send: (item: ScanLocation) => void, publish: (event: ScanEvent) => void, onFailure?: (scan: ScanSnapshot) => void) {
   const waiting: ScanLocation[] = []
   let active: ScanLocation | null = null
   let lastScan: ScanSnapshot | null = null
   let workerError = ''
+
+  function publishFailure(scan: ScanSnapshot) {
+    if (onFailure) return onFailure(scan)
+    publish({ type: 'progress', scan })
+  }
 
   function fail(error: unknown) {
     if (workerError) return
@@ -13,13 +18,13 @@ export function createScanQueue(send: (item: ScanLocation) => void, publish: (ev
     if (active) {
       const scan = { ...(lastScan ?? initialScan(active, 'error')), state: 'error' as const, error: workerError }
       scan.errors++
-      publish({ type: 'progress', scan })
+      publishFailure(scan)
     }
     for (const item of waiting) {
       const scan = initialScan(item, 'error')
       scan.errors = 1
       scan.error = workerError
-      publish({ type: 'progress', scan })
+      publishFailure(scan)
     }
     waiting.length = 0
     active = null
@@ -70,5 +75,13 @@ export function createScanQueue(send: (item: ScanLocation) => void, publish: (ev
     publish({ type: 'removed', id })
   }
 
-  return { enqueue, receive, remove, fail, unavailable: () => workerError }
+  return {
+    enqueue,
+    receive,
+    remove,
+    fail,
+    isActive: (id: string) => active?.id === id,
+    isScheduled: (id: string) => active?.id === id || waiting.some((item) => item.id === id),
+    unavailable: () => workerError
+  }
 }

@@ -25,6 +25,7 @@ export interface ScanSnapshot {
 export type ScanRequest = { type: 'select'; kind: ScanLocation['kind'] } | { type: 'remove'; id: string }
 
 export type ScanEvent =
+  | { type: 'hydrated'; locations: ScanLocation[]; scans: ScanSnapshot[] }
   | { type: 'selected'; item: ScanLocation }
   | { type: 'removed'; id: string }
   | { type: 'progress'; scan: ScanSnapshot }

@@ -1,5 +1,6 @@
 import type { ScanLocation, ScanSnapshot } from '../../scan/types'
 import type { Connection } from '../sync/types'
+import { ScanNotices } from '../ScanNotices'
 import { FileRow } from './FileRow'
 import './home.css'
 
@@ -7,6 +8,7 @@ interface HomeProps {
   locations: readonly ScanLocation[]
   scans: readonly ScanSnapshot[]
   picking: boolean
+  loading?: boolean
   error?: string
   advanced: boolean
   paused: boolean
@@ -14,7 +16,7 @@ interface HomeProps {
   onPauseChange: (paused: boolean) => void
 }
 
-export function Home({ locations, scans, picking, error, advanced, paused, connection, onPauseChange }: HomeProps) {
+export function Home({ locations, scans, picking, loading = false, error, advanced, paused, connection, onPauseChange }: HomeProps) {
   const counts = { scanning: 0, pending: 0, queued: 0, completed: 0, error: 0 }
   for (const scan of scans) {
     if (scan.state === 'pending' || scan.state === 'scanning' || scan.state === 'queued') counts[scan.state] += 1
@@ -43,7 +45,7 @@ export function Home({ locations, scans, picking, error, advanced, paused, conne
           {error}
         </p>
       )}
-      {picking && <output className="home__notice">Choose a file or folder in the selection dialog.</output>}
+      <ScanNotices loading={loading} picking={picking} loadingMessage="Loading saved scan results." className="home__notice" />
       {paused && <output className="home__notice">Syncing is paused. Local file processing continues.</output>}
       <div className="home__summary" aria-label="Scan summary">
         {(['scanning', 'pending', 'queued', 'completed', 'error'] as const).map((state) => (
@@ -65,7 +67,7 @@ export function Home({ locations, scans, picking, error, advanced, paused, conne
           <h2>File status</h2>
           <span>{locations.length} locations</span>
         </div>
-        {locations.length === 0 && (
+        {locations.length === 0 && !loading && (
           <div className="empty-state">
             <h2>No scans yet</h2>
             <p>Select a file or folder from Watch to start scanning.</p>

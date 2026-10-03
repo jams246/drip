@@ -2,6 +2,7 @@ param([switch]$Production)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $stagingDirectory = $null
+. "$PSScriptRoot/build-artifacts.ps1"
 Push-Location $projectRoot
 try {
     & "$PSScriptRoot/build-native-libs.ps1"
@@ -25,34 +26,13 @@ try {
     & ./.perry/perry.exe @arguments
     if ($LASTEXITCODE -ne 0) { throw "Perry compilation failed with exit code $LASTEXITCODE." }
     $outputDirectory = Join-Path $distRoot $configuration
-    $previousDirectory = Join-Path $distRoot ".$configuration-previous-$runId"
-    if (Test-Path -LiteralPath $outputDirectory) {
-        Move-Item -LiteralPath $outputDirectory -Destination $previousDirectory
-    }
-    try {
-        Move-Item -LiteralPath $stagingDirectory -Destination $outputDirectory
-        $stagingDirectory = $null
-    } catch {
-        if (Test-Path -LiteralPath $previousDirectory) {
-            Move-Item -LiteralPath $previousDirectory -Destination $outputDirectory
-        }
-        throw
-    }
-    if (Test-Path -LiteralPath $previousDirectory) {
-        $resolvedPrevious = [IO.Path]::GetFullPath($previousDirectory)
-        if (-not $resolvedPrevious.StartsWith($distRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-            throw 'Build cleanup target is outside dist.'
-        }
-        Remove-Item -LiteralPath $resolvedPrevious -Recurse -Force
-    }
+    Publish-BuildArtifacts -StagingDirectory $stagingDirectory -OutputDirectory $outputDirectory
 } finally {
-    if ($stagingDirectory -and (Test-Path -LiteralPath $stagingDirectory)) {
-        $resolvedStaging = [IO.Path]::GetFullPath($stagingDirectory)
-        $allowedRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'dist')) + [IO.Path]::DirectorySeparatorChar
-        if (-not $resolvedStaging.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
-            throw 'Build cleanup target is outside dist.'
+    try {
+        if ($stagingDirectory) {
+            Remove-BuildStagingDirectory -Path $stagingDirectory -ParentDirectory $distRoot -RunId $runId
         }
-        Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
+    } finally {
+        Pop-Location
     }
-    Pop-Location
 }

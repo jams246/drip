@@ -1,7 +1,8 @@
 import { basename } from 'node:path'
-import { Worker } from 'node:worker_threads'
 import { WebView, onTerminate, openFileDialog, openFolderDialog, webviewEvaluateJs } from 'perry/ui'
-import { createScanQueue } from './queue'
+import { normalizeFileId } from '../storage/files'
+import { resolveDatabasePath } from '../storage/path'
+import { createScanService } from './service'
 import { isScanFinished } from './state'
 import type { ScanEvent, ScanLocation, ScanRequest } from './types'
 
@@ -27,7 +28,6 @@ function parseBridgeResponse(result: string): { ready: boolean; request?: ScanRe
 }
 
 export function startScanBridge(webview: ReturnType<typeof WebView>) {
-  const worker = new Worker('../../../.perry/generated/scan-worker.ts')
   const events: ScanEvent[] = []
   const bridgeSession = ++nextBridgeSession
   let batchId = 1
@@ -36,6 +36,8 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
   let selecting = false
   let evaluating = false
   let closing = false
+  let service: ReturnType<typeof createScanService> | undefined
+  let initializationError = ''
 
   function appendEvent(event: ScanEvent) {
     if (event.type === 'error') {
@@ -50,26 +52,19 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
     events.push(event)
   }
 
-  const queue = createScanQueue((item: ScanLocation) => {
-    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node worker messages have no targetOrigin.
-    worker.postMessage({ type: 'scan', item })
-  }, appendEvent)
-
-  function finishWorkerError(error: unknown) {
-    if (!closing) queue.fail(error)
+  try {
+    service = createScanService(resolveDatabasePath(), appendEvent)
+  } catch (error) {
+    initializationError = `Could not open Drip database: ${String(error)}`
+    appendEvent({ type: 'error', message: initializationError })
   }
-  worker.on('message', (event: ScanEvent) => {
-    if (!closing && event.type === 'progress') queue.receive(event.scan)
-  })
-  worker.on('error', finishWorkerError)
-  worker.on('exit', (code: number) => finishWorkerError(new Error(`Scan worker exited with code ${code}.`)))
 
   function select(kind: ScanLocation['kind']) {
     if (selecting) {
       appendEvent({ type: 'selection-ended' })
       return
     }
-    const workerError = queue.unavailable()
+    const workerError = initializationError || service?.unavailable()
     if (workerError) {
       appendEvent({ type: 'error', message: `Scan worker unavailable. Restart Drip. ${workerError}` })
       appendEvent({ type: 'selection-ended' })
@@ -83,9 +78,8 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
         appendEvent({ type: 'selection-ended' })
         return
       }
-      let id = path.split('\\').join('/').toLowerCase()
-      while (id.endsWith('/')) id = id.slice(0, -1)
-      queue.enqueue({ id, name: basename(path) || path, path, kind })
+      const id = normalizeFileId(path)
+      service?.select({ id, name: basename(path) || path, path, kind })
     }
     try {
       if (kind === 'file') openFileDialog(picked)
@@ -118,7 +112,7 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
         }
         retryBatch = null
         batchId++
-        if (response.request?.type === 'remove') queue.remove(response.request.id)
+        if (response.request?.type === 'remove') service?.remove(response.request.id)
         if (response.request?.type === 'select') select(response.request.kind)
       } catch (error) {
         retryBatch = batch
@@ -129,7 +123,6 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
   onTerminate(() => {
     closing = true
     clearInterval(bridgeTimer)
-    worker.unref()
-    void worker.terminate()
+    service?.stop()
   })
 }

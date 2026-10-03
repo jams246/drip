@@ -1,5 +1,6 @@
 import { isScanActive } from '../../scan/state'
 import type { ScanLocation, ScanSnapshot } from '../../scan/types'
+import { ScanNotices } from '../ScanNotices'
 import './watch.css'
 
 interface WatchProps {
@@ -7,12 +8,14 @@ interface WatchProps {
   scans: readonly ScanSnapshot[]
   busy: boolean
   picking: boolean
+  loading?: boolean
+  available?: boolean
   error?: string
   onSelect: (kind: ScanLocation['kind']) => void
   onRemove: (id: string) => void
 }
 
-export function Watch({ items, scans, busy, picking, error, onSelect, onRemove }: WatchProps) {
+export function Watch({ items, scans, busy, picking, loading = false, available = true, error, onSelect, onRemove }: WatchProps) {
   return (
     <section className="watch" aria-labelledby="watch-title">
       <div className="page-heading">
@@ -20,10 +23,10 @@ export function Watch({ items, scans, busy, picking, error, onSelect, onRemove }
           Watch
         </h1>
         <div className="watch__actions">
-          <button className="button button--secondary" type="button" disabled={picking} onClick={() => onSelect('file')}>
+          <button className="button button--secondary" type="button" disabled={picking || !available} onClick={() => onSelect('file')}>
             Select file
           </button>
-          <button className="button button--primary" type="button" disabled={picking} onClick={() => onSelect('folder')}>
+          <button className="button button--primary" type="button" disabled={picking || !available} onClick={() => onSelect('folder')}>
             Select folder
           </button>
         </div>
@@ -33,8 +36,8 @@ export function Watch({ items, scans, busy, picking, error, onSelect, onRemove }
           {error}
         </p>
       )}
-      {picking && <output className="watch__notice">Choose a file or folder in the selection dialog.</output>}
-      {busy && !picking && <output className="watch__notice">Processing continues. Additional selections join the queue.</output>}
+      <ScanNotices loading={loading} picking={picking} loadingMessage="Loading saved watch locations." className="watch__notice" />
+      {busy && !picking && !loading && <output className="watch__notice">Processing continues. Additional selections join the queue.</output>}
       <div className="watch__list surface">
         <div className="watch__list-heading">
           <h2 className="watch__list-title">Selected locations</h2>
@@ -42,7 +45,7 @@ export function Watch({ items, scans, busy, picking, error, onSelect, onRemove }
             {items.length} {items.length === 1 ? 'location' : 'locations'}
           </span>
         </div>
-        {items.length === 0 ? (
+        {items.length === 0 && !loading ? (
           <div className="empty-state">
             <h3>No selected locations</h3>
             <p>Select a file or folder to scan its contents.</p>

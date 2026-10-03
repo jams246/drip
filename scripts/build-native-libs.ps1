@@ -13,6 +13,7 @@ $features = @(
     'perry-runtime/global-text',
     'perry-runtime/global-webcrypto',
     'perry-stdlib/async-runtime',
+    'perry-stdlib/database-sqlite',
     'perry-ui-windows/ffi-exports'
 ) -join ','
 # UI and worker bindings must share one Rust dependency graph and runtime state.

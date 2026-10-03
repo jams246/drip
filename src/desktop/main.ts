@@ -19,7 +19,6 @@ const webview: ReturnType<typeof WebView> = WebView({
   onError: (code: number, message: string) => alert('Drip could not load', `WebView2 error ${code}: ${message}`)
 })
 
-// ponytail: data URL has no persistent origin; use a local origin if storage is needed.
 App({
   title: 'DRIP',
   width: 1024,

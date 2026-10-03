@@ -67,6 +67,7 @@ export function DesktopApp() {
             locations={scans.locations}
             scans={scans.scans}
             picking={scans.picking}
+            loading={scans.storage === 'loading'}
             error={scans.error}
             advanced={advanced}
             paused={paused}
@@ -80,6 +81,8 @@ export function DesktopApp() {
             scans={scans.scans}
             busy={scans.busy}
             picking={scans.picking}
+            loading={scans.storage === 'loading'}
+            available={scans.storage === 'ready'}
             error={scans.error}
             onSelect={scans.select}
             onRemove={scans.remove}
