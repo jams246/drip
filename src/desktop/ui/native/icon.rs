@@ -1,4 +1,10 @@
 use std::sync::OnceLock;
+mod diagnostics;
+mod diagnostics_win32;
+mod crash_dump;
+mod bounded_logs;
+mod log_retention;
+mod log_writer;
 mod metadata;
 mod names;
 mod native_abi;

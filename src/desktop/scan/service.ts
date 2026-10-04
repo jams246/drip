@@ -3,7 +3,7 @@ import { basename } from 'node:path'
 import { normalizeFileId } from '../storage/files'
 import { WatchStore } from '../storage/locations'
 import { createStorageWrites } from '../storage/retry'
-import { isDatabasePath } from './eligibility'
+import { isApplicationDataPath } from './eligibility'
 import { createMonitoring } from './monitoring'
 import { type PendingJob, PendingJobs } from './pending'
 import { createJobRunner } from './runner'
@@ -58,7 +58,7 @@ export function createScanService(databasePath: string, publish: (event: ScanEve
   const monitoring = createMonitoring(
     (id, path, force) => pending.add(id, path, force, true, true),
     verify,
-    (path) => isDatabasePath(path, databasePath)
+    (path) => isApplicationDataPath(path, databasePath)
   )
   function settled(job: PendingJob, attempts = 0) {
     if (stopping || pending.has(job.watchId) || runner.activeId() === job.watchId || !verification.has(job.watchId)) return

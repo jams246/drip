@@ -1,4 +1,5 @@
 import { normalizeFileId } from '../storage/files'
+import { recordDiagnostic } from '../diagnostics'
 import type { DirtyPath } from '../storage/monitoring'
 const QUIET_INTERVAL_MS = 5000
 const MAX_RETRY_MS = 30000
@@ -37,6 +38,7 @@ export class PendingJobs {
   }
 
   private enqueue(job: PendingJob) {
+    recordDiagnostic('scan.queued', `kind=${job.kind} generation=${job.generation} attempt=${job.attempts}`)
     const key = this.pathKey(job.watchId, job.path)
     const jobs = this.paths.get(key) ?? []
     jobs.push(job)

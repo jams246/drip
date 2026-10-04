@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { recordDiagnostic } from '../diagnostics'
 import { openDatabase, transaction } from '../storage/database'
 import { catalogueChange, catalogueEntry, enqueueChange } from '../storage/sync-outbox'
 import { randomId } from './identity'
@@ -108,12 +109,15 @@ export class SyncStore {
         .get(rootId)
       const root = this.database.prepare('SELECT revision, active FROM sync_roots WHERE root_id = ?').get(rootId)
       if (!pending || !root?.active) return
+      recordDiagnostic('sync.operation.freeze.start', `root=${rootId} revision=${String(root.revision)}`)
       this.database
         .prepare(`INSERT INTO sync_operations (root_id, operation_id, base_revision, path_key, generation, source_path, change)
         VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run(rootId, randomId(), root.revision, pending.path_key, pending.generation, pending.source_path, pending.change)
     })
-    return this.operation(rootId)
+    const operation = this.operation(rootId)
+    if (operation) recordDiagnostic('sync.operation.freeze.result', `root=${rootId} operation=${operation.operationId}`)
+    return operation
   }
 
   acknowledge(operation: FrozenOperation, revision: number) {

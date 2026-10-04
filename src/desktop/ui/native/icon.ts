@@ -14,6 +14,8 @@ declare function js_drip_shell_paused(paused: boolean): void
 declare function js_drip_shell_exit(): void
 declare function js_drip_instance_claim(): boolean
 declare function js_drip_instance_release(): void
+declare function js_drip_diagnostics_init(): boolean
+declare function js_drip_diagnostics_write(message: string): void
 
 export function setWindowIcon() {
   js_drip_set_window_icon()
@@ -63,4 +65,10 @@ export function claimInstance() {
 }
 export function releaseInstance() {
   js_drip_instance_release()
+}
+export function initializeDiagnostics() {
+  return js_drip_diagnostics_init()
+}
+export function writeDiagnostic(message: string) {
+  js_drip_diagnostics_write(message)
 }

@@ -7,6 +7,18 @@
       "abiVersion": "0.5",
       "functions": [
         {
+          "name": "js_drip_diagnostics_init",
+          "params": [],
+          "returns": "bool"
+        },
+        {
+          "name": "js_drip_diagnostics_write",
+          "params": [
+            "string"
+          ],
+          "returns": "void"
+        },
+        {
           "name": "js_drip_set_window_icon",
           "params": [],
           "returns": "void"
@@ -108,6 +120,7 @@
           "libs": [
             "user32",
             "kernel32",
+            "dbghelp",
             "shell32",
             "comctl32"
           ]

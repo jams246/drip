@@ -1,8 +1,12 @@
 import { closeSync, fstatSync, lstatSync, openSync, readSync } from 'node:fs'
 import type { Chunk, OperationReceipt } from '../../protocol/sync'
+import { recordDiagnostic } from '../diagnostics'
 import { ChunkHasher } from '../scan/hash'
+import { recordSyncError } from './diagnostics'
 import type { SyncTransport } from './http'
 import type { FrozenOperation, SyncCredentials } from './types'
+const UPLOAD_PROGRESS_STEP = 10
+const UPLOAD_PROGRESS_COMPLETE = 100
 
 export class SourceChangedError extends Error {}
 
@@ -78,6 +82,8 @@ export async function uploadMissing(
   if (operation.change.kind === 'upsert') for (const chunk of operation.change.chunks) chunks.set(chunk.hash, chunk)
   const remaining = receipt.missing.slice()
   let failed = false
+  let uploaded = 0
+  let lastProgress = 0
   async function uploadNext() {
     try {
       while (remaining.length > 0) {
@@ -87,9 +93,15 @@ export async function uploadMissing(
         if (!chunk) throw new Error('Server requested a chunk outside the offered manifest.')
         const bytes = readUploadChunk(operation, chunk)
         await transport.request(credentials, `/v1/roots/${operation.rootId}/operations/${operation.operationId}/chunks/${hash}`, 'PUT', bytes)
+        const percent = Math.floor(((++uploaded / receipt.missing.length) * UPLOAD_PROGRESS_COMPLETE) / UPLOAD_PROGRESS_STEP) * UPLOAD_PROGRESS_STEP
+        if (percent > lastProgress) {
+          lastProgress = percent
+          recordDiagnostic('sync.upload.progress', `operation=${operation.operationId} percent=${percent} chunks=${uploaded}`)
+        }
       }
     } catch (error) {
       failed = true
+      recordSyncError('sync.upload.error', error, `operation=${operation.operationId} chunks=${uploaded}`)
       throw error
     }
   }

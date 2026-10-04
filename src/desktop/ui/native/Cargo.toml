@@ -10,3 +10,4 @@ crate-type = ["staticlib"]
 [profile.release]
 opt-level = "z"
 panic = "abort"
+debug = 1

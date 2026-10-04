@@ -26,6 +26,8 @@ $features = @(
 # Mixing the downloaded UI archive with a patched runtime splits native getters.
 $env:CARGO_TARGET_DIR = $targetDirectory
 $env:CARGO_PROFILE_RELEASE_PANIC = 'unwind'
+$env:CARGO_PROFILE_RELEASE_DEBUG = 'line-tables-only'
+$env:CARGO_PROFILE_RELEASE_STRIP = 'false'
 # Thin LTO promotes private runtime slots differently inside each static archive.
 # Preserve shared dependency objects so UI trimming can use one registry copy.
 $env:CARGO_PROFILE_RELEASE_LTO = 'false'
@@ -44,6 +46,8 @@ try {
     Pop-Location
     $env:CARGO_TARGET_DIR = $null
     $env:CARGO_PROFILE_RELEASE_PANIC = $null
+    $env:CARGO_PROFILE_RELEASE_DEBUG = $null
+    $env:CARGO_PROFILE_RELEASE_STRIP = $null
     $env:CARGO_PROFILE_RELEASE_LTO = $null
     $env:RUSTFLAGS = $null
 }

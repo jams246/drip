@@ -1,0 +1,46 @@
+diff --git a/crates/perry-ui-windows/src/lib.rs b/crates/perry-ui-windows/src/lib.rs
+--- a/crates/perry-ui-windows/src/lib.rs
++++ b/crates/perry-ui-windows/src/lib.rs
+@@ -60,6 +60,14 @@ mod crash_handler {
+             handler: unsafe extern "system" fn(*mut ExceptionPointers) -> i32,
+         ) -> *mut core::ffi::c_void;
+         fn GetModuleHandleW(name: *const u16) -> *mut core::ffi::c_void;
++        fn GetCurrentProcess() -> *mut core::ffi::c_void;
++        fn ReadProcessMemory(
++            process: *mut core::ffi::c_void,
++            address: *const core::ffi::c_void,
++            buffer: *mut core::ffi::c_void,
++            size: usize,
++            read: *mut usize,
++        ) -> i32;
+     }
+ 
+     use std::sync::atomic::{AtomicBool, Ordering};
+@@ -114,11 +122,25 @@ mod crash_handler {
+                 // values (anything inside the main module's code window). The
+                 // first is the immediate caller of the bad call; the rest
+                 // approximate the chain above it.
+-                let sp = ctx.Rsp as *const usize;
++                let sp = ctx.Rsp as usize;
+                 let mut printed = 0;
+                 let mut i = 0usize;
+                 while i < 512 && printed < 24 {
+-                    let v = *sp.add(i);
++                    let mut v = 0usize;
++                    let mut read = 0usize;
++                    let size = core::mem::size_of::<usize>();
++                    // A corrupt stack pointer or guard page must not hide the original fault.
++                    if ReadProcessMemory(
++                        GetCurrentProcess(),
++                        sp.saturating_add(i * size) as *const core::ffi::c_void,
++                        &mut v as *mut usize as *mut core::ffi::c_void,
++                        size,
++                        &mut read,
++                    ) == 0
++                        || read != size
++                    {
++                        break;
++                    }
+                     if in_mod(v) {
+                         let _ = writeln!(
+                             std::io::stderr(),

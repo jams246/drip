@@ -1,4 +1,5 @@
 import { hostname } from 'node:os'
+import { recordDiagnostic } from '../diagnostics'
 import type { Device } from '../../protocol/sync'
 import { randomHex, randomId } from './identity'
 import { SyncHttpError, type SyncTransport, normalizeServerUrl } from './http'
@@ -9,14 +10,17 @@ const ENROLLMENT_HTTP_UNAUTHORIZED = 401
 export async function recoverEnrollment(store: SyncStore, transport: SyncTransport): Promise<SyncCredentials | undefined> {
   const credentials = store.credentials()
   if (!credentials) return undefined
+  recordDiagnostic('sync.enrollment.check')
   try {
     const device = await transport.request<Device>(credentials, '/v1/device')
     if (device.deviceId !== credentials.deviceId) throw new Error('Server returned a different device identity.')
     store.confirm()
+    recordDiagnostic('sync.enrollment.confirmed', 'existing=true')
     return store.credentials()
   } catch (error) {
     if (!(error instanceof SyncHttpError) || error.status !== ENROLLMENT_HTTP_UNAUTHORIZED || credentials.confirmed) throw error
   }
+  recordDiagnostic('sync.enrollment.start')
   const device = await transport.request<Device>(credentials, '/v1/enroll', 'POST', {
     token: credentials.token,
     deviceId: credentials.deviceId,
@@ -25,6 +29,7 @@ export async function recoverEnrollment(store: SyncStore, transport: SyncTranspo
   })
   if (device.deviceId !== credentials.deviceId) throw new Error('Server returned a different device identity.')
   store.confirm()
+  recordDiagnostic('sync.enrollment.confirmed', 'existing=false')
   return store.credentials()
 }
 

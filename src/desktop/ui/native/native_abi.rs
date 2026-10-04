@@ -15,7 +15,6 @@ unsafe extern "C" {
     fn js_string_from_bytes(data: *const u8, length: u32) -> *mut StringHeader;
 }
 
-#[cfg(test)]
 pub unsafe fn read_string(value: *const StringHeader) -> String {
     if value.is_null() {
         return String::new();

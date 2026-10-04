@@ -1,4 +1,6 @@
 import type { OperationReceipt, RootReceipt } from '../../protocol/sync'
+import { recordDiagnostic } from '../diagnostics'
+import { recordSyncError } from './diagnostics'
 import { enrollDevice, recoverEnrollment } from './enrollment'
 import { SyncHttpError, type SyncTransport, createSyncTransport } from './http'
 import { reconcileRoot } from './reconcile'
@@ -54,11 +56,13 @@ export function createSyncDriver(options: SyncDriverOptions) {
     return !stopping && store.isActive(root.rootId)
   }
   async function receipt(credentials: SyncCredentials, operation: FrozenOperation) {
+    recordDiagnostic('sync.receipt.start', `operation=${operation.operationId}`)
     try {
       return validateReceipt(await transport.request<OperationReceipt>(credentials, endpoint(operation)))
     } catch (error) {
       if (!(error instanceof SyncHttpError) || error.status !== HTTP_NOT_FOUND) throw error
       if (operation.abortRequested) return { status: 'aborted', revision: operation.baseRevision, missing: [] } as OperationReceipt
+      recordDiagnostic('sync.operation.offer.start', `operation=${operation.operationId} kind=${operation.change.kind}`)
       return validateReceipt(
         await transport.request<OperationReceipt>(credentials, `/v1/roots/${operation.rootId}/operations`, 'POST', {
           operationId: operation.operationId,
@@ -69,6 +73,7 @@ export function createSyncDriver(options: SyncDriverOptions) {
     }
   }
   async function finishReceipt(operation: FrozenOperation, value: OperationReceipt): Promise<boolean> {
+    recordDiagnostic('sync.receipt.result', `operation=${operation.operationId} status=${value.status} missing=${value.missing.length}`)
     if (value.status === 'committed') {
       store.acknowledge(operation, value.revision)
       publish('idle', 'File synchronized.')
@@ -91,13 +96,21 @@ export function createSyncDriver(options: SyncDriverOptions) {
     }
     if (value.status === 'publishing') return false
     publish('uploading', `Synchronizing ${operation.change.path}.`)
+    let phase = 'upload'
     try {
+      recordDiagnostic('sync.upload.start', `operation=${operation.operationId} missing=${value.missing.length}`)
       await uploadMissing(transport, credentials, operation, value, () => active(root))
-      if (!active(root)) return false
+      const continuing = active(root)
+      recordDiagnostic('sync.upload.result', `operation=${operation.operationId} active=${continuing}`)
+      if (!continuing) return false
+      phase = 'commit'
+      recordDiagnostic('sync.commit.start', `operation=${operation.operationId}`)
       let committed = validateReceipt(await transport.request<OperationReceipt>(credentials, endpoint(operation) + '/commit', 'POST'))
       if (committed.status === 'publishing') committed = validateReceipt(await transport.request<OperationReceipt>(credentials, endpoint(operation)))
+      recordDiagnostic('sync.commit.result', `operation=${operation.operationId} status=${committed.status} revision=${committed.revision}`)
       return finishReceipt(operation, committed)
     } catch (error) {
+      recordSyncError('sync.operation.error', error, `operation=${operation.operationId} phase=${phase}`)
       if (!(error instanceof SourceChangedError)) throw error
       store.requestAbort(operation)
       options.rescan?.(root.watchId, operation.sourcePath)
@@ -110,16 +123,19 @@ export function createSyncDriver(options: SyncDriverOptions) {
   // oxlint-disable-next-line eslint/max-statements -- Resolve durable operations before creating successors or reconciling heads.
   async function driveRoot(credentials: SyncCredentials, root: SyncRoot) {
     if (!root.registered && active(root)) {
+      recordDiagnostic('sync.root.register.start', `root=${root.rootId} kind=${root.kind}`)
       const value = await transport.request<RootReceipt>(credentials, '/v1/roots', 'POST', { rootId: root.rootId, name: root.name, kind: root.kind })
       if (value.rootId !== root.rootId || !Number.isSafeInteger(value.revision)) throw new Error('Invalid synchronization root receipt.')
       store.registered(root.rootId, value.revision)
       root = { ...root, registered: true, revision: value.revision }
+      recordDiagnostic('sync.root.register.result', `root=${root.rootId} revision=${value.revision}`)
     }
     const operation = store.operation(root.rootId) ?? (active(root) && !options.busy?.(root.watchId) ? store.freeze(root.rootId) : undefined)
     if (operation) {
       try {
         return await synchronize(credentials, root, operation)
       } catch (error) {
+        recordSyncError('sync.operation.failed', error, `operation=${operation.operationId}`)
         if (!(error instanceof SyncHttpError) || error.status !== HTTP_CONFLICT) throw error
         try {
           const existing = validateReceipt(await transport.request<OperationReceipt>(credentials, endpoint(operation)))
@@ -168,6 +184,7 @@ export function createSyncDriver(options: SyncDriverOptions) {
       if (!stopping) publish(store.pendingCount() ? 'uploading' : 'idle', store.pendingCount() ? 'Synchronizing files.' : 'All pending changes synchronized.')
     } catch (error) {
       if (stopping) return
+      recordSyncError('sync.pass.error', error)
       const delay = Math.min(SYNC_MAX_RETRY_MS, SYNC_FIRST_RETRY_MS * 2 ** attempts++)
       retryAt = Date.now() + Math.min(SYNC_MAX_RETRY_MS, delay * (SYNC_RETRY_JITTER_MIN + Math.random() / 2))
       const rejected = error instanceof SyncHttpError && (error.status === HTTP_UNAUTHORIZED || error.status === HTTP_FORBIDDEN)
@@ -187,6 +204,7 @@ export function createSyncDriver(options: SyncDriverOptions) {
     if (stopping) return
     if (work) await work
     authenticationFailed = false
+    recordDiagnostic('sync.connect.start')
     publish('connecting', 'Connecting to your server.')
     work = (async () => {
       try {
@@ -194,8 +212,10 @@ export function createSyncDriver(options: SyncDriverOptions) {
         attempts = 0
         retryAt = 0
         reconciled.clear()
+        recordDiagnostic('sync.connect.result', 'status=registered')
         publish('idle', 'Computer registered. Synchronization is ready.')
       } catch (error) {
+        recordSyncError('sync.connect.error', error)
         publish('error', error instanceof Error ? error.message : String(error))
       }
     })().finally(() => {

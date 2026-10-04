@@ -1,7 +1,7 @@
 /* oxlint-disable eslint/no-magic-numbers -- Win32 file attributes and error constants. */
 import { queryPath } from '#drip-window-icon'
 import { lstatSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { normalizeFileId } from '../storage/files'
 
 interface WindowsPathInfo {
@@ -20,8 +20,14 @@ export function isDatabasePath(path: string, databasePath: string): boolean {
   return normalized === database || normalized === database + '-wal' || normalized === database + '-shm' || normalized === database + '-journal'
 }
 
+export function isApplicationDataPath(path: string, databasePath: string): boolean {
+  const normalized = normalizeFileId(path)
+  const logs = normalizeFileId(join(dirname(databasePath), 'logs'))
+  return isDatabasePath(path, databasePath) || normalized === logs || normalized.startsWith(logs + '/')
+}
+
 export function inspectScopedScanPath(path: string, selection: string, databasePath: string, query?: PathQuery): ReturnType<typeof inspectScanPath> {
-  if (isDatabasePath(path, databasePath)) return 'excluded'
+  if (isApplicationDataPath(path, databasePath)) return 'excluded'
   const selectedId = normalizeFileId(selection)
   const pathId = normalizeFileId(path)
   const prefix = selectedId.endsWith('/') ? selectedId : selectedId + '/'
@@ -41,7 +47,7 @@ export function inspectScopedScanPath(path: string, selection: string, databaseP
 }
 
 export function inspectScanPath(path: string, databasePath: string, query: PathQuery = queryPath): 'eligible' | 'excluded' | 'skip' | 'missing' {
-  if (isDatabasePath(path, databasePath)) return 'excluded'
+  if (isApplicationDataPath(path, databasePath)) return 'excluded'
   const result: unknown = JSON.parse(query(path))
   if (
     !result ||

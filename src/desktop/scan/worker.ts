@@ -1,4 +1,5 @@
 import { parentPort as scanParentPort } from 'node:worker_threads'
+import { recordDiagnostic } from '../diagnostics'
 import { FileStore } from '../storage/files'
 import { createHashJob } from './hash-job'
 import { createInventoryJob } from './traversal'
@@ -10,6 +11,7 @@ let activeJob: ScanWorkerJob | undefined
 let activeResponse: ScanJobResponse | undefined
 let workerStorage: FileStore | undefined
 let workerDatabasePath = ''
+recordDiagnostic('scan.worker.ready')
 
 function publish(response: ScanJobResponse) {
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node worker messages have no targetOrigin.
@@ -48,6 +50,7 @@ function cancelJob(jobId: number) {
 }
 
 function failJob(error: unknown) {
+  recordDiagnostic('scan.worker.job.error', `job=${activeResponse?.jobId ?? 0} error=${error instanceof Error ? error.name : 'unknown'}`)
   let failure = String(error)
   try {
     activeJob?.cancel()

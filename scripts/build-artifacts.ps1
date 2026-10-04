@@ -1,7 +1,8 @@
 function Publish-BuildArtifacts {
     param(
         [Parameter(Mandatory)][string]$StagingDirectory,
-        [Parameter(Mandatory)][string]$OutputDirectory
+        [Parameter(Mandatory)][string]$OutputDirectory,
+        [switch]$RequireSymbols
     )
     $stagingRoot = [IO.Path]::GetFullPath($StagingDirectory)
     $outputRoot = [IO.Path]::GetFullPath($OutputDirectory)
@@ -9,10 +10,16 @@ function Publish-BuildArtifacts {
     if (-not [IO.File]::Exists((Join-Path $stagingRoot 'drip.exe'))) {
         throw 'Perry compilation did not produce drip.exe.'
     }
+    if ($RequireSymbols -and -not [IO.File]::Exists((Join-Path $stagingRoot 'drip.pdb'))) {
+        throw 'Perry compilation did not produce drip.pdb.'
+    }
+    if ($RequireSymbols -and -not [IO.File]::Exists((Join-Path $stagingRoot 'build-info.json'))) {
+        throw 'Build staging did not contain build-info.json.'
+    }
     New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
     $promoted = [Collections.Generic.List[object]]::new()
     try {
-        foreach ($name in @('drip.pdb', 'drip.exe')) {
+        foreach ($name in @('drip.pdb', 'build-info.json', 'drip.exe')) {
             $candidate = Join-Path $stagingRoot $name
             if (-not [IO.File]::Exists($candidate)) { continue }
             $destination = Join-Path $outputRoot $name

@@ -1,4 +1,5 @@
 import { Worker } from 'node:worker_threads'
+import { recordDiagnostic } from '../diagnostics'
 import { normalizeFileId } from '../storage/files'
 import type { WatchStore } from '../storage/locations'
 import type { createStorageWrites } from '../storage/retry'
@@ -22,7 +23,9 @@ interface RunnerContext {
 
 // oxlint-disable-next-line eslint/max-statements -- One worker owns the job protocol callbacks and cancellation state.
 export function createJobRunner(context: RunnerContext) {
+  recordDiagnostic('scan.worker.start')
   const worker = new Worker('../../../.perry/generated/scan-worker.ts')
+  recordDiagnostic('scan.worker.created')
   const progress = createScanProgress()
   const callbacks: (() => void)[] = []
   let nextJobId = 0
@@ -34,6 +37,7 @@ export function createJobRunner(context: RunnerContext) {
   let idleCancellation = false
 
   function failure(error: unknown) {
+    recordDiagnostic('scan.error', error instanceof Error ? error.name : 'unknown')
     context.publish({ type: 'error', message: String(error) })
   }
   function post(message: ScanJobCommand) {
@@ -48,6 +52,7 @@ export function createJobRunner(context: RunnerContext) {
   }
   function workerFailed(error: unknown) {
     if (stopped || workerError) return
+    recordDiagnostic('scan.worker.error', error instanceof Error ? error.name : 'unknown')
     workerError = String(error)
     idleCancellation = false
     if (active) {
@@ -87,6 +92,7 @@ export function createJobRunner(context: RunnerContext) {
           return
         }
         current.started = true
+        recordDiagnostic('scan.start', `job=${current.jobId} kind=${job.kind} generation=${job.generation}`)
         if (job.kind === 'hash') hashJobs++
         post({
           type: 'start',
@@ -122,6 +128,10 @@ export function createJobRunner(context: RunnerContext) {
 
   function complete(result: ScanJobResponse, retry: boolean) {
     const current = active!
+    recordDiagnostic(
+      'scan.result',
+      `job=${current.jobId} kind=${current.job.kind} status=${result.type} bytes=${result.bytes} chunks=${result.chunks} errors=${result.errors} retry=${retry}`
+    )
     if (retry && context.locations.some((item) => item.id === current.item.id)) context.pending.retry(current.job)
     const waiting = context.pending.has(current.item.id)
     const files = current.job.kind === 'inventory' && result.type === 'done' ? result.files : 0
@@ -182,7 +192,10 @@ export function createJobRunner(context: RunnerContext) {
     handleJobResult(result)
   })
   worker.on('error', workerFailed)
-  worker.on('exit', (code: number) => workerFailed(`Scan worker exited with code ${code}.`))
+  worker.on('exit', (code: number) => {
+    recordDiagnostic('scan.worker.exit', `code=${code} stopped=${stopped}`)
+    workerFailed(`Scan worker exited with code ${code}.`)
+  })
   return {
     startNext,
     cancel,

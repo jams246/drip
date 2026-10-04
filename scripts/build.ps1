@@ -6,6 +6,7 @@ if ($Production -and $env:PERRY_WORKSPACE_ROOT -and
 }
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $stagingDirectory = $null
+$previousLinkArguments = $env:PERRY_EXTRA_LINK_ARGS
 . "$PSScriptRoot/build-artifacts.ps1"
 Push-Location $projectRoot
 try {
@@ -27,14 +28,35 @@ try {
     if (-not $env:PERRY_LLVM_LIB -and (Test-Path -LiteralPath 'C:\Program Files\LLVM\bin\llvm-lib.exe')) {
         $env:PERRY_LLVM_LIB = 'C:\Program Files\LLVM\bin\llvm-lib.exe'
     }
-    if (-not $Production) {
-        $arguments += '--debug-symbols'
-    }
+    $arguments += '--debug-symbols'
+    $env:PERRY_EXTRA_LINK_ARGS = "$previousLinkArguments /PDBALTPATH:drip.pdb".Trim()
     & ./.perry/perry.exe @arguments
     if ($LASTEXITCODE -ne 0) { throw "Perry compilation failed with exit code $LASTEXITCODE." }
+    $symbolPath = Join-Path $stagingDirectory 'drip.pdb'
+    if (-not [IO.File]::Exists($symbolPath)) { throw 'Perry compilation did not produce drip.pdb.' }
+    $gitHead = & git.exe rev-parse HEAD
+    if ($LASTEXITCODE -ne 0) { throw 'Could not determine the application Git revision.' }
+    $gitChanges = & git.exe status --porcelain
+    if ($LASTEXITCODE -ne 0) { throw 'Could not determine the application working tree state.' }
+    $perryVersion = & ./.perry/perry.exe --version
+    if ($LASTEXITCODE -ne 0) { throw 'Could not determine the Perry compiler version.' }
+    $buildInfo = [ordered]@{
+        configuration = $configuration
+        buildUtc = [DateTime]::UtcNow.ToString('o')
+        appVersion = (Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json).version
+        gitHead = $gitHead.Trim()
+        gitDirty = [bool]$gitChanges
+        perryVersion = $perryVersion.Trim() -replace '^perry\s+', ''
+        perryRevision = $env:PERRY_BUILD_COMMIT
+        executableSha256 = (Get-FileHash -LiteralPath $buildPath -Algorithm SHA256).Hash
+        pdbSha256 = (Get-FileHash -LiteralPath $symbolPath -Algorithm SHA256).Hash
+    }
+    $buildInfoPath = Join-Path $stagingDirectory 'build-info.json'
+    [IO.File]::WriteAllText($buildInfoPath, ($buildInfo | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
     $outputDirectory = Join-Path $distRoot $configuration
-    Publish-BuildArtifacts -StagingDirectory $stagingDirectory -OutputDirectory $outputDirectory
+    Publish-BuildArtifacts -StagingDirectory $stagingDirectory -OutputDirectory $outputDirectory -RequireSymbols
 } finally {
+    $env:PERRY_EXTRA_LINK_ARGS = $previousLinkArguments
     try {
         if ($stagingDirectory) {
             Remove-BuildStagingDirectory -Path $stagingDirectory -ParentDirectory $distRoot -RunId $runId

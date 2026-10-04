@@ -5,12 +5,14 @@ import { normalizeFileId } from '../storage/files'
 import { resolveDatabasePath } from '../storage/path'
 import { createScanService } from './service'
 import { createSyncDriver } from '../sync/driver'
+import { recordDiagnostic } from '../diagnostics'
 import { isScanFinished } from './state'
 import type { ScanEvent, ScanLocation, ScanRequest } from './types'
 
 const BRIDGE_INTERVAL_MS = 100
 let nextBridgeSession = 0
 function closeDesktop() {
+  recordDiagnostic('desktop.exit')
   releaseInstance()
   shellExit()
   process.exit(0)
@@ -42,6 +44,7 @@ function parseBridgeResponse(result: string): { ready: boolean; request?: ScanRe
 
 // oxlint-disable-next-line eslint/max-statements -- One desktop bridge owns scan, sync, and shell lifecycles.
 export function startScanBridge(webview: ReturnType<typeof WebView>) {
+  recordDiagnostic('desktop.bridge.start')
   const events: ScanEvent[] = []
   const bridgeSession = ++nextBridgeSession
   let batchId = 1
@@ -71,6 +74,7 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
 
   function exit() {
     if (closing) return
+    recordDiagnostic('desktop.shutdown')
     closing = true
     clearInterval(bridgeTimer)
     void (async () => {
@@ -90,6 +94,7 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
       busy: (id) => Boolean(service?.busy(id))
     })
   } catch (error) {
+    recordDiagnostic('desktop.initialize.error', error instanceof Error ? error.name : 'unknown')
     initializationError = `Could not open Drip database: ${String(error)}`
     appendEvent({ type: 'error', message: initializationError })
   }
@@ -161,12 +166,14 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
         if (response.request?.type === 'verify') service?.verifyAll()
         if (response.request?.type === 'connect') void sync?.connect(response.request.url, response.request.token)
       } catch (error) {
+        recordDiagnostic('desktop.bridge.error', error instanceof Error ? error.name : 'unknown')
         retryBatch = batch
         latestError = `Scan bridge failed: ${String(error)}`
       }
     })
   }, BRIDGE_INTERVAL_MS)
   onTerminate(() => {
+    recordDiagnostic('desktop.terminate')
     closing = true
     clearInterval(bridgeTimer)
     void sync?.stop()
