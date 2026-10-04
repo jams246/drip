@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { initialScan, isScanActive, isScanFinished } from '../../scan/state'
-import type { ScanEvent, ScanLocation, ScanRequest, ScanSnapshot } from '../../scan/types'
+import type { ScanEvent, ScanLocation, ScanRequest, ScanSnapshot, WatchHealth } from '../../scan/types'
 import type { ActivityEntry } from '../sync/types'
 
 declare global {
@@ -18,6 +18,9 @@ interface ScanState {
   picking: boolean
   storage: 'loading' | 'ready' | 'error'
   error?: string
+  paused: boolean
+  verifying: boolean
+  health: WatchHealth[]
 }
 
 function selectLocation(previous: ScanState, item: ScanLocation): ScanState {
@@ -45,7 +48,7 @@ function createScanActivity(scan: ScanSnapshot): Omit<ActivityEntry, 'id' | 'tim
 }
 
 export function useScans(onSelected: () => void, addActivity: (entry: Omit<ActivityEntry, 'id' | 'time'>) => void) {
-  const [state, setState] = useState<ScanState>({ locations: [], scans: [], picking: false, storage: 'loading' })
+  const [state, setState] = useState<ScanState>({ locations: [], scans: [], picking: false, storage: 'loading', paused: false, verifying: false, health: [] })
   const current = useRef(state)
   const requests = useRef<ScanRequest[]>([])
 
@@ -59,7 +62,7 @@ export function useScans(onSelected: () => void, addActivity: (entry: Omit<Activ
       const previous = current.current
       const prior = previous.scans.find((entry) => entry.id === scan.id)
       if (!prior) return
-      if (isScanFinished(prior) && !isScanFinished(scan)) return
+      if ((scan.jobId ?? 0) < (prior.jobId ?? 0)) return
       publish({ ...previous, scans: previous.scans.map((entry) => (entry.id === scan.id ? scan : entry)) })
       if (isScanFinished(scan) && scan.state !== prior.state) addActivity(createScanActivity(scan))
     }
@@ -68,11 +71,13 @@ export function useScans(onSelected: () => void, addActivity: (entry: Omit<Activ
       takeRequest() {
         return requests.current.shift() ?? null
       },
+      // oxlint-disable-next-line eslint/max-statements -- Bridge routes the concrete scan, selection, and monitoring event variants.
       receive(event) {
         const previous = current.current
         if (event.type === 'hydrated') {
-          return publish({ locations: event.locations, scans: event.scans, picking: false, storage: 'ready' })
+          return publish({ ...previous, locations: event.locations, scans: event.scans, picking: false, storage: 'ready' })
         }
+        if (event.type === 'monitoring') return publish({ ...previous, paused: event.paused, verifying: event.verifying, health: event.health })
         if (event.type === 'selection-ended') {
           publish({ ...previous, picking: false })
           return
@@ -119,9 +124,15 @@ export function useScans(onSelected: () => void, addActivity: (entry: Omit<Activ
 
   function remove(id: string) {
     const scan = current.current.scans.find((entry) => entry.id === id)
-    if (!scan || isScanActive(scan)) return
+    if (!scan) return
     requests.current.push({ type: 'remove', id })
   }
 
-  return { ...state, busy: state.storage === 'loading' || state.picking || state.scans.some(isScanActive), select, remove }
+  function pause(paused: boolean) {
+    requests.current.push({ type: 'pause', paused })
+  }
+  function verify() {
+    if (!current.current.paused && !current.current.verifying) requests.current.push({ type: 'verify' })
+  }
+  return { ...state, busy: state.storage === 'loading' || state.picking || state.scans.some(isScanActive), select, remove, pause, verify }
 }

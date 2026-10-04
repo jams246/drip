@@ -1,11 +1,9 @@
-import { isScanActive } from '../../scan/state'
-import type { ScanLocation, ScanSnapshot } from '../../scan/types'
+import type { ScanLocation } from '../../scan/types'
 import { ScanNotices } from '../ScanNotices'
 import './watch.css'
 
 interface WatchProps {
   items: readonly ScanLocation[]
-  scans: readonly ScanSnapshot[]
   busy: boolean
   picking: boolean
   loading?: boolean
@@ -15,7 +13,7 @@ interface WatchProps {
   onRemove: (id: string) => void
 }
 
-export function Watch({ items, scans, busy, picking, loading = false, available = true, error, onSelect, onRemove }: WatchProps) {
+export function Watch({ items, busy, picking, loading = false, available = true, error, onSelect, onRemove }: WatchProps) {
   return (
     <section className="watch" aria-labelledby="watch-title">
       <div className="page-heading">
@@ -53,7 +51,6 @@ export function Watch({ items, scans, busy, picking, loading = false, available 
         ) : (
           <ul className="watch__items">
             {items.map((item) => {
-              const scan = scans.find((entry) => entry.id === item.id)
               return (
                 <li className="watch__item" key={item.id}>
                   <span className="watch__icon" aria-hidden="true">
@@ -69,7 +66,6 @@ export function Watch({ items, scans, busy, picking, loading = false, available 
                   <button
                     className="button button--secondary watch__remove"
                     type="button"
-                    disabled={scan !== undefined && isScanActive(scan)}
                     aria-label={`Remove ${item.name} from watch list`}
                     onClick={() => onRemove(item.id)}
                   >

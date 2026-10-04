@@ -1,4 +1,19 @@
 use std::sync::OnceLock;
+mod metadata;
+mod names;
+mod native_abi;
+mod watch;
+mod watch_api;
+mod watch_queue;
+mod watch_registration;
+#[cfg(test)]
+mod watch_tests;
+mod watch_win32;
+
+mod instance;
+mod shell;
+mod shell_win32;
+mod tray;
 
 // Win32 requires DWORD-aligned icon resource bytes.
 #[repr(align(4))]
@@ -50,6 +65,44 @@ fn create_icon(size: i32) -> isize {
     }
 }
 
+pub(crate) fn small_icon() -> isize {
+    ICONS
+        .get_or_init(|| {
+            (
+                create_icon(unsafe { GetSystemMetrics(SM_CXSMICON) }),
+                create_icon(unsafe { GetSystemMetrics(SM_CXICON) }),
+            )
+        })
+        .0
+}
+
+extern "system" fn find_main_window(window: isize, context: isize) -> i32 {
+    let mut class = [0u16; 64];
+    let length = unsafe { GetClassNameW(window, class.as_mut_ptr(), class.len() as i32) };
+    if length > 0
+        && class[..length as usize]
+            .iter()
+            .copied()
+            .eq("PerryMainWindow".encode_utf16())
+    {
+        unsafe { *(context as *mut isize) = window };
+        return 0;
+    }
+    1
+}
+
+pub(crate) fn main_window() -> isize {
+    let mut window = 0isize;
+    unsafe {
+        EnumThreadWindows(
+            GetCurrentThreadId(),
+            find_main_window,
+            &mut window as *mut _ as isize,
+        )
+    };
+    window
+}
+
 extern "system" fn set_main_window_icon(window: isize, _context: isize) -> i32 {
     let mut class = [0u16; 64];
     // Windows writes at most the supplied capacity into this owned buffer.
@@ -63,12 +116,8 @@ extern "system" fn set_main_window_icon(window: isize, _context: isize) -> i32 {
         return 1;
     }
 
-    let &(small, large) = ICONS.get_or_init(|| {
-        (
-            create_icon(unsafe { GetSystemMetrics(SM_CXSMICON) }),
-            create_icon(unsafe { GetSystemMetrics(SM_CXICON) }),
-        )
-    });
+    let small = small_icon();
+    let large = ICONS.get().unwrap().1;
     if small != 0 {
         unsafe { SendMessageW(window, WM_SETICON, 0, small) };
     }

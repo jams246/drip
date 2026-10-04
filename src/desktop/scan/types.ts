@@ -6,6 +6,7 @@ export interface ScanLocation {
 }
 
 export interface ScanSnapshot {
+  jobId?: number
   id: string
   path: string
   kind: ScanLocation['kind']
@@ -22,12 +23,23 @@ export interface ScanSnapshot {
   error?: string
 }
 
-export type ScanRequest = { type: 'select'; kind: ScanLocation['kind'] } | { type: 'remove'; id: string }
+export type ScanRequest =
+  | { type: 'select'; kind: ScanLocation['kind'] }
+  | { type: 'remove'; id: string }
+  | { type: 'pause'; paused: boolean }
+  | { type: 'verify' }
+
+export interface WatchHealth {
+  id: string
+  state: 'starting' | 'watching' | 'paused' | 'missing' | 'error'
+  error: string
+}
 
 export type ScanEvent =
   | { type: 'hydrated'; locations: ScanLocation[]; scans: ScanSnapshot[] }
   | { type: 'selected'; item: ScanLocation }
   | { type: 'removed'; id: string }
   | { type: 'progress'; scan: ScanSnapshot }
+  | { type: 'monitoring'; paused: boolean; verifying: boolean; health: WatchHealth[] }
   | { type: 'selection-ended' }
   | { type: 'error'; message: string }

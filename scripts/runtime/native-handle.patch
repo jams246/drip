@@ -1,0 +1,74 @@
+diff --git a/crates/perry-runtime/src/symbol/properties.rs b/crates/perry-runtime/src/symbol/properties.rs
+index ddcbcf4..6fbbe38 100644
+--- a/crates/perry-runtime/src/symbol/properties.rs
++++ b/crates/perry-runtime/src/symbol/properties.rs
+@@ -397,7 +397,7 @@ unsafe fn set_symbol_property(obj_f64: f64, sym_f64: f64, value_f64: f64) -> f64
+     // non-extensible. Only heap receivers carry the GC flag word.
+     if !native_async_resource
+         && (obj_f64.to_bits() >> 48) == 0x7FFD
+-        && obj_key >= 0x10000
++        && crate::value::addr_class::is_above_handle_band(obj_key)
+         && crate::object::is_valid_obj_ptr(obj_key as *const u8)
+     {
+         let gc = (obj_key - crate::gc::GC_HEADER_SIZE) as *const crate::gc::GcHeader;
+@@ -427,7 +427,9 @@ unsafe fn set_symbol_property(obj_f64: f64, sym_f64: f64, value_f64: f64) -> f64
+             let jsval = crate::value::JSValue::from_bits(bits);
+             if jsval.is_pointer() {
+                 let ptr = jsval.as_pointer::<crate::object::ObjectHeader>();
+-                if !ptr.is_null() && crate::object::is_valid_obj_ptr(ptr as *const u8) {
++                if crate::value::addr_class::is_above_handle_band(ptr as usize)
++                    && crate::object::is_valid_obj_ptr(ptr as *const u8)
++                {
+                     let class_id = crate::object::js_object_get_class_id(ptr);
+                     if class_id != 0
+                         && crate::object::class_symbol_setter_apply(
+@@ -468,7 +470,7 @@ pub(crate) fn symbol_property_is_non_writable(obj_f64: f64, sym_f64: f64) -> boo
+     }
+     // Only heap receivers carry the GC integrity flag word.
+     if (obj_f64.to_bits() >> 48) == 0x7FFD
+-        && obj_key >= 0x10000
++        && crate::value::addr_class::is_above_handle_band(obj_key)
+         && crate::object::is_valid_obj_ptr(obj_key as *const u8)
+     {
+         let gc = (obj_key - crate::gc::GC_HEADER_SIZE) as *const crate::gc::GcHeader;
+@@ -795,3 +797,40 @@ pub unsafe extern "C" fn js_object_set_method_by_name(
+     }
+     obj_h.get_nanbox_f64()
+ }
++
++#[cfg(test)]
++mod native_handle_tests {
++    use super::*;
++
++    #[test]
++    fn symbol_writes_keep_native_handles_out_of_heap_header_checks() {
++        let symbol = unsafe { crate::symbol::js_symbol_new_empty() };
++        for handle in [
++            0x10001,
++            65541,
++            crate::value::addr_class::COMMON_HANDLE_BAND_END - 1,
++            crate::value::addr_class::FETCH_HANDLE_BAND_START,
++            crate::value::addr_class::HANDLE_BAND_MAX - 1,
++        ] {
++            let value = crate::value::js_nanbox_pointer(handle as i64);
++            unsafe {
++                set_symbol_property(value, symbol, 7.0);
++            }
++            assert_eq!(
++                symbol_property_root_bits(handle, unsafe { sym_key_from_f64(symbol) }),
++                Some(7.0f64.to_bits())
++            );
++            assert!(!symbol_property_is_non_writable(value, symbol));
++            unsafe {
++                set_symbol_property(value, symbol, 8.0);
++            }
++            assert_eq!(
++                symbol_property_root_bits(handle, unsafe { sym_key_from_f64(symbol) }),
++                Some(8.0f64.to_bits())
++            );
++            unsafe {
++                js_object_delete_symbol_property(value, symbol);
++            }
++        }
++    }
++}

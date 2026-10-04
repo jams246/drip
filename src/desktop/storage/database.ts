@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 const INITIAL_SCHEMA = `
   CREATE TABLE watch_locations (
     id TEXT PRIMARY KEY,
@@ -9,6 +9,16 @@ const INITIAL_SCHEMA = `
     last_scan TEXT,
     scan_pending INTEGER NOT NULL DEFAULT 0
   );
+  CREATE TABLE application_state (id INTEGER PRIMARY KEY CHECK (id = 1), paused INTEGER NOT NULL DEFAULT 0, unclean INTEGER NOT NULL DEFAULT 0);
+  INSERT INTO application_state (id) VALUES (1);
+  CREATE TABLE verification_pending (watch_id TEXT PRIMARY KEY REFERENCES watch_locations(id) ON DELETE CASCADE);
+  CREATE TABLE pending_changes (
+    watch_id TEXT NOT NULL REFERENCES watch_locations(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    force INTEGER NOT NULL,
+    PRIMARY KEY (watch_id, path)
+  ) WITHOUT ROWID;
   CREATE TABLE files (
     id INTEGER PRIMARY KEY,
     watch_id TEXT NOT NULL REFERENCES watch_locations(id) ON DELETE CASCADE,
@@ -24,11 +34,11 @@ const INITIAL_SCHEMA = `
     hash BLOB NOT NULL,
     PRIMARY KEY (file_id, offset)
   ) WITHOUT ROWID;
-  PRAGMA user_version = 1;
+  PRAGMA user_version = 2;
 `
 
 export function transaction(database: DatabaseSync, operation: () => void) {
-  // Acquire the write lock through exec so native busy errors cannot retain a prepared statement.
+  // Acquire the write lock before running the transactional statements.
   database.exec('BEGIN IMMEDIATE')
   try {
     operation()
@@ -47,8 +57,9 @@ export function openDatabase(path: string, initialize = true, timeout = 0): Data
     database.exec('PRAGMA foreign_keys = ON')
     const version = Number(database.prepare('PRAGMA user_version').get()!.user_version)
     if (version > SCHEMA_VERSION) throw new Error(`Unsupported database schema version ${version}.`)
-    if (version < SCHEMA_VERSION) {
-      if (!initialize) throw new Error('Database migration has not been applied.')
+    if (version !== 0 && version < SCHEMA_VERSION) throw new Error('Reset the development SQLite database before running this build.')
+    if (version === 0) {
+      if (!initialize) throw new Error('Database has not been initialized.')
       transaction(database, () => database.exec(INITIAL_SCHEMA))
     }
     database.exec('PRAGMA journal_mode = WAL')

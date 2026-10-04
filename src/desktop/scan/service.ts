@@ -1,100 +1,213 @@
-import { Worker } from 'node:worker_threads'
+import { queryNames, queryPath } from '#drip-window-icon'
+import { basename } from 'node:path'
+import { normalizeFileId } from '../storage/files'
 import { WatchStore } from '../storage/locations'
 import { createStorageWrites } from '../storage/retry'
-import { createScanQueue } from './queue'
-import { isScanFinished } from './state'
-import type { ScanEvent, ScanLocation, ScanSnapshot } from './types'
+import { isDatabasePath } from './eligibility'
+import { createMonitoring } from './monitoring'
+import { type PendingJob, PendingJobs } from './pending'
+import { createJobRunner } from './runner'
+import type { ScanEvent, ScanLocation } from './types'
 
+const HOST_INTERVAL_MS = 100
+const DRIVE_FIXED = 3
+const FIRST_RETRY_MS = 1000
+const MAX_RETRY_MS = 30000
+
+// oxlint-disable-next-line eslint/max-statements -- One application session owns these lifecycle callbacks and shared state.
 export function createScanService(databasePath: string, publish: (event: ScanEvent) => void) {
   const store = new WatchStore(databasePath)
   const writes = createStorageWrites()
-  let closing = false
-  let worker: Worker
-  try {
-    const saved = store.hydrate()
-    worker = new Worker('../../../.perry/generated/scan-worker.ts')
-    publish({ type: 'hydrated', locations: saved.locations, scans: saved.scans })
-  } catch (error) {
-    store.close()
-    throw error
-  }
+  const saved = store.hydrate()
+  const state = store.monitoring.restore()
+  const locations = saved.locations
+  const pending = new PendingJobs(state.pending)
+  const verification = new Map(state.verification.map((id) => [id, 0]))
+  let paused = state.paused
+  let stopping = false
+  let stopped = false
+  let pausing = false
+  let resumeRequested = false
+  let lastHealth = ''
 
-  const queue = createScanQueue(
-    (item: ScanLocation) => {
-      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node worker messages have no targetOrigin.
-      worker.postMessage({ type: 'scan', item, databasePath })
-    },
-    publish,
-    saveFailure
+  function failure(error: unknown) {
+    publish({ type: 'error', message: String(error) })
+  }
+  function write(operation: () => void, complete = () => {}, failed = failure) {
+    writes.enqueue(operation, complete, failed)
+  }
+  function retryWrite(error: unknown, retry: () => void, attempts: number) {
+    failure(error)
+    setTimeout(retry, Math.min(MAX_RETRY_MS, FIRST_RETRY_MS * 2 ** attempts))
+  }
+  function monitoringState() {
+    const event: ScanEvent = { type: 'monitoring', paused, verifying: verification.size > 0, health: monitoring.health() }
+    const serialized = JSON.stringify(event)
+    if (serialized !== lastHealth) {
+      lastHealth = serialized
+      publish(event)
+    }
+  }
+  function verify(id: string) {
+    const item = locations.find((entry) => entry.id === id)
+    if (!item) return
+    const job = pending.add(id, item.path, true, false)
+    verification.set(id, job.generation)
+    write(() => store.monitoring.verify(id))
+  }
+  const monitoring = createMonitoring(
+    (id, path, force) => pending.add(id, path, force, true, true),
+    verify,
+    (path) => isDatabasePath(path, databasePath)
   )
+  function settled(job: PendingJob, attempts = 0) {
+    if (stopping || pending.has(job.watchId) || runner.activeId() === job.watchId || !verification.has(job.watchId)) return
+    const generation = verification.get(job.watchId)!
+    const coverage = monitoring.coverage(job.watchId)
+    write(
+      () => store.monitoring.verified(job.watchId, generation),
+      () => {
+        if (verification.get(job.watchId) === generation) verification.delete(job.watchId)
+        monitoring.acknowledge(job.watchId, coverage)
+        monitoringState()
+      },
+      (error) => retryWrite(error, () => settled(job, attempts + 1), attempts)
+    )
+  }
+  const runner = createJobRunner({ databasePath, locations, pending, store, writes, monitoring, publish, canRun: () => !paused && !stopping, settled })
 
-  function saveFailure(scan: ScanSnapshot) {
-    writes.enqueue(
-      () => store.finishScan(scan),
-      () => publish({ type: 'progress', scan }),
-      (error) => {
-        const message = `${scan.error || 'Scan failed.'} Could not save scan result: ${String(error)}`
-        publish({ type: 'progress', scan: { ...scan, error: message } })
-        publish({ type: 'error', message })
+  function checkpoint(complete = () => {}, attempts = 0) {
+    if (stopped) return complete()
+    write(
+      () => {
+        store.monitoring.save(pending.waiting.map((job) => ({ ...job, force: job.force || job.kind === 'hash' })))
+        for (const id of verification.keys()) store.monitoring.verify(id)
+        store.monitoring.pause(paused)
+        store.monitoring.session(false)
+      },
+      () => {
+        monitoring.checkpoint()
+        complete()
+      },
+      (error) => retryWrite(error, () => checkpoint(complete, attempts + 1), attempts)
+    )
+  }
+  function resume() {
+    paused = false
+    write(
+      () => {
+        store.monitoring.pause(false)
+        store.monitoring.session(true)
+      },
+      () => {
+        monitoring.start()
+        for (const item of locations) {
+          const job = pending.add(item.id, item.path, verification.has(item.id), false)
+          if (verification.has(item.id)) verification.set(item.id, job.generation)
+        }
+        monitoringState()
+        runner.startNext()
       }
     )
   }
-
-  function fail(error: unknown) {
-    if (!closing) queue.fail(error)
+  function pause(next: boolean) {
+    if (pausing) {
+      resumeRequested = !next
+      return
+    }
+    if (stopping || paused === next) return
+    if (!next) return resume()
+    paused = true
+    pausing = true
+    write(() => store.monitoring.pause(true))
+    monitoring.stop()
+    runner.cancel(() => {
+      checkpoint(() => {
+        pausing = false
+        if (resumeRequested && !stopping) {
+          resumeRequested = false
+          resume()
+        }
+      })
+      monitoringState()
+    })
   }
-
-  worker.on('message', (event: ScanEvent) => {
-    if (closing) return
-    if (event.type === 'error') {
-      fail(event.message)
-      return
-    }
-    if (event.type !== 'progress') return
-    if (!isScanFinished(event.scan)) {
-      queue.receive(event.scan)
-      return
-    }
-    writes.enqueue(
-      () => store.finishScan(event.scan),
-      () => queue.receive(event.scan),
-      fail
-    )
-  })
-  worker.on('error', fail)
-  worker.on('exit', (code: number) => fail(new Error(`Scan worker exited with code ${code}.`)))
-
   function select(item: ScanLocation) {
-    writes.enqueue(
+    const names: { longPath: string } = JSON.parse(queryNames(item.path))
+    if (names.longPath) item = { id: normalizeFileId(names.longPath), name: basename(names.longPath) || names.longPath, path: names.longPath, kind: item.kind }
+    const metadata: { driveType: number; error: number } = JSON.parse(queryPath(item.path))
+    if (metadata.driveType !== DRIVE_FIXED || metadata.error) {
+      failure('Select an accessible file or folder on a local fixed drive.')
+      publish({ type: 'selection-ended' })
+      return
+    }
+    write(
+      () => store.saveLocation(item),
       () => {
-        if (!queue.unavailable() && !queue.isScheduled(item.id)) store.saveLocation(item)
-      },
-      () => queue.enqueue(item),
-      (error) => {
-        publish({ type: 'error', message: `Could not save watch location: ${String(error)}` })
-        publish({ type: 'selection-ended' })
+        if (!locations.some((entry) => entry.id === item.id)) {
+          locations.push(item)
+          monitoring.add(item)
+        }
+        verify(item.id)
+        publish({ type: 'selected', item })
+        monitoringState()
+        runner.startNext()
       }
     )
   }
-
   function remove(id: string) {
-    if (queue.isActive(id)) return
-    writes.enqueue(
-      () => {
-        if (!queue.isActive(id)) store.removeLocation(id)
-      },
-      () => queue.remove(id),
-      (error) => publish({ type: 'error', message: `Could not remove watch location: ${String(error)}` })
+    const index = locations.findIndex((item) => item.id === id)
+    if (index < 0) return
+    monitoring.remove(id)
+    locations.splice(index, 1)
+    pending.remove(id)
+    verification.delete(id)
+    function erase() {
+      write(
+        () => store.removeLocation(id),
+        () => {
+          monitoring.checkpoint()
+          publish({ type: 'removed', id })
+          monitoringState()
+          runner.startNext()
+        }
+      )
+    }
+    if (runner.activeId() === id) runner.cancel(erase)
+    else erase()
+  }
+  function stop(done: () => void = () => {}) {
+    if (stopped) return done()
+    if (stopping) return
+    stopping = true
+    clearInterval(timer)
+    monitoring.stop()
+    runner.cancel(() =>
+      checkpoint(() => {
+        stopped = true
+        writes.stop()
+        runner.stop()
+        store.close()
+        done()
+      })
     )
   }
-
-  function stop() {
-    closing = true
-    writes.stop()
-    worker.unref()
-    void worker.terminate()
-    store.close()
+  function verifyAll() {
+    if (paused || verification.size > 0) return
+    for (const item of locations) verify(item.id)
+    monitoringState()
+    runner.startNext()
   }
-
-  return { select, remove, stop, unavailable: queue.unavailable }
+  publish({ type: 'hydrated', locations: locations.slice(), scans: saved.scans })
+  for (const item of locations) monitoring.add(item)
+  if (state.unclean) for (const item of locations) verify(item.id)
+  const timer = setInterval(() => {
+    if (stopping) return
+    monitoring.tick()
+    monitoringState()
+    runner.startNext()
+  }, HOST_INTERVAL_MS)
+  if (!paused) resume()
+  else monitoringState()
+  return { select, remove, pause, stop, verifyAll, unavailable: runner.unavailable, isPaused: () => paused }
 }

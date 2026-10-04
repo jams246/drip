@@ -51,7 +51,7 @@ async function flattenWorker(entry) {
     modules.set(file, exported)
     const changes = []
     for (const node of parsed.program.body) {
-      if (node.type !== 'ImportDeclaration' || node.source.value.startsWith('node:')) continue
+      if (node.type !== 'ImportDeclaration' || node.source.value.startsWith('node:') || node.source.value === '#drip-window-icon') continue
       const dependency = await appendModule(resolveSource(file, node.source.value))
       const namespace = node.specifiers.find((specifier) => specifier.type === 'ImportNamespaceSpecifier')
       if (namespace) changes.push([node.start, node.end, `const ${namespace.local.name} = { ${dependency.join(', ')} };`])

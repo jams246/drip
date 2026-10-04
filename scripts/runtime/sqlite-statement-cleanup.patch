@@ -1,0 +1,193 @@
+diff --git a/crates/perry-stdlib/src/sqlite.rs b/crates/perry-stdlib/src/sqlite.rs
+index e015084..d03d4cb 100644
+--- a/crates/perry-stdlib/src/sqlite.rs
++++ b/crates/perry-stdlib/src/sqlite.rs
+@@ -19,6 +19,8 @@ mod node_db;
+ mod node_stmt_session;
+ mod node_tag_store;
+ mod options;
++#[cfg(test)]
++mod node_statement_cleanup_tests;
+ 
+ // Re-export every moved item (pub and pub(crate)) back into the `sqlite`
+ // module namespace so existing intra-crate paths (`crate::sqlite::Foo`)
+diff --git a/crates/perry-stdlib/src/sqlite/bind.rs b/crates/perry-stdlib/src/sqlite/bind.rs
+index d3968a0..cc573dc 100644
+--- a/crates/perry-stdlib/src/sqlite/bind.rs
++++ b/crates/perry-stdlib/src/sqlite/bind.rs
+@@ -895,11 +895,17 @@ where
+     let conn = &*conn_ptr;
+     let raw = prepare_node_raw_statement(conn, &stmt.sql);
+     let raw_ptr = raw.ptr;
+-    bind_node_sqlite_params(stmt, conn, raw_ptr, params_arr);
+-    update_node_expanded_sql(stmt, raw_ptr);
+-    let result = action(conn, stmt, raw_ptr);
++    // JS throws abandon Rust frames; finalize the native statement before rethrowing.
++    let result = perry_runtime::exception::catch_js_throw(|| {
++        bind_node_sqlite_params(stmt, conn, raw_ptr, params_arr);
++        update_node_expanded_sql(stmt, raw_ptr);
++        action(conn, stmt, raw_ptr)
++    });
+     drop(raw);
+-    result
++    match result {
++        Ok(value) => value,
++        Err(error) => perry_runtime::exception::js_throw(error),
++    }
+ }
+ 
+ pub(crate) unsafe fn with_node_sqlite_statement_positional<R, F>(
+@@ -932,11 +938,16 @@ where
+     let conn = &*conn_ptr;
+     let raw = prepare_node_raw_statement(conn, &stmt.sql);
+     let raw_ptr = raw.ptr;
+-    bind_node_sqlite_positional_params(conn, raw_ptr, values);
+-    update_node_expanded_sql(stmt, raw_ptr);
+-    let result = action(conn, stmt, raw_ptr);
++    let result = perry_runtime::exception::catch_js_throw(|| {
++        bind_node_sqlite_positional_params(conn, raw_ptr, values);
++        update_node_expanded_sql(stmt, raw_ptr);
++        action(conn, stmt, raw_ptr)
++    });
+     drop(raw);
+-    result
++    match result {
++        Ok(value) => value,
++        Err(error) => perry_runtime::exception::js_throw(error),
++    }
+ }
+ 
+ /// Build packed keys (null-separated) and a shape_id from column names.
+diff --git a/crates/perry-stdlib/src/sqlite/node_statement_cleanup_tests.rs b/crates/perry-stdlib/src/sqlite/node_statement_cleanup_tests.rs
+new file mode 100644
+index 0000000..edcad64
+--- /dev/null
++++ b/crates/perry-stdlib/src/sqlite/node_statement_cleanup_tests.rs
+@@ -0,0 +1,127 @@
++use super::*;
++use crate::common::Handle;
++use perry_runtime::exception::catch_js_throw;
++use rusqlite::ffi;
++use std::path::Path;
++
++unsafe fn prepare(db: Handle, sql: &str) -> Handle {
++    js_node_sqlite_database_sync_prepare(db, f64_from_jsvalue(string_value(sql)), undefined_f64())
++}
++
++unsafe fn invoke(statement: Handle, positional: bool) {
++    if positional {
++        with_node_sqlite_statement_positional(statement, &[], |conn, _, raw| {
++            let rc = ffi::sqlite3_step(raw);
++            if rc != ffi::SQLITE_DONE {
++                throw_sqlite_error_from_conn(conn);
++            }
++        });
++    } else {
++        js_node_sqlite_statement_sync_run(statement, std::ptr::null());
++    }
++}
++
++unsafe fn assert_no_raw_statements(db: Handle) {
++    with_open_node_connection(db, |conn| {
++        assert!(
++            ffi::sqlite3_next_stmt(conn.handle(), std::ptr::null_mut()).is_null(),
++            "A thrown statement retained its native sqlite3_stmt."
++        );
++    });
++}
++
++unsafe fn assert_error(statement: Handle, positional: bool, expected: i32) {
++    let error =
++        catch_js_throw(|| invoke(statement, positional)).expect_err("Statement must throw.");
++    let key = perry_runtime::js_string_from_bytes(b"errcode".as_ptr(), 7);
++    let code = perry_runtime::js_object_get_field_by_name(value_from_f64(error).as_pointer(), key);
++    assert_eq!((code.as_number() as i32) & 255, expected);
++}
++
++unsafe fn check_constraint(positional: bool) {
++    let db = js_node_sqlite_database_sync_new(
++        f64_from_jsvalue(string_value(":memory:")),
++        undefined_f64(),
++    );
++    with_open_node_connection(db, |conn| {
++        conn.execute_batch(
++            "CREATE TABLE entries (id INTEGER PRIMARY KEY); INSERT INTO entries VALUES (1)",
++        )
++        .unwrap();
++    });
++    let statement = prepare(db, "INSERT INTO entries VALUES (1)");
++    assert_error(statement, positional, ffi::SQLITE_CONSTRAINT);
++    assert_no_raw_statements(db);
++    with_open_node_connection(db, |conn| {
++        conn.execute_batch("DELETE FROM entries").unwrap()
++    });
++    invoke(statement, positional);
++    assert_no_raw_statements(db);
++    check_binding_failure(db, positional);
++    js_node_sqlite_database_sync_close(db);
++}
++
++unsafe fn check_binding_failure(db: Handle, positional: bool) {
++    let statement = prepare(db, "INSERT INTO entries VALUES (?)");
++    let symbol = perry_runtime::symbol::js_symbol_new_empty();
++    let parameters = perry_runtime::js_array_push(
++        perry_runtime::js_array_alloc(0),
++        perry_runtime::JSValue::from_bits(symbol.to_bits()),
++    );
++    let failed = catch_js_throw(|| {
++        if positional {
++            with_node_sqlite_statement_positional(statement, &[symbol], |_, _, _| ());
++        } else {
++            js_node_sqlite_statement_sync_run(statement, parameters);
++        }
++    });
++    assert!(failed.is_err(), "Unsupported parameter must throw.");
++    assert_no_raw_statements(db);
++}
++
++unsafe fn check_busy(root: &Path, positional: bool) {
++    let path = root.join(format!(
++        "statement-cleanup-{}-{positional}.sqlite",
++        std::process::id()
++    ));
++    let db = js_node_sqlite_database_sync_new(
++        f64_from_jsvalue(string_value(path.to_str().unwrap())),
++        undefined_f64(),
++    );
++    with_open_node_connection(db, |conn| {
++        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=0; CREATE TABLE entries (id INTEGER PRIMARY KEY, value INTEGER); INSERT INTO entries VALUES (1, 0)").unwrap();
++    });
++    let statement = prepare(db, "UPDATE entries SET value = value + 1 WHERE id = 1");
++    let writer = Connection::open(&path).unwrap();
++    writer
++        .execute_batch("BEGIN IMMEDIATE; UPDATE entries SET value = 10 WHERE id = 1")
++        .unwrap();
++    assert_error(statement, positional, ffi::SQLITE_BUSY);
++    assert_no_raw_statements(db);
++    writer.execute_batch("COMMIT").unwrap();
++    invoke(statement, positional);
++    assert_no_raw_statements(db);
++    with_open_node_connection(db, |conn| {
++        let value: i64 = conn
++            .query_row("SELECT value FROM entries", [], |row| row.get(0))
++            .unwrap();
++        assert_eq!(value, 11);
++    });
++    drop(writer);
++    js_node_sqlite_database_sync_close(db);
++}
++
++#[test]
++fn statement_errors_finalize_before_rethrow_and_allow_reuse() {
++    for positional in [false, true] {
++        unsafe {
++            check_constraint(positional);
++            if let Ok(root) = std::env::var("DRIP_SQLITE_TEST_DIRECTORY") {
++                let root = Path::new(&root);
++                assert!(root.is_absolute());
++                std::fs::create_dir_all(root).unwrap();
++                check_busy(root, positional);
++            }
++        }
++    }
++}

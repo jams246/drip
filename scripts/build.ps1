@@ -1,5 +1,9 @@
 param([switch]$Production)
 $ErrorActionPreference = 'Stop'
+if ($Production -and $env:PERRY_WORKSPACE_ROOT -and
+    -not (Test-Path -LiteralPath (Join-Path $env:PERRY_WORKSPACE_ROOT 'Cargo.toml'))) {
+    throw 'Production build requires optimized runtime libraries.'
+}
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $stagingDirectory = $null
 . "$PSScriptRoot/build-artifacts.ps1"
@@ -20,6 +24,9 @@ try {
     $arguments = @('compile', 'src/desktop/main.ts', '-o', $buildPath, '--target', 'windows', '--march', 'generic', '--embed', 'dist/desktop/index.html')
     $env:PERRY_SIZE_OPT = $null
     $env:PERRY_LL_SIZE_OPT = '0'
+    if (-not $env:PERRY_LLVM_LIB -and (Test-Path -LiteralPath 'C:\Program Files\LLVM\bin\llvm-lib.exe')) {
+        $env:PERRY_LLVM_LIB = 'C:\Program Files\LLVM\bin\llvm-lib.exe'
+    }
     if (-not $Production) {
         $arguments += '--debug-symbols'
     }

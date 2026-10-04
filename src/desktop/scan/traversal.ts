@@ -1,119 +1,177 @@
 import { lstatSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { FileStore } from '../storage/files'
-import { scanFile } from './file'
-import type { ScanLocation, ScanSnapshot } from './types'
+import { FileStore, normalizeFileId } from '../storage/files'
+import { type PathQuery, inspectScanPath, inspectScopedScanPath } from './eligibility'
+import { type ScanJobResponse, type ScanJobStart, type ScanWorkerJob, initialJobResponse } from './worker-types'
 
-const PROGRESS_INTERVAL_MS = 100
+const INVENTORY_ENTRY_LIMIT = 64
 
-export function scanLocation(item: ScanLocation, buffer: Uint8Array, publish: (scan: ScanSnapshot) => void, storage?: FileStore) {
-  const started = Date.now()
-  let lastPublished = 0
-  let totalBytes = 0
-  let totalChunks = 0
-  let traversalFailed = false
-  const scan: ScanSnapshot = {
-    id: item.id,
-    path: item.path,
-    kind: item.kind,
-    state: 'scanning',
-    bytes: 0,
-    chunks: 0,
-    files: 0,
-    skipped: 0,
-    errors: 0,
-    elapsedMs: 0,
-    currentPath: item.path,
-    currentBytes: 0,
-    currentSize: 0,
-    // Keep the error field in Perry's initial native object shape.
-    error: ''
+export function createInventoryJob(start: ScanJobStart, query?: PathQuery, sharedStorage?: FileStore): ScanWorkerJob {
+  const storage = sharedStorage ?? new FileStore(start.databasePath, start.item.id)
+  storage.reset(start.item.id)
+  const response = initialJobResponse(start)
+  const directories: string[] = []
+  const batch = { directory: '', paths: [start.target], index: 0 }
+  let phase = 'walk'
+  let pruningSafe = true
+  let lastUnseen = ''
+  const selectedRoot = normalizeFileId(start.target) === normalizeFileId(start.item.path)
+
+  function close() {
+    if (phase === 'closed') return
+    phase = 'closed'
+    if (sharedStorage) storage.abortFile()
+    else storage.close()
   }
 
-  function update(force = false) {
-    const now = Date.now()
-    scan.elapsedMs = now - started
-    if (!force && now - lastPublished < PROGRESS_INTERVAL_MS) return
-    lastPublished = now
-    publish(scan)
+  function skip(path: string) {
+    if (selectedRoot && normalizeFileId(path) === normalizeFileId(start.target)) {
+      throw new Error('Selected location is not currently supported; previous catalogue was retained.')
+    }
+    response.skipped++
+    pruningSafe = false
+  }
+
+  function inspectEligible(path: string) {
+    const stats = lstatSync(path)
+    if (stats.isSymbolicLink()) {
+      skip(path)
+      return
+    }
+    if (stats.isDirectory()) {
+      if (start.item.kind === 'file') throw new Error('Selected file is now a folder.')
+      directories.push(path)
+      return
+    }
+    if (!stats.isFile()) {
+      skip(path)
+      return
+    }
+    if (path === start.target && selectedRoot && start.item.kind === 'folder') throw new Error('Selected folder is now a file.')
+    storage.markSeen(path)
+    response.entries.push({
+      path,
+      size: stats.size,
+      modifiedMs: stats.mtimeMs,
+      needsHash: start.force || storage.needsHash(path, stats.size, stats.mtimeMs)
+    })
+    response.files++
+  }
+
+  function inspect(path: string) {
+    const eligibility =
+      path === start.target ? inspectScopedScanPath(path, start.item.path, start.databasePath, query) : inspectScanPath(path, start.databasePath, query)
+    if (eligibility === 'eligible') {
+      inspectEligible(path)
+      return
+    }
+    if (eligibility === 'missing') {
+      if (path === start.target) {
+        response.missing = true
+        if (selectedRoot) pruningSafe = false
+      }
+      return
+    }
+    if (eligibility === 'excluded') {
+      response.skipped++
+      if (path === start.target) pruningSafe = false
+      return
+    }
+    skip(path)
   }
 
   function fail(path: string, error: unknown) {
-    scan.errors++
-    scan.error = `${path}: ${String(error)}`
+    pruningSafe = false
+    response.errors++
+    response.error = `${path}: ${String(error)}`
   }
 
-  function scanRegularFile(path: string, size: number, modifiedMs: number) {
-    scan.currentPath = path
-    scan.currentSize = size
-    scan.currentBytes = 0
-    scan.bytes = totalBytes
-    scan.chunks = totalChunks
-    update()
+  function inspectBatch() {
+    if (batch.index >= batch.paths.length) return
     try {
-      storage?.beginFile(path)
-      const result = scanFile(
-        path,
-        buffer,
-        (offset: number, length: number, hash: string) => storage?.stageChunk(offset, length, hash),
-        (bytes: number, chunks: number) => {
-          scan.currentBytes = bytes
-          scan.bytes = totalBytes + bytes
-          scan.chunks = totalChunks + chunks
-          update()
-        }
-      )
-      if (storage) {
-        const current = lstatSync(path)
-        if (!current.isFile() || result.bytes !== size || current.size !== size || current.mtimeMs !== modifiedMs) {
-          throw new Error('File changed during scan.')
-        }
-        storage.commitFile(path, result.bytes, modifiedMs)
+      if (batch.directory && inspectScopedScanPath(batch.directory, start.item.path, start.databasePath, query) !== 'eligible') {
+        skip(batch.directory)
+        batch.index = batch.paths.length
+        return
       }
     } catch (error) {
-      storage?.abortFile()
-      fail(path, error)
-    } finally {
-      totalBytes = scan.bytes
-      totalChunks = scan.chunks
-      scan.files++
+      fail(batch.directory, error)
+      batch.index = batch.paths.length
+      return
+    }
+    let checked = 0
+    while (batch.index < batch.paths.length && checked < INVENTORY_ENTRY_LIMIT) {
+      const path = batch.paths[batch.index++]
+      checked++
+      try {
+        inspect(path)
+      } catch (error) {
+        fail(path, error)
+      }
     }
   }
 
-  function visit(path: string) {
+  function enumerateNext() {
+    const directory = directories.pop()!
     try {
-      const stats = lstatSync(path)
-      if (stats.isSymbolicLink()) {
-        scan.skipped++
+      if (inspectScopedScanPath(directory, start.item.path, start.databasePath, query) !== 'eligible') {
+        skip(directory)
         return
       }
-      if (stats.isDirectory()) {
-        for (const name of readdirSync(path)) visit(join(path, name))
-        return
-      }
-      if (!stats.isFile()) {
-        scan.skipped++
-        return
-      }
-      scanRegularFile(path, stats.size, stats.mtimeMs)
+      // Perry enumerates this directory in one synchronous call; inspect its names in later steps.
+      batch.paths = readdirSync(directory).map((name: string) => join(directory, name))
+      batch.directory = directory
+      batch.index = 0
     } catch (error) {
-      traversalFailed = true
-      fail(path, error)
+      fail(directory, error)
     }
-    update()
   }
 
-  update(true)
-  visit(item.path)
-  if (item.kind === 'folder') {
-    try {
-      storage?.finishFolder(!traversalFailed)
-    } catch (error) {
-      fail(item.path, error)
+  function step(): ScanJobResponse {
+    if (phase === 'closed') throw new Error('Inventory job is closed.')
+    response.entries = []
+    if (phase === 'ready') return response
+    response.type = 'entries'
+    if (phase === 'unseen') {
+      inspectUnseen()
+      return response
+    }
+    if (batch.index >= batch.paths.length && directories.length > 0) {
+      enumerateNext()
+      return response
+    }
+    inspectBatch()
+    if (batch.index >= batch.paths.length && directories.length === 0) {
+      phase = pruningSafe && response.errors === 0 && start.item.kind === 'folder' ? 'unseen' : 'ready'
+      if (phase === 'ready') {
+        response.type = 'ready'
+      }
+    }
+    return response
+  }
+
+  function inspectUnseen() {
+    const unseen = storage.unseenPaths(start.target, lastUnseen, INVENTORY_ENTRY_LIMIT)
+    response.entries = unseen.map((path) => ({ path, size: 0, modifiedMs: 0, needsHash: true }))
+    if (unseen.length > 0) lastUnseen = unseen[unseen.length - 1]
+    else {
+      phase = 'ready'
+      response.type = 'ready'
     }
   }
-  scan.currentPath = ''
-  if (scan.errors > 0) scan.state = item.kind === 'folder' ? 'completed-with-errors' : 'error'
-  else scan.state = scan.files === 0 ? 'empty' : 'completed'
-  update(true)
+
+  function commit(): ScanJobResponse {
+    if (phase !== 'ready') throw new Error('Inventory job is not ready to commit.')
+    if (pruningSafe) {
+      const eligibility = inspectScopedScanPath(start.target, start.item.path, start.databasePath, query)
+      if (response.missing && eligibility !== 'missing') throw new Error('Inventory scope appeared before deletion was committed.')
+      if (!response.missing && eligibility !== 'eligible') throw new Error('Inventory scope changed before commit.')
+    }
+    response.entries = []
+    response.type = 'done'
+    close()
+    return response
+  }
+
+  return { step, commit, cancel: close }
 }

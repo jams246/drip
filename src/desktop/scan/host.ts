@@ -1,4 +1,5 @@
 import { basename } from 'node:path'
+import { releaseInstance, shellDrain, shellExit, shellHide, shellInit, shellOpen, shellPaused } from '#drip-window-icon'
 import { WebView, onTerminate, openFileDialog, openFolderDialog, webviewEvaluateJs } from 'perry/ui'
 import { normalizeFileId } from '../storage/files'
 import { resolveDatabasePath } from '../storage/path'
@@ -8,6 +9,10 @@ import type { ScanEvent, ScanLocation, ScanRequest } from './types'
 
 const BRIDGE_INTERVAL_MS = 100
 let nextBridgeSession = 0
+function closeDesktop() {
+  releaseInstance()
+  shellExit()
+}
 
 function parseBridgeResponse(result: string): { ready: boolean; request?: ScanRequest } {
   const response: unknown = JSON.parse(result)
@@ -21,6 +26,9 @@ function parseBridgeResponse(result: string): { ready: boolean; request?: ScanRe
   if (request.type === 'remove' && 'id' in request && typeof request.id === 'string') {
     return { ready: true, request: { type: 'remove', id: request.id } }
   }
+  if (request.type === 'verify') return { ready: true, request: { type: 'verify' } }
+  if (request.type === 'pause' && 'paused' in request && typeof request.paused === 'boolean')
+    return { ready: true, request: { type: 'pause', paused: request.paused } }
   if (request.type !== 'select' || !('kind' in request) || (request.kind !== 'file' && request.kind !== 'folder')) {
     throw new Error('Invalid scan selection kind')
   }
@@ -38,8 +46,10 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
   let closing = false
   let service: ReturnType<typeof createScanService> | undefined
   let initializationError = ''
+  shellInit()
 
   function appendEvent(event: ScanEvent) {
+    if (event.type === 'monitoring') shellPaused(event.paused)
     if (event.type === 'error') {
       latestError = event.message
       return
@@ -50,6 +60,14 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
       return
     }
     events.push(event)
+  }
+
+  function exit() {
+    if (closing) return
+    closing = true
+    clearInterval(bridgeTimer)
+    if (service) service.stop(closeDesktop)
+    else closeDesktop()
   }
 
   try {
@@ -92,6 +110,13 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
   }
 
   const bridgeTimer = setInterval(() => {
+    const commands: string[] = JSON.parse(shellDrain())
+    for (const command of commands) {
+      if (command === 'open' || command === 'tray-error') shellOpen()
+      if (command === 'close' || command === 'minimize') shellHide()
+      if (command === 'pause') service?.pause(!service.isPaused())
+      if (command === 'exit' || command === 'shutdown') exit()
+    }
     if (evaluating || closing) return
     evaluating = true
     const batch = retryBatch ?? events.splice(0)
@@ -114,6 +139,8 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
         batchId++
         if (response.request?.type === 'remove') service?.remove(response.request.id)
         if (response.request?.type === 'select') select(response.request.kind)
+        if (response.request?.type === 'pause') service?.pause(response.request.paused)
+        if (response.request?.type === 'verify') service?.verifyAll()
       } catch (error) {
         retryBatch = batch
         latestError = `Scan bridge failed: ${String(error)}`
@@ -124,5 +151,6 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
     closing = true
     clearInterval(bridgeTimer)
     service?.stop()
+    releaseInstance()
   })
 }

@@ -10,24 +10,16 @@ if ($LASTEXITCODE -ne 0 -or $revision -ne '381045a8735ff325621c5dfb26a3bd4f5a879
     throw 'Runtime patches require Perry v0.5.1520 at the pinned revision.'
 }
 
-$workerPatch = Join-Path $PSScriptRoot 'runtime/worker-agent.patch'
-& git -C $runtimeSource apply --check $workerPatch 2>$null
-if ($LASTEXITCODE -eq 0) {
-    & git -C $runtimeSource apply $workerPatch
-    if ($LASTEXITCODE -ne 0) { throw 'Could not apply worker ownership patch.' }
-} else {
-    & git -C $runtimeSource apply --reverse --check $workerPatch 2>$null
-    if ($LASTEXITCODE -ne 0) { throw 'Pinned worker ownership patch no longer matches source.' }
-}
-
-$webviewPatch = Join-Path $PSScriptRoot 'runtime/webview-callback.patch'
-& git -C $runtimeSource apply --check $webviewPatch 2>$null
-if ($LASTEXITCODE -eq 0) {
-    & git -C $runtimeSource apply $webviewPatch
-    if ($LASTEXITCODE -ne 0) { throw 'Could not apply pending WebView callback root patch.' }
-} else {
-    & git -C $runtimeSource apply --reverse --check $webviewPatch 2>$null
-    if ($LASTEXITCODE -ne 0) { throw 'Pinned WebView callback root patch no longer matches source.' }
+foreach ($patchName in @('worker-agent', 'webview-callback', 'native-handle', 'sqlite-statement-cleanup')) {
+    $runtimePatch = Join-Path $PSScriptRoot "runtime/$patchName.patch"
+    & git -C $runtimeSource apply --check $runtimePatch 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        & git -C $runtimeSource apply $runtimePatch
+        if ($LASTEXITCODE -ne 0) { throw "Could not apply $patchName runtime patch." }
+    } else {
+        & git -C $runtimeSource apply --reverse --check $runtimePatch 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "Pinned $patchName runtime patch no longer matches source." }
+    }
 }
 
 $direntPath = Join-Path $runtimeSource 'crates/perry-runtime/src/fs/dirent.rs'

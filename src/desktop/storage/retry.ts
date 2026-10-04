@@ -1,8 +1,8 @@
 const SQLITE_BUSY = 5
 const SQLITE_LOCKED = 6
 const SQLITE_CODE_MASK = 255
-const RETRY_INTERVAL_MS = 100
-const WRITE_TIMEOUT_MS = 5000
+const FIRST_RETRY_MS = 1000
+const MAX_RETRY_MS = 30000
 
 function isDatabaseBusy(error: unknown): boolean {
   if (!error || typeof error !== 'object' || !('errcode' in error) || typeof error.errcode !== 'number') return false
@@ -11,7 +11,7 @@ function isDatabaseBusy(error: unknown): boolean {
 }
 
 export function createStorageWrites() {
-  const waiting: { write: () => void; saved: () => void; failed: (error: unknown) => void; started: number }[] = []
+  const waiting: { write: () => void; saved: () => void; failed: (error: unknown) => void; attempts: number }[] = []
   let timer: ReturnType<typeof setTimeout> | undefined
   let stopped = false
   let running = false
@@ -23,12 +23,11 @@ export function createStorageWrites() {
     try {
       while (waiting.length > 0) {
         const pending = waiting[0]
-        if (pending.started === 0) pending.started = Date.now()
         try {
           pending.write()
         } catch (error) {
-          if (isDatabaseBusy(error) && Date.now() - pending.started < WRITE_TIMEOUT_MS) {
-            timer = setTimeout(flush, RETRY_INTERVAL_MS)
+          if (isDatabaseBusy(error)) {
+            timer = setTimeout(flush, Math.min(MAX_RETRY_MS, FIRST_RETRY_MS * 2 ** pending.attempts++))
             return
           }
           waiting.shift()
@@ -45,7 +44,7 @@ export function createStorageWrites() {
 
   function enqueue(write: () => void, saved: () => void, failed: (error: unknown) => void) {
     if (stopped) return
-    waiting.push({ write, saved, failed, started: 0 })
+    waiting.push({ write, saved, failed, attempts: 0 })
     if (timer === undefined) flush()
   }
 

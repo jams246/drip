@@ -1,5 +1,4 @@
-import type { ScanLocation, ScanSnapshot } from '../../scan/types'
-import type { Connection } from '../sync/types'
+import type { ScanLocation, ScanSnapshot, WatchHealth } from '../../scan/types'
 import { ScanNotices } from '../ScanNotices'
 import { FileRow } from './FileRow'
 import './home.css'
@@ -12,11 +11,13 @@ interface HomeProps {
   error?: string
   advanced: boolean
   paused: boolean
-  connection: Connection
+  verifying: boolean
+  health: WatchHealth[]
+  onVerify: () => void
   onPauseChange: (paused: boolean) => void
 }
 
-export function Home({ locations, scans, picking, loading = false, error, advanced, paused, connection, onPauseChange }: HomeProps) {
+export function Home({ locations, scans, picking, loading = false, error, advanced, paused, verifying, health, onVerify, onPauseChange }: HomeProps) {
   const counts = { scanning: 0, pending: 0, queued: 0, completed: 0, error: 0 }
   for (const scan of scans) {
     if (scan.state === 'pending' || scan.state === 'scanning' || scan.state === 'queued') counts[scan.state] += 1
@@ -29,15 +30,12 @@ export function Home({ locations, scans, picking, loading = false, error, advanc
         <h1 id="home-title" className="page-heading__title">
           Home
         </h1>
-        <button
-          className="button button--secondary"
-          type="button"
-          disabled={connection.status !== 'connected' || locations.length === 0}
-          aria-pressed={paused}
-          onClick={() => onPauseChange(!paused)}
-        >
+        <button className="button button--secondary" type="button" disabled={loading} aria-pressed={paused} onClick={() => onPauseChange(!paused)}>
           <span aria-hidden="true">{paused ? '▷' : 'Ⅱ'}</span>
-          {paused ? 'Resume Syncing' : 'Pause Syncing'}
+          {paused ? 'Resume Watching' : 'Pause Watching'}
+        </button>
+        <button className="button button--secondary" type="button" disabled={loading || paused || verifying || locations.length === 0} onClick={onVerify}>
+          {verifying ? 'Verifying contents' : 'Verify all'}
         </button>
       </header>
       {error && (
@@ -46,7 +44,7 @@ export function Home({ locations, scans, picking, loading = false, error, advanc
         </p>
       )}
       <ScanNotices loading={loading} picking={picking} loadingMessage="Loading saved scan results." className="home__notice" />
-      {paused && <output className="home__notice">Syncing is paused. Local file processing continues.</output>}
+      {paused && <output className="home__notice">Watching and hashing are paused.</output>}
       <div className="home__summary" aria-label="Scan summary">
         {(['scanning', 'pending', 'queued', 'completed', 'error'] as const).map((state) => (
           <div className="home__stat" key={state}>
@@ -76,7 +74,11 @@ export function Home({ locations, scans, picking, loading = false, error, advanc
         <ul className="home__file-list">
           {locations.map((location) => {
             const scan = scans.find((entry) => entry.id === location.id)
-            return scan && <FileRow key={location.id} location={location} scan={scan} advanced={advanced} />
+            return (
+              scan && (
+                <FileRow key={location.id} location={location} scan={scan} advanced={advanced} health={health.find((entry) => entry.id === location.id)} />
+              )
+            )
           })}
         </ul>
       </div>

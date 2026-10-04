@@ -1,0 +1,109 @@
+import { lstatSync } from 'node:fs'
+import { FileStore, normalizeFileId } from '../storage/files'
+import { ChunkScanner } from './chunker'
+import { type PathQuery, inspectScanPath, inspectScopedScanPath } from './eligibility'
+import { FileReader } from './reader'
+import { type ScanJobResponse, type ScanJobStart, type ScanWorkerJob, initialJobResponse } from './worker-types'
+
+export function createHashJob(start: ScanJobStart, buffer: Uint8Array, query?: PathQuery, sharedStorage?: FileStore): ScanWorkerJob {
+  const response = initialJobResponse(start)
+  const storage = sharedStorage ?? new FileStore(start.databasePath, start.item.id)
+  storage.reset(start.item.id)
+  let reader: FileReader | undefined
+  let scanner: ChunkScanner | undefined
+  let ready = false
+  let closed = false
+  let skipped = false
+
+  function close() {
+    if (closed) return
+    closed = true
+    try {
+      scanner?.dispose()
+      reader?.close()
+    } finally {
+      if (sharedStorage) storage.abortFile()
+      else storage.close()
+    }
+  }
+
+  function initialize() {
+    const eligibility = inspectScopedScanPath(start.target, start.item.path, start.databasePath, query)
+    if (eligibility === 'skip' && normalizeFileId(start.target) === normalizeFileId(start.item.path)) {
+      throw new Error('Selected location is not currently supported; previous catalogue was retained.')
+    }
+    response.missing = eligibility === 'missing'
+    skipped = eligibility === 'skip' || eligibility === 'excluded'
+    if (response.missing || skipped) {
+      response.skipped = skipped ? 1 : 0
+      ready = true
+    } else {
+      reader = new FileReader(start.target)
+      response.size = reader.size
+      response.modifiedMs = reader.modifiedMs
+      storage.beginFile(start.target)
+      scanner = new ChunkScanner((offset: number, length: number, hash: string) => storage.stageChunk(offset, length, hash))
+    }
+  }
+
+  try {
+    initialize()
+  } catch (error) {
+    close()
+    throw error
+  }
+
+  function step(): ScanJobResponse {
+    if (closed) throw new Error('Hash job is closed.')
+    if (ready) {
+      response.type = 'ready'
+      return response
+    }
+    const count = reader!.read(buffer)
+    if (count > 0) {
+      scanner!.update(buffer, count)
+      response.bytes = scanner!.bytes
+      response.chunks = scanner!.chunks
+      return response
+    }
+    reader!.validate()
+    scanner!.finish()
+    response.bytes = scanner!.bytes
+    response.chunks = scanner!.chunks
+    response.files = 1
+    response.type = 'ready'
+    ready = true
+    return response
+  }
+
+  function commit(): ScanJobResponse {
+    if (!ready || closed) throw new Error('Hash job is not ready to commit.')
+    const eligibility = inspectScopedScanPath(start.target, start.item.path, start.databasePath, query)
+    if (skipped && eligibility === 'eligible') throw new Error('File became eligible before its skipped scan was committed.')
+    if (response.missing) {
+      if (eligibility !== 'missing') throw new Error('File appeared before deletion was committed.')
+      if (normalizeFileId(start.target) !== normalizeFileId(start.item.path)) {
+        validateSelection()
+        storage.removeFile(start.target)
+      }
+    } else if (!skipped) {
+      if (eligibility !== 'eligible') throw new Error('File is no longer eligible for hashing.')
+      reader!.validate()
+      storage.commitFile(start.target, response.bytes, response.modifiedMs)
+    }
+    response.type = 'done'
+    close()
+    return response
+  }
+
+  function validateSelection() {
+    if (
+      start.item.kind === 'folder' &&
+      (inspectScanPath(start.item.path, start.databasePath, query) !== 'eligible' || !lstatSync(start.item.path).isDirectory())
+    ) {
+      throw new Error('Selected folder is unavailable; previous catalogue was retained.')
+    }
+  }
+
+  return { step, commit, cancel: close }
+}

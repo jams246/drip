@@ -1,29 +1,98 @@
 import { parentPort as scanParentPort } from 'node:worker_threads'
 import { FileStore } from '../storage/files'
-import { initialScan } from './state'
-import { scanLocation } from './traversal'
-import type { ScanLocation, ScanSnapshot } from './types'
+import { createHashJob } from './hash-job'
+import { createInventoryJob } from './traversal'
+import { type ScanJobCommand, type ScanJobResponse, type ScanJobStart, type ScanWorkerJob, initialJobResponse } from './worker-types'
 
 const SCAN_BUFFER_BYTES = 1_048_576
 const scanBuffer = new Uint8Array(SCAN_BUFFER_BYTES)
+let activeJob: ScanWorkerJob | undefined
+let activeResponse: ScanJobResponse | undefined
+let workerStorage: FileStore | undefined
+let workerDatabasePath = ''
 
-function publish(scan: ScanSnapshot) {
+function publish(response: ScanJobResponse) {
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node worker messages have no targetOrigin.
-  scanParentPort!.postMessage({ type: 'progress', scan })
+  scanParentPort!.postMessage(response)
 }
 
-scanParentPort!.on('message', (message: { type: string; item: ScanLocation; databasePath: string }) => {
-  if (message.type !== 'scan') return
-  let storage: FileStore | undefined
+function startJob(message: ScanJobStart) {
+  activeResponse = initialJobResponse(message)
+  activeJob?.cancel()
+  activeJob = undefined
+  if (workerStorage && workerDatabasePath !== message.databasePath) closeStorage()
+  if (!workerStorage) {
+    workerStorage = new FileStore(message.databasePath, message.item.id)
+    workerDatabasePath = message.databasePath
+  }
+  activeJob =
+    message.kind === 'inventory' ? createInventoryJob(message, undefined, workerStorage) : createHashJob(message, scanBuffer, undefined, workerStorage)
+  publish(activeResponse)
+}
+
+function closeStorage() {
+  const storage = workerStorage
+  workerStorage = undefined
+  workerDatabasePath = ''
+  storage?.close()
+}
+
+function cancelJob(jobId: number) {
+  activeResponse ??= initialJobResponse({ jobId, generation: 0, target: '' })
+  activeResponse.jobId = jobId
+  activeJob?.cancel()
+  activeJob = undefined
+  closeStorage()
+  activeResponse.type = 'cancelled'
+  publish(activeResponse)
+  activeResponse = undefined
+}
+
+function failJob(error: unknown) {
+  let failure = String(error)
   try {
-    storage = new FileStore(message.databasePath, message.item.id)
-    scanLocation(message.item, scanBuffer, publish, storage)
+    activeJob?.cancel()
+  } catch (cleanupError) {
+    failure += ` Cleanup: ${String(cleanupError)}`
+  }
+  activeJob = undefined
+  try {
+    closeStorage()
+  } catch (cleanupError) {
+    failure += ` Storage cleanup: ${String(cleanupError)}`
+  }
+  if (activeResponse) {
+    activeResponse.type = 'error'
+    activeResponse.errors++
+    activeResponse.error = failure
+    publish(activeResponse)
+    activeResponse = undefined
+  }
+}
+
+function handleCommand(message: ScanJobCommand) {
+  if (message.type === 'start') {
+    startJob(message)
+    return
+  }
+  if (message.type === 'cancel') {
+    cancelJob(message.jobId)
+    return
+  }
+  if (!activeJob) return
+  activeResponse = message.type === 'step' ? activeJob.step() : activeJob.commit()
+  publish(activeResponse)
+  if (message.type === 'commit') {
+    activeJob = undefined
+    activeResponse = undefined
+  }
+}
+
+scanParentPort!.on('message', (message: ScanJobCommand) => {
+  if (message.type !== 'start' && message.jobId !== activeResponse?.jobId && !(message.type === 'cancel' && !activeJob)) return
+  try {
+    handleCommand(message)
   } catch (error) {
-    const scan = initialScan(message.item, 'error')
-    scan.errors = 1
-    scan.error = `Storage failed: ${String(error)}`
-    publish(scan)
-  } finally {
-    storage?.close()
+    failJob(error)
   }
 })

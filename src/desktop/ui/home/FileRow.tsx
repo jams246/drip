@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import { isScanActive, isScanFinished } from '../../scan/state'
-import type { ScanLocation, ScanSnapshot } from '../../scan/types'
+import type { ScanLocation, ScanSnapshot, WatchHealth } from '../../scan/types'
 import { FileProgress } from '../sync/FileProgress'
 import './file-row.css'
 
@@ -30,9 +30,10 @@ interface FileRowProps {
   location: ScanLocation
   scan: ScanSnapshot
   advanced: boolean
+  health?: WatchHealth
 }
 
-export const FileRow = memo(function FileRow({ location, scan, advanced }: FileRowProps) {
+export const FileRow = memo(function FileRow({ location, scan, advanced, health }: FileRowProps) {
   const active = isScanActive(scan)
   const failed = scan.state === 'error' || scan.state === 'completed-with-errors'
   const throughput = scan.elapsedMs > 0 ? (scan.bytes * millisecondsPerSecond) / scan.elapsedMs : 0
@@ -51,6 +52,12 @@ export const FileRow = memo(function FileRow({ location, scan, advanced }: FileR
       </span>
       <div className="file-row__identity">
         <span className="file-row__name">{location.name}</span>
+        {health && (
+          <output className="file-row__current">
+            {health.state}
+            {health.error ? `: ${health.error}` : ''}
+          </output>
+        )}
         {active && location.kind === 'folder' && currentFileName && <span className="file-row__current">Current file: {currentFileName}</span>}
         {advanced && (
           <dl className="file-row__metrics">

@@ -10,6 +10,95 @@
           "name": "js_drip_set_window_icon",
           "params": [],
           "returns": "void"
+        },
+        {
+          "name": "js_drip_watch_start",
+          "params": [
+            "string",
+            "bool"
+          ],
+          "returns": "f64"
+        },
+        {
+          "name": "js_drip_watch_stop",
+          "params": [
+            "f64"
+          ],
+          "returns": "void"
+        },
+        {
+          "name": "js_drip_watch_drain",
+          "params": [],
+          "returns": "string"
+        },
+        {
+          "name": "js_drip_watch_ack",
+          "params": [
+            "f64",
+            "f64"
+          ],
+          "returns": "void"
+        },
+        {
+          "name": "js_drip_watch_shutdown",
+          "params": [],
+          "returns": "void"
+        },
+        {
+          "name": "js_drip_query_path",
+          "params": [
+            "string"
+          ],
+          "returns": "string"
+        },
+        {
+          "name": "js_drip_query_names",
+          "params": [
+            "string"
+          ],
+          "returns": "string"
+        },
+        {
+          "name": "js_drip_shell_init",
+          "params": [],
+          "returns": "bool"
+        },
+        {
+          "name": "js_drip_shell_drain",
+          "params": [],
+          "returns": "string"
+        },
+        {
+          "name": "js_drip_shell_hide",
+          "params": [],
+          "returns": "void"
+        },
+        {
+          "name": "js_drip_shell_open",
+          "params": [],
+          "returns": "void"
+        },
+        {
+          "name": "js_drip_shell_paused",
+          "params": [
+            "bool"
+          ],
+          "returns": "void"
+        },
+        {
+          "name": "js_drip_shell_exit",
+          "params": [],
+          "returns": "void"
+        },
+        {
+          "name": "js_drip_instance_claim",
+          "params": [],
+          "returns": "bool"
+        },
+        {
+          "name": "js_drip_instance_release",
+          "params": [],
+          "returns": "void"
         }
       ],
       "targets": {
@@ -18,7 +107,9 @@
           "lib": "drip_window_icon",
           "libs": [
             "user32",
-            "kernel32"
+            "kernel32",
+            "shell32",
+            "comctl32"
           ]
         }
       }

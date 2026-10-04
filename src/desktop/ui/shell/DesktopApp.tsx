@@ -19,7 +19,6 @@ export function DesktopApp() {
   const [page, setPage] = useState<Page>('Home')
   const [theme, setTheme] = useState<ThemeName>('graphite')
   const [advanced, setAdvanced] = useState(false)
-  const [paused, setPaused] = useState(false)
   const [entries, setEntries] = useState<ActivityEntry[]>([])
   const content = useRef<HTMLElement>(null)
   const addActivity = useCallback((entry: Omit<ActivityEntry, 'id' | 'time'>) => {
@@ -33,8 +32,12 @@ export function DesktopApp() {
   const { connection } = registration
 
   function changePause(next: boolean) {
-    setPaused(next)
-    addActivity({ title: next ? 'Syncing paused' : 'Syncing resumed', detail: 'Local file processing continues.', severity: 'info' })
+    scans.pause(next)
+    addActivity({
+      title: next ? 'Watching paused' : 'Watching resumed',
+      detail: next ? 'File watching and hashing stop.' : 'File watching and metadata reconciliation resume.',
+      severity: 'info'
+    })
   }
 
   function navigate(next: Page) {
@@ -70,15 +73,16 @@ export function DesktopApp() {
             loading={scans.storage === 'loading'}
             error={scans.error}
             advanced={advanced}
-            paused={paused}
-            connection={connection}
+            paused={scans.paused}
+            verifying={scans.verifying}
+            health={scans.health}
+            onVerify={scans.verify}
             onPauseChange={changePause}
           />
         )}
         {page === 'Watch' && (
           <Watch
             items={scans.locations}
-            scans={scans.scans}
             busy={scans.busy}
             picking={scans.picking}
             loading={scans.storage === 'loading'}
