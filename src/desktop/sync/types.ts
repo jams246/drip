@@ -10,10 +10,8 @@ export interface SyncCredentials {
 }
 
 export interface SyncRoot {
-  watchId: string
   rootId: string
   name: string
-  kind: 'file' | 'folder'
   active: boolean
   registered: boolean
   revision: number
@@ -30,7 +28,15 @@ export interface FrozenOperation {
   abortRequested: boolean
 }
 
+export interface OperationMember {
+  pathKey: string
+  generation: number
+  sourcePath: string
+  change: Change
+}
+
 export interface SyncStatus {
+  transferredBytes: number
   state: 'disconnected' | 'connecting' | 'idle' | 'uploading' | 'retrying' | 'error'
   url: string
   pending: number

@@ -7,7 +7,7 @@ export function initialScan(item: ScanLocation, state: 'pending' | 'queued' | 'e
     kind: item.kind,
     state,
     bytes: 0,
-    chunks: 0,
+    directories: 0,
     files: 0,
     skipped: 0,
     errors: 0,

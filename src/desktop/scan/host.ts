@@ -166,7 +166,8 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
         if (response.request?.type === 'verify') service?.verifyAll()
         if (response.request?.type === 'connect') void sync?.connect(response.request.url, response.request.token)
       } catch (error) {
-        recordDiagnostic('desktop.bridge.error', error instanceof Error ? error.name : 'unknown')
+        const name = error instanceof Error ? error.name : 'unknown'
+        recordDiagnostic('desktop.bridge.error', `error=${name} batch=${batchId} events=${batch.length} resultLength=${result.length}`)
         retryBatch = batch
         latestError = `Scan bridge failed: ${String(error)}`
       }

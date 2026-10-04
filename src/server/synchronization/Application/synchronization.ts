@@ -1,11 +1,12 @@
+import { REGION_PAGE_LIMIT } from '../../../protocol/sync.js'
 import { SyncError } from '../Domain/errors.js'
-import type { HeadsPage, Operation, OperationReceipt } from '../Domain/models.js'
-import { nonnegativeInteger, parseOffer, parseRootRegistration, validateHash, validateId } from '../Domain/validation.js'
+import type { HeadsPage, Operation, OperationReceipt, RegionPage } from '../Domain/models.js'
+import { nonnegativeInteger, parseOffer, parseRegions, parseRootRegistration, validateId } from '../Domain/validation.js'
 import type { MirrorStorage, SynchronizationRepository } from './ports.js'
+import { SynchronizationWork } from './background-work.js'
 import { RootLocks } from './root-locks.js'
 
 const DEFAULT_PAGE_LIMIT = 100
-const MAX_PAGE_LIMIT = 1000
 
 export interface PurgeDeviceMirrors {
   purgeDeviceMirrors(deviceId: string): Promise<void>
@@ -13,14 +14,14 @@ export interface PurgeDeviceMirrors {
 
 export class SynchronizationApplication implements PurgeDeviceMirrors {
   private readonly locks = new RootLocks()
-  private readonly publications = new Map<string, Promise<void>>()
-  private readonly failures = new Map<string, unknown>()
-  private readonly uploads = new Map<string, Set<Promise<void>>>()
+  private readonly work: SynchronizationWork
 
   constructor(
     private readonly repository: SynchronizationRepository,
     private readonly storage: MirrorStorage
-  ) {}
+  ) {
+    this.work = new SynchronizationWork(repository, storage, this.locks)
+  }
 
   registerRoot(deviceId: string, value: unknown) {
     const root = this.repository.registerRoot(validateId(deviceId), parseRootRegistration(value))
@@ -29,15 +30,12 @@ export class SynchronizationApplication implements PurgeDeviceMirrors {
 
   listHeads(deviceId: string, rootId: string, query: { revision?: number; after?: string; limit?: number } = {}): HeadsPage {
     const root = this.repository.root(validateId(deviceId), validateId(rootId))
-    if (query.revision !== undefined && nonnegativeInteger(query.revision, 'revision') !== root.revision) {
-      throw new SyncError('revision_conflict', 'Root revision changed. Restart the inventory.')
-    }
-    const limit = nonnegativeInteger(query.limit ?? DEFAULT_PAGE_LIMIT, 'page limit')
-    if (!limit || limit > MAX_PAGE_LIMIT || typeof (query.after ?? '') !== 'string') throw new SyncError('invalid_request', 'Invalid inventory page.')
+    if (query.revision !== undefined && nonnegativeInteger(query.revision, 'revision') !== root.revision)
+      throw new SyncError('revision_conflict', 'Device revision changed. Restart the inventory.')
+    const limit = pageLimit(query.limit ?? DEFAULT_PAGE_LIMIT)
+    if (typeof (query.after ?? '') !== 'string') throw new SyncError('invalid_request', 'Invalid inventory page.')
     const heads = this.repository.heads(rootId, query.after ?? '', limit + 1)
-    const hasNext = heads.length > limit
-    const page = heads.slice(0, limit)
-    return { revision: root.revision, heads: page, next: hasNext ? page.at(-1)!.path.toLowerCase() : null }
+    return { revision: root.revision, heads: heads.slice(0, limit), next: heads.length > limit ? heads[limit - 1].path.toLowerCase() : null }
   }
 
   async offer(deviceId: string, rootId: string, value: unknown): Promise<OperationReceipt> {
@@ -45,104 +43,149 @@ export class SynchronizationApplication implements PurgeDeviceMirrors {
     return this.locks.run(validateId(rootId), async () => {
       const root = this.repository.root(validateId(deviceId), rootId)
       this.storage.assertPathCapacity(root, offer.change)
-      this.repository.expire()
       return this.receipt(this.repository.offer(root, offer))
     })
   }
 
-  async uploadChunk(deviceId: string, rootId: string, operationId: string, hash: string, bytes: Uint8Array) {
-    const operation = this.repository.operation(validateId(deviceId), validateId(rootId), validateId(operationId))
-    validateHash(hash)
-    if (operation.status !== 'offered') throw new SyncError('conflict', 'Operation is not accepting chunks.')
-    if (operation.change.kind !== 'upsert' || !operation.change.chunks.some((chunk) => chunk.hash === hash)) {
-      throw new SyncError('invalid_request', 'Chunk is not part of this operation.')
-    }
-    const upload = this.storage.upload(operation, hash, bytes)
-    const uploads = this.uploads.get(rootId) ?? new Set<Promise<void>>()
-    uploads.add(upload)
-    this.uploads.set(rootId, uploads)
-    try {
-      await upload
+  async addRegions(deviceId: string, rootId: string, operationId: string, value: unknown): Promise<RegionPage> {
+    const regions = parseRegions(value)
+    return this.locks.run(validateId(rootId), async () => {
+      const operation = this.operation(deviceId, rootId, operationId)
+      this.repository.addRegions(operation, regions)
+      const required = regions
+        .filter((region) => {
+          const planned = this.repository.region(operationId, region.offset)!
+          return planned.basisOffset === null && !planned.uploaded
+        })
+        .map((region) => region.offset)
+      return { required, next: null }
+    })
+  }
+
+  async completeRegions(deviceId: string, rootId: string, operationId: string): Promise<OperationReceipt> {
+    return this.locks.run(validateId(rootId), async () => {
+      const operation = this.operation(deviceId, rootId, operationId)
+      this.repository.seal(operation)
+      const sealed = this.operation(deviceId, rootId, operationId)
+      if (!sealed.stageReady) this.work.schedule(sealed, 'seed')
+      return this.receipt(sealed)
+    })
+  }
+
+  listRegions(deviceId: string, rootId: string, operationId: string, query: { after?: number; limit?: number } = {}): RegionPage {
+    this.operation(deviceId, rootId, operationId)
+    const after = query.after ?? -1
+    if (!Number.isSafeInteger(after) || after < -1) throw new SyncError('invalid_request', 'Invalid region cursor.')
+    return this.repository.required(operationId, after, pageLimit(query.limit ?? REGION_PAGE_LIMIT))
+  }
+
+  async uploadRegion(deviceId: string, rootId: string, operationId: string, offset: number, bytes: Uint8Array) {
+    nonnegativeInteger(offset, 'region offset')
+    const offered = this.operation(deviceId, rootId, operationId)
+    if (!offered.stageReady || !offered.planComplete) throw new SyncError('conflict', 'File staging is not ready for uploads.')
+    return this.locks.run(rootId, async () => {
+      const operation = this.operation(deviceId, rootId, operationId)
+      if (operation.status !== 'offered') throw new SyncError('conflict', 'Operation does not accept uploads.')
+      const region = this.repository.region(operationId, offset)
+      if (!region || region.basisOffset !== null) throw new SyncError('invalid_request', 'Region is not required by this operation.')
+      await this.storage.upload(operation, region, bytes)
       this.repository.root(deviceId, rootId)
-    } finally {
-      uploads.delete(upload)
-      if (!uploads.size) this.uploads.delete(rootId)
-    }
+      this.repository.uploaded(operationId, offset)
+    })
   }
 
   async commit(deviceId: string, rootId: string, operationId: string): Promise<OperationReceipt> {
-    return this.locks.run(validateId(rootId), async () => {
-      const operation = this.repository.operation(validateId(deviceId), rootId, validateId(operationId))
-      if (operation.status === 'committed') return this.receipt(operation)
+    const current = this.operation(deviceId, rootId, operationId)
+    if (this.work.publishing(operationId)) return this.receipt(current)
+    if (!current.stageReady) throw new SyncError('regions_missing', 'Wait for file staging before committing.')
+    return this.locks.run(rootId, async () => {
+      const operation = this.operation(deviceId, rootId, operationId)
+      if (operation.status === 'committed' || operation.status === 'publishing') return this.receipt(operation)
       if (operation.status === 'aborted') throw new SyncError('conflict', 'Operation has been aborted.')
-      if (this.repository.missing(operation).length) throw new SyncError('chunks_missing', 'Upload missing chunks before committing.')
-      this.repository.prepare(operation)
-      this.schedule(operation)
-      return this.receipt(this.repository.operation(deviceId, rootId, operationId))
+      if (!operation.planComplete || this.repository.hasMissing(operationId))
+        throw new SyncError('regions_missing', 'Complete the file plan and uploads before committing.')
+      this.work.schedule(operation, 'publish')
+      return this.receipt(this.operation(deviceId, rootId, operationId))
     })
   }
 
   status(deviceId: string, rootId: string, operationId: string): OperationReceipt {
-    const operation = this.repository.operation(validateId(deviceId), validateId(rootId), validateId(operationId))
-    const failure = this.failures.get(operationId)
-    if (operation.status === 'publishing') this.schedule(operation)
-    if (failure) throw new SyncError('storage_failure', failure instanceof Error ? failure.message : 'Storage publication requires retry.')
+    const operation = this.operation(deviceId, rootId, operationId)
+    const failure = this.work.failure(operationId)
+    if (operation.status === 'publishing') this.work.schedule(operation, 'publish')
+    if (operation.status === 'offered' && operation.planComplete && !operation.stageReady) this.work.schedule(operation, 'seed')
+    if (failure) throw new SyncError('storage_failure', failure instanceof Error ? failure.message : 'Mirror storage requires retry.')
     return this.receipt(operation)
   }
 
   async abort(deviceId: string, rootId: string, operationId: string): Promise<OperationReceipt> {
     return this.locks.run(validateId(rootId), async () => {
-      const operation = this.repository.operation(validateId(deviceId), rootId, validateId(operationId))
+      const operation = this.operation(deviceId, rootId, operationId)
       if (operation.status === 'publishing' || operation.status === 'committed') throw new SyncError('conflict', 'Publication cannot be aborted.')
       this.repository.abort(operation)
-      return this.receipt(this.repository.operation(deviceId, rootId, operationId))
+      await this.storage.discard(operation)
+      this.work.clearFailure(operationId)
+      return this.receipt(this.operation(deviceId, rootId, operationId))
     })
   }
 
   async purgeDeviceMirrors(deviceId: string) {
     validateId(deviceId)
     this.repository.fenceDevice(deviceId)
-    for (const rootId of this.repository.rootIds(deviceId)) {
-      const uploads = this.uploads.get(rootId)
-      if (uploads) await Promise.allSettled(uploads)
+    for (const rootId of this.repository.rootIds(deviceId))
       await this.locks.run(rootId, async () => {
         this.repository.retire(rootId)
         await this.storage.removeRoot(deviceId, rootId)
         this.repository.removeRoot(rootId)
       })
-    }
   }
 
   async recover() {
-    this.repository.expire()
-    for (const operation of this.repository.publishing()) {
+    for (const operation of this.repository.publishing())
       await this.locks.run(operation.rootId, async () => {
-        this.repository.root(operation.deviceId, operation.rootId)
         await this.storage.publish(operation)
         this.repository.finalize(operation)
+      })
+    for (const operation of this.repository.offered()) {
+      this.repository.abort(operation)
+      await this.storage.discard(operation)
+    }
+  }
+
+  async expire() {
+    for (const operation of this.repository.offered(true)) {
+      if (this.work.has(operation.operationId)) continue
+      await this.locks.run(operation.rootId, async () => {
+        const current = this.operation(operation.deviceId, operation.rootId, operation.operationId)
+        if (current.status !== 'offered') return
+        this.repository.abort(current)
+        await this.storage.discard(current)
       })
     }
   }
 
   async close() {
-    for (const uploads of this.uploads.values()) await Promise.allSettled(uploads)
-    await Promise.allSettled(this.publications.values())
-    await this.locks.settled()
+    await this.work.close()
   }
 
-  private schedule(operation: Operation) {
-    if (this.publications.has(operation.operationId)) return
-    this.failures.delete(operation.operationId)
-    const publication = this.locks.run(operation.rootId, async () => {
-      this.repository.root(operation.deviceId, operation.rootId)
-      await this.storage.publish(operation)
-      this.repository.finalize(operation)
-    })
-    this.publications.set(operation.operationId, publication)
-    void publication.catch((error: unknown) => this.failures.set(operation.operationId, error)).finally(() => this.publications.delete(operation.operationId))
+  private operation(deviceId: string, rootId: string, operationId: string) {
+    return this.repository.operation(validateId(deviceId), validateId(rootId), validateId(operationId))
   }
 
   private receipt(operation: Operation): OperationReceipt {
-    return { status: operation.status, revision: operation.revision, missing: operation.status === 'offered' ? this.repository.missing(operation) : [] }
+    const needsContent = operation.change.kind === 'upsert' && operation.change.entry.kind === 'file' && !operation.metadataOnly
+    return {
+      status: operation.status === 'offered' && this.work.publishing(operation.operationId) ? 'publishing' : operation.status,
+      revision: operation.revision,
+      planComplete: operation.planComplete,
+      stageReady: operation.stageReady,
+      uploadRequired: operation.status === 'offered' && needsContent && (!operation.planComplete || this.repository.hasMissing(operation.operationId))
+    }
   }
+}
+
+function pageLimit(value: number) {
+  const limit = nonnegativeInteger(value, 'page limit')
+  if (!limit || limit > REGION_PAGE_LIMIT) throw new SyncError('invalid_request', 'Invalid page limit.')
+  return limit
 }

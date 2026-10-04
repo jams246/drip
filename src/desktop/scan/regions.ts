@@ -1,27 +1,27 @@
 /* oxlint-disable eslint/no-magic-numbers -- Pinned FastCDC masks and unsigned 64-bit arithmetic. */
 /* oxlint-disable typescript/no-unnecessary-type-conversion -- Number construction removes measured Perry hot-loop boxing. */
 import { gearHigh, gearLow } from './gear'
-import { ChunkHasher } from './hash'
+import { ContentHasher } from './hash'
 
-export type ChunkConsumer = (offset: number, length: number, hash: string) => void
-export const MIN_CHUNK = 65_536
-export const AVG_CHUNK = 262_144
-export const MAX_CHUNK = 1_048_576
+export type RegionConsumer = (offset: number, length: number, hash: string) => void
+export const MIN_REGION = 65_536
+export const AVG_REGION = 262_144
+export const MAX_REGION = 1_048_576
 
-export class ChunkScanner {
+export class RegionScanner {
   bytes = 0
-  chunks = 0
+  regions = 0
   private length = 0
   private offset = 0
   private low = 0
   private high = 0
-  private hasher: ChunkHasher | undefined
+  private hasher: ContentHasher | undefined
 
   constructor(
-    private readonly consume: ChunkConsumer,
+    private readonly consume: RegionConsumer,
     private readonly hash = true
   ) {
-    if (hash) this.hasher = new ChunkHasher()
+    if (hash) this.hasher = new ContentHasher()
   }
 
   // oxlint-disable-next-line eslint/max-statements -- One streaming loop avoids per-byte Perry method dispatch; benchmarked before integration.
@@ -34,8 +34,8 @@ export class ChunkScanner {
     let low = Number(this.low)
     let high = Number(this.high)
     while (index < validCount) {
-      if (length < MIN_CHUNK) {
-        const skip = Math.min(MIN_CHUNK - length, validCount - index)
+      if (length < MIN_REGION) {
+        const skip = Math.min(MIN_REGION - length, validCount - index)
         length += skip
         index += skip
         continue
@@ -45,11 +45,11 @@ export class ChunkScanner {
       const carry = sum >= 4_294_967_296 ? 1 : 0
       high = ((high << 1) + (low >>> 31) + Number(gearHigh[byte]) + carry) >>> 0
       low = sum >>> 0
-      const beforeAverage = length < AVG_CHUNK
+      const beforeAverage = length < AVG_REGION
       const highMask = beforeAverage ? 0x0000d917 : 0x0000d903
       const lowMask = beforeAverage ? 0x47537000 : 0x03537000
       if ((high & highMask) === 0 && (low & lowMask) === 0) {
-        // Reference cut excludes the candidate byte; it belongs to the next chunk.
+        // Reference cut excludes the candidate byte; it belongs to the next region.
         this.hasher?.updateRange(buffer, start, index - start)
         this.length = length
         this.complete()
@@ -61,7 +61,7 @@ export class ChunkScanner {
       }
       length++
       index++
-      if (length === MAX_CHUNK) {
+      if (length === MAX_REGION) {
         this.hasher?.updateRange(buffer, start, index - start)
         this.length = length
         this.complete()
@@ -92,10 +92,10 @@ export class ChunkScanner {
     const digest = this.hasher ? this.hasher.hex() : ''
     this.consume(this.offset, this.length, digest)
     this.offset += this.length
-    this.chunks++
+    this.regions++
     this.length = 0
     this.low = 0
     this.high = 0
-    if (this.hash) this.hasher = new ChunkHasher()
+    if (this.hash) this.hasher = new ContentHasher()
   }
 }

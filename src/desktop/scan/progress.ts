@@ -5,7 +5,6 @@ export function createScanProgress() {
   const snapshots = new Map<string, ScanSnapshot>()
   const started = new Map<string, number>()
   let baseBytes = 0
-  let baseChunks = 0
 
   function begin(item: ScanLocation, jobId: number, path: string) {
     let scan = snapshots.get(item.id)
@@ -16,16 +15,14 @@ export function createScanProgress() {
     const next = { ...scan, jobId, state: 'scanning' as const, currentPath: path, currentBytes: 0, currentSize: 0 }
     snapshots.set(item.id, next)
     baseBytes = next.bytes
-    baseChunks = next.chunks
     return next
   }
 
-  function update(id: string, bytes: number, chunks: number, size: number) {
+  function update(id: string, bytes: number, size: number) {
     const scan = snapshots.get(id)!
     const next = {
       ...scan,
       bytes: baseBytes + bytes,
-      chunks: baseChunks + chunks,
       currentBytes: bytes,
       currentSize: size,
       elapsedMs: Date.now() - (started.get(id) ?? Date.now())
@@ -34,16 +31,17 @@ export function createScanProgress() {
     return next
   }
 
-  function finish(id: string, files: number, skipped: number, errors: number, error: string, waiting: boolean) {
+  function finish(id: string, files: number, directories: number, skipped: number, errors: number, error: string, waiting: boolean) {
     const scan = snapshots.get(id)!
     let state: ScanSnapshot['state'] = waiting ? 'queued' : 'completed'
     const totalErrors = scan.errors + errors
     if (!waiting && totalErrors > 0) state = 'completed-with-errors'
-    if (!waiting && totalErrors === 0 && scan.files + files === 0) state = 'empty'
+    if (!waiting && totalErrors === 0 && scan.files + files + scan.directories + directories === 0) state = 'empty'
     const next = {
       ...scan,
       state,
       files: scan.files + files,
+      directories: scan.directories + directories,
       skipped: scan.skipped + skipped,
       errors: totalErrors,
       currentPath: '',

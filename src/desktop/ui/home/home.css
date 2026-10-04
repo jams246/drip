@@ -4,6 +4,14 @@
   margin: 0 0 20px;
   line-height: 1.5;
 }
+.home__sync {
+  display: block;
+  margin-bottom: 20px;
+  color: var(--muted);
+}
+.home__sync--error {
+  color: var(--error);
+}
 .home__notice {
   color: var(--muted);
 }

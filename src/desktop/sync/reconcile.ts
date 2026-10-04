@@ -15,5 +15,5 @@ export async function reconcileRoot(store: SyncStore, transport: SyncTransport, 
     if (after !== null && page.next === after) throw new Error('Server heads pagination did not advance.')
     after = page.next
   } while (after !== null && active())
-  if (active() && store.safeCoverage(root)) store.reconcile(root, heads)
+  if (active() && store.readyScopes().length) store.reconcile(root, heads)
 }

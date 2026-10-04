@@ -14,7 +14,7 @@ export async function createStandalone(dataDirectory: string) {
     composition = await openComposition(path)
     context = await NestFactory.createApplicationContext(composition.module, { logger: false, abortOnError: false })
     await context.get(AccessApplication).recoverRemovals()
-    await composition.synchronization.collectGarbage()
+    await composition.synchronization.expireOffers()
   } catch (error) {
     try {
       await context?.close()

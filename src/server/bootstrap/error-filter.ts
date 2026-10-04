@@ -13,7 +13,7 @@ const statuses: Record<string, number> = {
   not_found: 404,
   conflict: 409,
   revision_conflict: 409,
-  chunks_missing: 409,
+  regions_missing: 409,
   device_retired: 410,
   retired: 410,
   storage_failure: 503

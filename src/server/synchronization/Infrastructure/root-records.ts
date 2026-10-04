@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { SyncError } from '../Domain/errors.js'
-import type { FileHead, Root, RootRegistration } from '../Domain/models.js'
+import type { MirrorEntry, Root, RootRegistration } from '../Domain/models.js'
 import { assertRootIdentity } from '../Domain/root-policy.js'
 import { parseHead } from '../Domain/validation.js'
 import { transaction } from './database.js'
@@ -8,7 +8,7 @@ import { transaction } from './database.js'
 type Row = Record<string, string | number | bigint | Uint8Array | null>
 
 function readRoot(row: Row): Root {
-  if (row.kind !== 'file' && row.kind !== 'folder') throw new SyncError('storage_failure', 'Stored root kind is invalid.')
+  if (row.kind !== 'folder') throw new SyncError('storage_failure', 'Stored root kind is invalid.')
   return {
     rootId: String(row.id),
     deviceId: String(row.device_id),
@@ -28,6 +28,7 @@ export class RootRecords {
 
   registerRoot(deviceId: string, registration: RootRegistration): Root {
     this.assertDevice(deviceId)
+    if (registration.rootId !== deviceId) throw new SyncError('invalid_request', 'Device root identity must match its authenticated device.')
     const existing = this.database.prepare('SELECT 1 FROM roots WHERE id=?').get(registration.rootId)
     if (existing) {
       const root = this.root(deviceId, registration.rootId)
@@ -54,7 +55,7 @@ export class RootRecords {
       .map((row) => String(row.id))
   }
 
-  heads(rootId: string, after: string, limit: number): FileHead[] {
+  heads(rootId: string, after: string, limit: number): MirrorEntry[] {
     return this.database
       .prepare('SELECT manifest FROM heads WHERE root_id=? AND path_key>? ORDER BY path_key LIMIT ?')
       .all(rootId, after, limit)
@@ -63,6 +64,11 @@ export class RootRecords {
 
   fenceDevice(deviceId: string) {
     this.database.prepare('INSERT OR IGNORE INTO device_fences(device_id) VALUES(?)').run(deviceId)
+  }
+
+  head(rootId: string, path: string): MirrorEntry | undefined {
+    const row = this.database.prepare('SELECT manifest FROM heads WHERE root_id=? AND path_key=?').get(rootId, path.toLowerCase())
+    return row ? parseHead(JSON.parse(String(row.manifest))) : undefined
   }
 
   retire(rootId: string) {

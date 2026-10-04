@@ -130,12 +130,13 @@ export function createJobRunner(context: RunnerContext) {
     const current = active!
     recordDiagnostic(
       'scan.result',
-      `job=${current.jobId} kind=${current.job.kind} status=${result.type} bytes=${result.bytes} chunks=${result.chunks} errors=${result.errors} retry=${retry}`
+      `job=${current.jobId} kind=${current.job.kind} status=${result.type} bytes=${result.bytes} errors=${result.errors} retry=${retry}`
     )
     if (retry && context.locations.some((item) => item.id === current.item.id)) context.pending.retry(current.job)
     const waiting = context.pending.has(current.item.id)
     const files = current.job.kind === 'inventory' && result.type === 'done' ? result.files : 0
-    const scan = progress.finish(current.item.id, files, result.skipped, result.errors, result.error, waiting)
+    const directories = result.type === 'done' ? result.directories : 0
+    const scan = progress.finish(current.item.id, files, directories, result.skipped, result.errors, result.error, waiting)
     active = undefined
     context.writes.enqueue(
       () => {
@@ -162,7 +163,7 @@ export function createJobRunner(context: RunnerContext) {
     }
     if (result.type === 'cancelled' || result.type === 'error') return complete(result, true)
     if (result.type === 'done') {
-      if (result.bytes) progress.update(active.item.id, result.bytes, result.chunks, result.size)
+      if (result.bytes) progress.update(active.item.id, result.bytes, result.size)
       return complete(result, Boolean(result.errors || (result.missing && active.job.path === normalizeFileId(active.item.path))))
     }
     if (active.cancelling) return
@@ -171,7 +172,7 @@ export function createJobRunner(context: RunnerContext) {
         context.pending.file(active.job, entry.path, active.job.force || context.pending.forcePath(active.item.id, entry.path))
       }
     }
-    if (result.type === 'progress') context.publish({ type: 'progress', scan: progress.update(active.item.id, result.bytes, result.chunks, result.size) })
+    if (result.type === 'progress') context.publish({ type: 'progress', scan: progress.update(active.item.id, result.bytes, result.size) })
     if (result.type === 'ready') {
       context.monitoring.drain()
       if (!context.canRun() || context.pending.newer(active.job)) return cancel()

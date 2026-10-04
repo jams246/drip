@@ -1,0 +1,59 @@
+diff --git a/crates/perry-stdlib/src/fetch/mod.rs b/crates/perry-stdlib/src/fetch/mod.rs
+index 4fbef48..ae8a680 100644
+--- a/crates/perry-stdlib/src/fetch/mod.rs
++++ b/crates/perry-stdlib/src/fetch/mod.rs
+@@ -411,7 +411,7 @@ fn tagged_bool(value: bool) -> f64 {
+ /// fetch(url) -> Promise<Response>
+ #[no_mangle]
+ pub unsafe extern "C" fn js_fetch_get(url_ptr: *const StringHeader) -> *mut perry_runtime::Promise {
+-    let promise = perry_runtime::js_promise_new_cross_thread();
++    let promise = crate::common::async_bridge::js_promise_new_for_native_resolution();
+     let promise_ptr = promise as usize;
+ 
+     let url = match string_from_header(url_ptr) {
+@@ -481,7 +481,7 @@ pub unsafe extern "C" fn js_fetch_get_with_auth(
+     url_ptr: *const StringHeader,
+     auth_header_ptr: *const StringHeader,
+ ) -> *mut perry_runtime::Promise {
+-    let promise = perry_runtime::js_promise_new_cross_thread();
++    let promise = crate::common::async_bridge::js_promise_new_for_native_resolution();
+     let promise_ptr = promise as usize;
+ 
+     let url = match string_from_header(url_ptr) {
+@@ -557,7 +557,7 @@ pub unsafe extern "C" fn js_fetch_post_with_auth(
+     auth_header_ptr: *const StringHeader,
+     body_ptr: *const StringHeader,
+ ) -> *mut perry_runtime::Promise {
+-    let promise = perry_runtime::js_promise_new_cross_thread();
++    let promise = crate::common::async_bridge::js_promise_new_for_native_resolution();
+     let promise_ptr = promise as usize;
+ 
+     let url = match string_from_header(url_ptr) {
+@@ -635,7 +635,7 @@ pub unsafe extern "C" fn js_fetch_post(
+     body_ptr: *const StringHeader,
+     content_type_ptr: *const StringHeader,
+ ) -> *mut perry_runtime::Promise {
+-    let promise = perry_runtime::js_promise_new_cross_thread();
++    let promise = crate::common::async_bridge::js_promise_new_for_native_resolution();
+     let promise_ptr = promise as usize;
+ 
+     let url = match string_from_header(url_ptr) {
+@@ -727,7 +727,8 @@ pub unsafe extern "C" fn js_fetch_with_options(
+     // allocation can't move the still-TLS-stashed signal before we read it.
+     let abort_state = abort_bridge::take_pending_signal_watch();
+ 
+-    let promise = perry_runtime::js_promise_new_cross_thread();
++    // Retain the request promise until the native completion queue resolves it.
++    let promise = crate::common::async_bridge::js_promise_new_for_native_resolution();
+     let promise_ptr = promise as usize;
+ 
+     // An already-aborted signal rejects the request up front; otherwise keep the
+@@ -963,7 +964,7 @@ pub unsafe extern "C" fn js_fetch_response_json(handle: f64) -> *mut perry_runti
+ pub unsafe extern "C" fn js_fetch_text(
+     url_ptr: *const StringHeader,
+ ) -> *mut perry_runtime::Promise {
+-    let promise = perry_runtime::js_promise_new_cross_thread();
++    let promise = crate::common::async_bridge::js_promise_new_for_native_resolution();
+     let promise_ptr = promise as usize;
+ 
+     let url = match string_from_header(url_ptr) {

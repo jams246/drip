@@ -28,7 +28,7 @@ export interface ScanJobResponse {
   entries: InventoryEntry[]
   missing: boolean
   bytes: number
-  chunks: number
+  directories: number
   files: number
   skipped: number
   errors: number
@@ -52,7 +52,7 @@ export function initialJobResponse(start: Pick<ScanJobStart, 'jobId' | 'generati
     entries: [],
     missing: false,
     bytes: 0,
-    chunks: 0,
+    directories: 0,
     files: 0,
     skipped: 0,
     errors: 0,

@@ -38,7 +38,11 @@ export function inspectScopedScanPath(path: string, selection: string, databaseP
     const eligibility = inspectScanPath(ancestor, databasePath, query)
     if (eligibility === 'skip' || eligibility === 'excluded') return 'skip'
     if (eligibility === 'missing') missingAncestor = true
-    else if (!lstatSync(ancestor).isDirectory()) throw new Error(`Scan ancestor is no longer a folder: ${ancestor}`)
+    else {
+      const stats = lstatSync(ancestor)
+      if (stats.isFile()) missingAncestor = true
+      else if (!stats.isDirectory()) throw new Error(`Scan ancestor is no longer a folder: ${ancestor}`)
+    }
     const parent = dirname(ancestor)
     if (parent === ancestor) break
     ancestor = parent

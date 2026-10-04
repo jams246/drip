@@ -4,7 +4,7 @@ import { _BLAKE3 } from '@noble/hashes/blake3.js'
 
 // Pinned to noble 2.4.0: only ingestion differs from its protected base implementation.
 // Perry currently copies input typed-array views; keep pending bytes in fixed hash state.
-export class ChunkHasher extends _BLAKE3 {
+export class ContentHasher extends _BLAKE3 {
   constructor() {
     super()
     // Independent pending words avoid Perry's copy-and-synchronize byte/word aliases.

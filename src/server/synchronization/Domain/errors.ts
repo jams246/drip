@@ -1,4 +1,4 @@
-export type SyncErrorCode = 'invalid_request' | 'not_found' | 'conflict' | 'revision_conflict' | 'chunks_missing' | 'retired' | 'storage_failure'
+export type SyncErrorCode = 'invalid_request' | 'not_found' | 'conflict' | 'revision_conflict' | 'regions_missing' | 'retired' | 'storage_failure'
 
 export class SyncError extends Error {
   constructor(

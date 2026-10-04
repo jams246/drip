@@ -1,14 +1,17 @@
-export interface Chunk {
-  offset: number
-  length: number
-  hash: string
-}
-
-export interface RootRegistration {
-  rootId: string
-  name: string
-  kind: 'file' | 'folder'
-}
+import type { FileEntry, Offer, RootRegistration } from '../../../protocol/sync.js'
+export type {
+  Change,
+  DirectoryEntry,
+  FileEntry,
+  FileMove,
+  HeadsPage,
+  MirrorEntry,
+  Offer,
+  OperationReceipt,
+  RegionFingerprint,
+  RegionPage,
+  RootRegistration
+} from '../../../protocol/sync.js'
 
 export interface Root extends RootRegistration {
   deviceId: string
@@ -16,37 +19,23 @@ export interface Root extends RootRegistration {
   retired: boolean
 }
 
-export interface FileHead {
-  path: string
-  size: number
-  modifiedMs: number
-  chunks: Chunk[]
-}
-
-export type Change = (FileHead & { kind: 'upsert'; profile: 'fastcdc-v1-blake3-256' }) | { kind: 'delete'; path: string }
-export interface Offer {
-  operationId: string
-  baseRevision: number
-  change: Change
-}
-
 export interface Operation extends Offer {
   rootId: string
   deviceId: string
   status: 'offered' | 'publishing' | 'committed' | 'aborted'
   revision: number
+  planComplete: boolean
+  stageReady: boolean
+  metadataOnly: boolean
+  basis?: FileEntry
 }
 
-export interface OperationReceipt {
-  status: Operation['status']
-  revision: number
-  missing: string[]
-}
-
-export interface HeadsPage {
-  revision: number
-  heads: FileHead[]
-  next: string | null
+export interface PlannedRegion {
+  offset: number
+  length: number
+  hash: string
+  basisOffset: number | null
+  uploaded: boolean
 }
 
 export const canonicalPath = (path: string) => path.toLowerCase()

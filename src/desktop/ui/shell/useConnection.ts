@@ -9,7 +9,7 @@ export function useConnection(sync: SyncStatus, sendConnection: (url: string, to
   if (sync.state === 'disconnected') status = 'disconnected'
   if (sync.state === 'connecting') status = 'connecting'
   if (sync.state === 'error' || sync.state === 'retrying') status = 'error'
-  const connection: Connection = { status, url: sync.url, message: sync.message }
+  const connection: Connection = { status, url: sync.url, message: status === 'error' ? sync.message : undefined }
   function connect(url: string, token: string) {
     sendConnection(url, token)
     setRegistrationCode('')

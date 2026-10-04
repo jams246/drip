@@ -2,28 +2,19 @@ import { memo } from 'react'
 import { isScanActive, isScanFinished } from '../../scan/state'
 import type { ScanLocation, ScanSnapshot, WatchHealth } from '../../scan/types'
 import { FileProgress } from '../sync/FileProgress'
+import { formatBytes } from '../sync/format'
 import './file-row.css'
 
-const kibibyte = 1024
-const mebibyte = kibibyte * kibibyte
-const gibibyte = mebibyte * kibibyte
 const millisecondsPerSecond = 1000
 
 const stateLabels: Record<ScanSnapshot['state'], string> = {
   queued: 'Queued',
   pending: 'Preparing scan',
-  scanning: 'Chunking and hashing',
+  scanning: 'Preparing for syncronization',
   completed: 'Completed',
   empty: 'No file data',
   error: 'Scan failed',
   'completed-with-errors': 'Completed with errors'
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < kibibyte) return `${bytes} B`
-  if (bytes < mebibyte) return `${(bytes / kibibyte).toFixed(1)} KiB`
-  if (bytes < gibibyte) return `${(bytes / mebibyte).toFixed(1)} MiB`
-  return `${(bytes / gibibyte).toFixed(2)} GiB`
 }
 
 interface FileRowProps {
@@ -37,8 +28,7 @@ export const FileRow = memo(function FileRow({ location, scan, advanced, health 
   const active = isScanActive(scan)
   const failed = scan.state === 'error' || scan.state === 'completed-with-errors'
   const throughput = scan.elapsedMs > 0 ? (scan.bytes * millisecondsPerSecond) / scan.elapsedMs : 0
-  let label = stateLabels[scan.state]
-  if (!advanced && scan.state === 'scanning') label = 'Processing'
+  const label = stateLabels[scan.state]
   const currentFileBytes = scan.currentPath ? scan.currentBytes : undefined
   const currentFileName = scan.currentPath.split(/[\\/]/).pop()
   let statusClass = 'neutral'
@@ -66,8 +56,8 @@ export const FileRow = memo(function FileRow({ location, scan, advanced, health 
               <dd>{formatBytes(scan.bytes)}</dd>
             </div>
             <div>
-              <dt>Chunks</dt>
-              <dd>{scan.chunks}</dd>
+              <dt>Directories</dt>
+              <dd>{scan.directories}</dd>
             </div>
             <div>
               <dt>Files</dt>

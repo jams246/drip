@@ -44,7 +44,7 @@ export async function openComposition(dataDirectory: string) {
     async recover(context: INestApplicationContext) {
       await context.get(AccessApplication).recoverRemovals()
       await synchronization.recover()
-      await synchronization.collectGarbage()
+      await synchronization.expireOffers()
     },
     async close() {
       try {

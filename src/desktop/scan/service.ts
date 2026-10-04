@@ -133,13 +133,13 @@ export function createScanService(databasePath: string, publish: (event: ScanEve
     })
   }
   function select(item: ScanLocation) {
+    const names: { longPath: string } = JSON.parse(queryNames(item.path))
+    if (names.longPath) item = { id: normalizeFileId(names.longPath), name: basename(names.longPath) || names.longPath, path: names.longPath, kind: item.kind }
     if (locations.some((entry) => entry.id === item.id && entry.kind !== item.kind)) {
       failure('Stop watching this location before selecting its new file or folder type.')
       publish({ type: 'selection-ended' })
       return
     }
-    const names: { longPath: string } = JSON.parse(queryNames(item.path))
-    if (names.longPath) item = { id: normalizeFileId(names.longPath), name: basename(names.longPath) || names.longPath, path: names.longPath, kind: item.kind }
     const metadata: { driveType: number; error: number } = JSON.parse(queryPath(item.path))
     if (metadata.driveType !== DRIVE_FIXED || metadata.error) {
       failure('Select an accessible file or folder on a local fixed drive.')

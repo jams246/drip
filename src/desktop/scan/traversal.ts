@@ -1,5 +1,6 @@
 import { lstatSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { queryNames } from '#drip-window-icon'
 import { FileStore, normalizeFileId } from '../storage/files'
 import { type PathQuery, inspectScanPath, inspectScopedScanPath } from './eligibility'
 import { type ScanJobResponse, type ScanJobStart, type ScanWorkerJob, initialJobResponse } from './worker-types'
@@ -38,23 +39,34 @@ export function createInventoryJob(start: ScanJobStart, query?: PathQuery, share
       skip(path)
       return
     }
+    let sourcePath = path
+    if (path === start.target) {
+      const names: { longPath: string } = JSON.parse(queryNames(path))
+      if (names.longPath) sourcePath = names.longPath
+    }
     if (stats.isDirectory()) {
       if (start.item.kind === 'file') throw new Error('Selected file is now a folder.')
-      directories.push(path)
+      storage.observeDirectory(sourcePath)
+      directories.push(sourcePath)
+      response.directories++
       return
     }
     if (!stats.isFile()) {
       skip(path)
       return
     }
+    recordFile(path, sourcePath, stats.size, stats.mtimeMs)
+  }
+
+  function recordFile(path: string, sourcePath: string, size: number, modifiedMs: number) {
     if (path === start.target && selectedRoot && start.item.kind === 'folder') throw new Error('Selected folder is now a file.')
-    storage.markSeen(path)
-    const needsHash = start.force || storage.needsHash(path, stats.size, stats.mtimeMs)
-    if (!needsHash) storage.observeFile(path)
+    storage.markSeen(sourcePath)
+    const needsHash = start.force || storage.needsHash(sourcePath, size, modifiedMs)
+    if (!needsHash) storage.observeFile(sourcePath)
     response.entries.push({
-      path,
-      size: stats.size,
-      modifiedMs: stats.mtimeMs,
+      path: sourcePath,
+      size,
+      modifiedMs,
       needsHash
     })
     response.files++

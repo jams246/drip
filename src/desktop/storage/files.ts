@@ -1,10 +1,9 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
-import { Buffer } from 'node:buffer'
+import type { MirrorEntry, RegionFingerprint } from '../../protocol/sync'
 import { openDatabase, transaction } from './database'
-import { catalogueChange } from './sync-outbox'
+import { catalogueChange, catalogueEntry } from './sync-outbox'
 
 const WORKER_WRITE_TIMEOUT_MS = 5000
-// Preserve drive roots like c:/ when trimming trailing slashes.
 const DRIVE_ROOT_ID_LENGTH = 3
 
 export function normalizeFileId(path: string): string {
@@ -13,28 +12,13 @@ export function normalizeFileId(path: string): string {
   return id
 }
 
-export function readFileChunks(databasePath: string, watchId: string, path: string): { offset: number; length: number; hash: string }[] {
-  const store = new FileStore(databasePath, watchId)
-  try {
-    return store.readChunks(path)
-  } finally {
-    store.close()
-  }
-}
-
 export class FileStore {
   private readonly database: DatabaseSync
-  private readonly insertChunk: StatementSync
+  private readonly insertRegion: StatementSync
   private readonly insertSeen: StatementSync
   private readonly selectMetadata: StatementSync
-  private readonly selectSourcePath: StatementSync
-  private readonly deleteFile: StatementSync
   private readonly upsertFile: StatementSync
-  private readonly selectFileId: StatementSync
-  private readonly deleteChunks: StatementSync
-  private readonly insertChunks: StatementSync
   private readonly selectUnseen: StatementSync
-  private readonly selectChunks: StatementSync
 
   constructor(
     databasePath: string,
@@ -43,22 +27,16 @@ export class FileStore {
     this.database = openDatabase(databasePath, false, WORKER_WRITE_TIMEOUT_MS)
     try {
       this.database.exec(`PRAGMA temp_store = FILE;
-        CREATE TEMP TABLE staged_chunks (offset INTEGER PRIMARY KEY, length INTEGER NOT NULL, hash BLOB NOT NULL);
+        CREATE TEMP TABLE staged_regions (offset INTEGER PRIMARY KEY, length INTEGER NOT NULL, hash TEXT NOT NULL);
         CREATE TEMP TABLE seen_files (id TEXT PRIMARY KEY);`)
-      this.insertChunk = this.database.prepare('INSERT INTO staged_chunks (offset, length, hash) VALUES (?, ?, ?)')
-      this.insertSeen = this.database.prepare('INSERT OR IGNORE INTO seen_files (id) VALUES (?)')
-      this.selectMetadata = this.database.prepare('SELECT size, modified_ms FROM files WHERE watch_id = ? AND path = ?')
-      this.selectSourcePath = this.database.prepare('SELECT source_path FROM files WHERE watch_id = ? AND path = ?')
-      this.deleteFile = this.database.prepare('DELETE FROM files WHERE watch_id = ? AND path = ?')
-      this.upsertFile = this.database.prepare(`INSERT INTO files (watch_id, path, size, modified_ms, source_path) VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(watch_id, path) DO UPDATE SET size = excluded.size, modified_ms = excluded.modified_ms, source_path = excluded.source_path`)
-      this.selectFileId = this.database.prepare('SELECT id FROM files WHERE watch_id = ? AND path = ?')
-      this.deleteChunks = this.database.prepare('DELETE FROM chunks WHERE file_id = ?')
-      this.insertChunks = this.database.prepare('INSERT INTO chunks (file_id, offset, length, hash) SELECT ?, offset, length, hash FROM staged_chunks')
-      this.selectUnseen = this.database.prepare(`SELECT path FROM files WHERE watch_id = ? AND (path = ? OR substr(path, 1, ?) = ?)
-        AND path > ? AND path NOT IN (SELECT id FROM seen_files) ORDER BY path LIMIT ?`)
-      this.selectChunks = this.database.prepare(`SELECT offset, length, hash FROM chunks
-        WHERE file_id = (SELECT id FROM files WHERE watch_id = ? AND path = ?) ORDER BY offset`)
+      this.insertRegion = this.database.prepare('INSERT INTO staged_regions VALUES (?,?,?)')
+      this.insertSeen = this.database.prepare('INSERT OR IGNORE INTO seen_files VALUES (?)')
+      this.selectMetadata = this.database.prepare('SELECT kind,size,modified_ms,source_path,hash FROM files WHERE watch_id=? AND path=?')
+      this.upsertFile = this.database.prepare(`INSERT INTO files (watch_id,path,kind,size,modified_ms,source_path,hash) VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(watch_id,path) DO UPDATE SET kind=excluded.kind,size=excluded.size,modified_ms=excluded.modified_ms,
+        source_path=excluded.source_path,hash=excluded.hash`)
+      this.selectUnseen = this.database.prepare(`SELECT path FROM files WHERE watch_id=? AND (path=? OR substr(path,1,?)=?)
+        AND path>? AND path NOT IN (SELECT id FROM seen_files) ORDER BY path LIMIT ?`)
     } catch (error) {
       this.database.close()
       throw error
@@ -67,14 +45,14 @@ export class FileStore {
 
   reset(watchId: string) {
     this.abortFile()
-    this.database.exec('DELETE FROM staged_chunks; DELETE FROM seen_files')
+    this.database.exec('DELETE FROM staged_regions; DELETE FROM seen_files')
     this.watchId = watchId
   }
 
   beginFile(path: string) {
     this.abortFile()
     this.markSeen(path)
-    this.database.exec('DELETE FROM staged_chunks; BEGIN')
+    this.database.exec('DELETE FROM staged_regions; BEGIN')
   }
 
   markSeen(path: string) {
@@ -83,36 +61,56 @@ export class FileStore {
 
   needsHash(path: string, size: number, modifiedMs: number): boolean {
     const saved = this.selectMetadata.get(this.watchId, normalizeFileId(path))
-    return !saved || Number(saved.size) !== size || Number(saved.modified_ms) !== modifiedMs
+    return !saved || saved.kind !== 'file' || Number(saved.size) !== size || Number(saved.modified_ms) !== modifiedMs
+  }
+
+  private previousEntry(path: string): MirrorEntry | undefined {
+    const entry = catalogueEntry(this.database, this.watchId, path)
+    if (entry?.change.kind === 'upsert') return entry.change.entry
+    return undefined
   }
 
   removeFile(path: string) {
+    const normalized = normalizeFileId(path)
     transaction(this.database, () => {
-      catalogueChange(this.database, this.watchId, normalizeFileId(path), true)
-      this.deleteFile.run(this.watchId, normalizeFileId(path))
+      catalogueChange(this.database, this.watchId, normalized, true)
+      this.database.prepare('DELETE FROM files WHERE watch_id=? AND path=?').run(this.watchId, normalized)
     })
   }
 
-  stageChunk(offset: number, length: number, hash: string) {
-    this.insertChunk.run(offset, length, Buffer.from(hash, 'hex'))
+  stageRegion(offset: number, length: number, hash: string) {
+    this.insertRegion.run(offset, length, hash)
   }
 
-  commitFile(path: string, size: number, modifiedMs: number) {
-    const normalizedPath = normalizeFileId(path)
+  commitFile(path: string, size: number, modifiedMs: number, hash: string) {
+    const normalized = normalizeFileId(path)
     try {
-      // Keep durable reads out of TEMP staging so host edits never invalidate a WAL read snapshot.
       this.database.exec('COMMIT')
       transaction(this.database, () => {
-        this.upsertFile.run(this.watchId, normalizedPath, size, modifiedMs, path)
-        const fileId = Number(this.selectFileId.get(this.watchId, normalizedPath)!.id)
-        this.deleteChunks.run(fileId)
-        this.insertChunks.run(fileId)
-        catalogueChange(this.database, this.watchId, normalizedPath)
+        const previous = this.previousEntry(normalized)
+        this.upsertFile.run(this.watchId, normalized, 'file', size, modifiedMs, path, hash)
+        const fileId = this.database.prepare('SELECT id FROM files WHERE watch_id=? AND path=?').get(this.watchId, normalized)!.id
+        this.database.prepare('DELETE FROM file_regions WHERE file_id=?').run(fileId)
+        this.database.prepare('INSERT INTO file_regions SELECT ?,offset,length,hash FROM staged_regions').run(fileId)
+        catalogueChange(this.database, this.watchId, normalized, false, previous)
       })
     } catch (error) {
       this.abortFile()
       throw error
     }
+  }
+
+  observeDirectory(path: string) {
+    this.markSeen(path)
+    const normalized = normalizeFileId(path)
+    const saved = this.selectMetadata.get(this.watchId, normalized)
+    if (saved?.kind === 'directory' && saved.source_path === path) return
+    transaction(this.database, () => {
+      const previous = this.previousEntry(normalized)
+      this.upsertFile.run(this.watchId, normalized, 'directory', 0, 0, path, '')
+      this.database.prepare('DELETE FROM file_regions WHERE file_id=(SELECT id FROM files WHERE watch_id=? AND path=?)').run(this.watchId, normalized)
+      catalogueChange(this.database, this.watchId, normalized, false, previous)
+    })
   }
 
   abortFile() {
@@ -121,31 +119,31 @@ export class FileStore {
 
   observeFile(path: string) {
     const normalized = normalizeFileId(path)
-    const saved = this.selectSourcePath.get(this.watchId, normalized)
+    const saved = this.selectMetadata.get(this.watchId, normalized)
     if (!saved || saved.source_path === path) return
     transaction(this.database, () => {
-      this.database.prepare('UPDATE files SET source_path = ? WHERE watch_id = ? AND path = ?').run(path, this.watchId, normalized)
-      catalogueChange(this.database, this.watchId, normalized)
+      const previous = this.previousEntry(normalized)
+      this.database.prepare('UPDATE files SET source_path=? WHERE watch_id=? AND path=?').run(path, this.watchId, normalized)
+      catalogueChange(this.database, this.watchId, normalized, false, previous)
     })
   }
 
   coverage(safe: boolean) {
-    this.database.prepare('UPDATE sync_roots SET coverage = ? WHERE watch_id = ?').run(safe ? 1 : 0, this.watchId)
+    this.database.prepare('UPDATE watch_locations SET coverage=? WHERE id=?').run(safe ? 1 : 0, this.watchId)
   }
 
   unseenPaths(scope: string, after: string, limit: number): string[] {
-    const normalizedScope = normalizeFileId(scope)
-    const prefix = normalizedScope.endsWith('/') ? normalizedScope : `${normalizedScope}/`
-    return this.selectUnseen.all(this.watchId, normalizedScope, prefix.length, prefix, after, limit).map((row) => String(row.path))
+    const normalized = normalizeFileId(scope)
+    const prefix = normalized.endsWith('/') ? normalized : normalized + '/'
+    return this.selectUnseen.all(this.watchId, normalized, prefix.length, prefix, after, limit).map((row) => String(row.path))
   }
 
-  readChunks(path: string): { offset: number; length: number; hash: string }[] {
-    return this.selectChunks.all(this.watchId, normalizeFileId(path)).map((row) => ({
-      offset: Number(row.offset),
-      length: Number(row.length),
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SQLite BLOB columns return byte arrays.
-      hash: Buffer.from(row.hash as Uint8Array).toString('hex')
-    }))
+  readRegions(path: string): RegionFingerprint[] {
+    return this.database
+      .prepare(`SELECT offset,length,hash FROM file_regions
+      WHERE file_id=(SELECT id FROM files WHERE watch_id=? AND path=?) ORDER BY offset`)
+      .all(this.watchId, normalizeFileId(path))
+      .map((row) => ({ offset: Number(row.offset), length: Number(row.length), hash: String(row.hash) }))
   }
 
   close() {

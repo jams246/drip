@@ -2,7 +2,8 @@ import { lstatSync } from 'node:fs'
 import { queryNames } from '#drip-window-icon'
 import { recordDiagnostic } from '../diagnostics'
 import { FileStore, normalizeFileId } from '../storage/files'
-import { ChunkScanner } from './chunker'
+import { ContentHasher } from './hash'
+import { RegionScanner } from './regions'
 import { inspectScanPath, inspectScopedScanPath } from './eligibility'
 import { FileReader } from './reader'
 import { type ScanJobResponse, type ScanJobStart, type ScanWorkerJob, initialJobResponse } from './worker-types'
@@ -17,10 +18,12 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, sharedSto
   const storage = sharedStorage ?? new FileStore(start.databasePath, start.item.id)
   storage.reset(start.item.id)
   let reader: FileReader | undefined
-  let scanner: ChunkScanner | undefined
+  let scanner: RegionScanner | undefined
+  let content: ContentHasher | undefined
   let ready = false
   let closed = false
   let skipped = false
+  let directory = false
   let sourcePath = start.target
   let lastProgress = 0
 
@@ -29,6 +32,7 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, sharedSto
     closed = true
     try {
       scanner?.dispose()
+      content?.destroy()
       reader?.close()
     } finally {
       if (sharedStorage) storage.abortFile()
@@ -46,16 +50,28 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, sharedSto
     if (response.missing || skipped) {
       response.skipped = skipped ? 1 : 0
       ready = true
-    } else {
-      const names: { longPath: string } = JSON.parse(queryNames(start.target))
-      if (names.longPath) sourcePath = names.longPath
-      reader = new FileReader(sourcePath)
-      response.size = reader.size
-      recordDiagnostic('hash.opened', `job=${start.jobId} size=${response.size}`)
-      response.modifiedMs = reader.modifiedMs
-      storage.beginFile(start.target)
-      scanner = new ChunkScanner((offset: number, length: number, hash: string) => storage.stageChunk(offset, length, hash))
+      return
     }
+    openSource()
+  }
+
+  function openSource() {
+    const names: { longPath: string } = JSON.parse(queryNames(start.target))
+    if (names.longPath) sourcePath = names.longPath
+    if (lstatSync(sourcePath).isDirectory()) {
+      if (start.item.kind === 'file') throw new Error('Selected file is now a folder.')
+      directory = true
+      response.directories = 1
+      ready = true
+      return
+    }
+    reader = new FileReader(sourcePath)
+    response.size = reader.size
+    recordDiagnostic('hash.opened', `job=${start.jobId} size=${response.size}`)
+    response.modifiedMs = reader.modifiedMs
+    storage.beginFile(start.target)
+    scanner = new RegionScanner((offset: number, length: number, hash: string) => storage.stageRegion(offset, length, hash))
+    content = new ContentHasher()
   }
 
   try {
@@ -75,24 +91,23 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, sharedSto
     const count = reader!.read(buffer)
     if (count > 0) {
       scanner!.update(buffer, count)
+      content!.updateRange(buffer, 0, count)
       response.bytes = scanner!.bytes
-      response.chunks = scanner!.chunks
       const percent = Math.min(
         HASH_PROGRESS_COMPLETE,
         Math.floor(((response.bytes / response.size) * HASH_PROGRESS_COMPLETE) / HASH_PROGRESS_STEP) * HASH_PROGRESS_STEP
       )
       if (percent > lastProgress) {
         lastProgress = percent
-        recordDiagnostic('hash.progress', `job=${start.jobId} percent=${percent} bytes=${response.bytes} chunks=${response.chunks}`)
+        recordDiagnostic('hash.progress', `job=${start.jobId} percent=${percent} bytes=${response.bytes}`)
       }
       return response
     }
     reader!.validate()
     scanner!.finish()
     response.bytes = scanner!.bytes
-    response.chunks = scanner!.chunks
     response.files = 1
-    recordDiagnostic('hash.complete', `job=${start.jobId} bytes=${response.bytes} chunks=${response.chunks}`)
+    recordDiagnostic('hash.complete', `job=${start.jobId} bytes=${response.bytes}`)
     response.type = 'ready'
     ready = true
     return response
@@ -108,11 +123,17 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, sharedSto
       if (normalizeFileId(start.target) !== normalizeFileId(start.item.path)) {
         validateSelection()
         storage.removeFile(start.target)
-      }
+      } else storage.coverage(false)
     } else if (!skipped) {
       if (eligibility !== 'eligible') throw new Error('File is no longer eligible for hashing.')
-      reader!.validate()
-      storage.commitFile(sourcePath, response.bytes, response.modifiedMs)
+      if (directory) {
+        if (!lstatSync(sourcePath).isDirectory()) throw new Error('Directory changed before scan commit.')
+        storage.observeDirectory(sourcePath)
+      } else {
+        reader!.validate()
+        storage.commitFile(sourcePath, response.bytes, response.modifiedMs, content!.hex())
+        if (start.item.kind === 'file' && normalizeFileId(start.target) === normalizeFileId(start.item.path)) storage.coverage(true)
+      }
     }
     response.type = 'done'
     close()

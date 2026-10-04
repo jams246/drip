@@ -1,12 +1,12 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query, Req } from '@nestjs/common'
 import type { IncomingMessage } from 'node:http'
+import { MAX_REGION_BYTES } from '../../../protocol/sync.js'
 import { SynchronizationApplication } from '../Application/synchronization.js'
 import { SyncError } from '../Domain/errors.js'
 
 type DeviceRequest = IncomingMessage & { deviceId: string }
 const NO_CONTENT = 204
 const ACCEPTED = 202
-const MAX_CHUNK_BYTES = 1_048_576
 
 @Controller('v1')
 export class SynchronizationController {
@@ -31,11 +31,34 @@ export class SynchronizationController {
     return this.application.offer(request.deviceId, rootId, body)
   }
 
-  @Put('roots/:rootId/operations/:operationId/chunks/:hash')
+  @Post('roots/:rootId/operations/:operationId/regions')
+  regions(@Req() request: DeviceRequest, @Param('rootId') rootId: string, @Param('operationId') operationId: string, @Body() body: unknown) {
+    return this.application.addRegions(request.deviceId, rootId, operationId, body)
+  }
+
+  @Post('roots/:rootId/operations/:operationId/regions/complete')
+  @HttpCode(ACCEPTED)
+  completeRegions(@Req() request: DeviceRequest, @Param('rootId') rootId: string, @Param('operationId') operationId: string) {
+    return this.application.completeRegions(request.deviceId, rootId, operationId)
+  }
+
+  @Get('roots/:rootId/operations/:operationId/regions')
+  listRegions(
+    @Req() request: DeviceRequest,
+    @Param('rootId') rootId: string,
+    @Param('operationId') operationId: string,
+    @Query() query: Record<string, string>
+  ) {
+    return this.application.listRegions(request.deviceId, rootId, operationId, {
+      after: query.after === undefined ? undefined : Number(query.after),
+      limit: query.limit === undefined ? undefined : Number(query.limit)
+    })
+  }
+
+  @Put('roots/:rootId/operations/:operationId/regions/:offset')
   @HttpCode(NO_CONTENT)
-  async upload(@Req() request: DeviceRequest, @Param('rootId') rootId: string, @Param('operationId') operationId: string, @Param('hash') hash: string) {
-    const bytes = await readChunk(request)
-    await this.application.uploadChunk(request.deviceId, rootId, operationId, hash, bytes)
+  async upload(@Req() request: DeviceRequest, @Param('rootId') rootId: string, @Param('operationId') operationId: string, @Param('offset') offset: string) {
+    await this.application.uploadRegion(request.deviceId, rootId, operationId, Number(offset), await readRegion(request))
   }
 
   @Post('roots/:rootId/operations/:operationId/commit')
@@ -55,17 +78,16 @@ export class SynchronizationController {
   }
 }
 
-async function readChunk(request: IncomingMessage): Promise<Uint8Array> {
-  const contentType = request.headers['content-type']?.split(';')[0]
-  if (contentType !== 'application/octet-stream') throw new SyncError('invalid_request', 'Chunk uploads require application/octet-stream.')
-  const declared = Number(request.headers['content-length'])
-  if (declared > MAX_CHUNK_BYTES) throw new SyncError('invalid_request', 'Chunk upload exceeds size limit.')
+async function readRegion(request: IncomingMessage): Promise<Uint8Array> {
+  if (request.headers['content-type']?.split(';')[0] !== 'application/octet-stream')
+    throw new SyncError('invalid_request', 'Region uploads require application/octet-stream.')
+  if (Number(request.headers['content-length']) > MAX_REGION_BYTES) throw new SyncError('invalid_request', 'Region upload exceeds size limit.')
   const parts: Uint8Array[] = []
   let size = 0
   for await (const part of request) {
-    if (!(part instanceof Uint8Array)) throw new SyncError('invalid_request', 'Invalid chunk stream.')
+    if (!(part instanceof Uint8Array)) throw new SyncError('invalid_request', 'Invalid region stream.')
     size += part.length
-    if (size > MAX_CHUNK_BYTES) throw new SyncError('invalid_request', 'Chunk upload exceeds size limit.')
+    if (size > MAX_REGION_BYTES) throw new SyncError('invalid_request', 'Region upload exceeds size limit.')
     parts.push(part)
   }
   return Buffer.concat(parts, size)

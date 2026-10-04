@@ -43,7 +43,7 @@ function createScanActivity(scan: ScanSnapshot): Omit<ActivityEntry, 'id' | 'tim
   if (scan.state === 'error') title = 'Scan failed'
   return {
     title,
-    detail: scan.error || `${scan.files} files, ${scan.chunks} chunks, ${scan.skipped} skipped.`,
+    detail: scan.error || `${scan.files} files, ${scan.directories} directories, ${scan.skipped} skipped.`,
     path: scan.path,
     severity: failed ? 'error' : 'success'
   }
@@ -58,7 +58,7 @@ export function useScans(onSelected: () => void, addActivity: (entry: Omit<Activ
     paused: false,
     verifying: false,
     health: [],
-    sync: { state: 'disconnected', url: '', pending: 0, message: 'Connect to a server to start synchronization.' }
+    sync: { state: 'disconnected', url: '', pending: 0, transferredBytes: 0, message: 'Connect to a server to start synchronization.' }
   })
   const current = useRef(state)
   const requests = useRef<ScanRequest[]>([])

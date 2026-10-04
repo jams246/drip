@@ -18,7 +18,7 @@ export interface ServerOptions {
 
 const DEFAULT_PORT = 8000
 const MAX_PORT = 65535
-const COLLECTION_INTERVAL_MS = 60_000
+const EXPIRY_INTERVAL_MS = 60_000
 
 export async function createServer(options: ServerOptions) {
   const host = options.host ?? '127.0.0.1'
@@ -31,34 +31,34 @@ export async function createServer(options: ServerOptions) {
     throw error
   })
   let closeAdmin: (() => Promise<void>) | undefined
-  let garbageTimer: ReturnType<typeof setInterval> | undefined
+  let expiryTimer: ReturnType<typeof setInterval> | undefined
   const access = application.get(AccessApplication)
   let closed = false
   let listening = false
-  let collecting: Promise<void> | undefined
+  let expiring: Promise<void> | undefined
   return {
     app: application,
     access,
     synchronization: resources.synchronization.application,
-    collectGarbage: () => resources.synchronization.collectGarbage(),
+    expireOffers: () => resources.synchronization.expireOffers(),
     async listen(): Promise<void> {
       if (closed) throw new Error('The server is closed.')
       if (listening) return
       await application.listen(port, host)
       listening = true
       if (!options.testMode) closeAdmin = await startAdminSocket(dataDirectory, access)
-      garbageTimer = setInterval(() => {
-        if (collecting) return
-        collecting = resources.synchronization
-          .collectGarbage()
+      expiryTimer = setInterval(() => {
+        if (expiring) return
+        expiring = resources.synchronization
+          .expireOffers()
           .catch((error: unknown) => {
-            console.error('Chunk collection failed:', error instanceof Error ? error.message : String(error))
+            console.error('Staging cleanup failed:', error instanceof Error ? error.message : String(error))
           })
           .finally(() => {
-            collecting = undefined
+            expiring = undefined
           })
-      }, COLLECTION_INTERVAL_MS)
-      garbageTimer.unref()
+      }, EXPIRY_INTERVAL_MS)
+      expiryTimer.unref()
     },
     address(): AddressInfo | null {
       const address: AddressInfo | string | null = application.getHttpServer().address()
@@ -68,10 +68,10 @@ export async function createServer(options: ServerOptions) {
     async close(): Promise<void> {
       if (closed) return
       closed = true
-      clearInterval(garbageTimer)
+      clearInterval(expiryTimer)
       try {
         await closeAdmin?.()
-        await collecting
+        await expiring
       } finally {
         try {
           await application.close()

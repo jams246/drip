@@ -14,7 +14,7 @@ export interface ScanSnapshot {
   kind: ScanLocation['kind']
   state: 'queued' | 'pending' | 'scanning' | 'completed' | 'empty' | 'error' | 'completed-with-errors'
   bytes: number
-  chunks: number
+  directories: number
   files: number
   skipped: number
   errors: number

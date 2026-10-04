@@ -69,6 +69,7 @@ export function DesktopApp() {
           <Home
             locations={scans.locations}
             scans={scans.scans}
+            sync={scans.sync}
             picking={scans.picking}
             loading={scans.storage === 'loading'}
             error={scans.error}

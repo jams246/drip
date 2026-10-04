@@ -15,7 +15,7 @@ export class SyncHttpError extends Error {
 }
 
 export interface SyncTransport {
-  request<T>(credentials: SyncCredentials, path: string, method?: string, body?: unknown): Promise<T>
+  request<T>(credentials: SyncCredentials, path: string, method?: string, body?: unknown, binaryLength?: number): Promise<T>
   cancel(): void
 }
 
@@ -34,7 +34,7 @@ function requestRoute(path: string): string {
   if (path === '/v1/device') return 'device'
   if (path === '/v1/roots') return 'root'
   if (!path.startsWith('/v1/roots/')) return 'unknown'
-  if (path.includes('/chunks/')) return 'chunk'
+  if (path.includes('/regions')) return 'region'
   if (path.endsWith('/commit')) return 'commit'
   if (path.includes('/operations')) return 'operation'
   if (path.includes('/heads')) return 'heads'
@@ -52,9 +52,11 @@ async function readResponse(response: Response, details: string): Promise<unknow
 
 export function createSyncTransport(): SyncTransport {
   const controllers = new Set<AbortController>()
+  let stopped = false
   return {
     // oxlint-disable-next-line eslint/max-statements -- One request owns payload, response diagnostics, error translation, and timeout cleanup.
-    async request<T>(credentials: SyncCredentials, path: string, method = 'GET', body?: unknown): Promise<T> {
+    async request<T>(credentials: SyncCredentials, path: string, method = 'GET', body?: unknown, binaryLength?: number): Promise<T> {
+      if (stopped) throw new Error('Synchronization transport has stopped.')
       const controller = new AbortController()
       controllers.add(controller)
       const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS)
@@ -62,7 +64,11 @@ export function createSyncTransport(): SyncTransport {
         const headers: Record<string, string> = { Authorization: `Bearer ${credentials.deviceId}.${credentials.secret}` }
         if (body !== undefined) headers['Content-Type'] = body instanceof Uint8Array ? 'application/octet-stream' : 'application/json'
         let payload: BodyInit | undefined
-        if (body !== undefined) payload = body instanceof Uint8Array ? new Uint8Array(body) : JSON.stringify(body)
+        if (body instanceof Uint8Array) {
+          if (binaryLength !== undefined && (!Number.isSafeInteger(binaryLength) || binaryLength < 0 || binaryLength > body.length))
+            throw new RangeError('Invalid binary request length.')
+          payload = binaryLength === undefined || binaryLength === body.length ? new Uint8Array(body) : body.slice(0, binaryLength)
+        } else if (body !== undefined) payload = JSON.stringify(body)
         const details = `route=${requestRoute(path)} method=${method}`
         recordDiagnostic('sync.http.fetch.start', details)
         // oxlint-disable-next-line unicorn/no-invalid-fetch-options -- The protocol method is dynamic; Perry requires an inline options object.
@@ -97,6 +103,7 @@ export function createSyncTransport(): SyncTransport {
       }
     },
     cancel() {
+      stopped = true
       for (const controller of controllers) controller.abort()
     }
   }

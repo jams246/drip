@@ -1,6 +1,7 @@
-export const CHUNK_PROFILE = 'fastcdc-v1-blake3-256' as const
+export const MAX_REGION_BYTES = 1_048_576
+export const REGION_PAGE_LIMIT = 1000
 
-export interface Chunk {
+export interface RegionFingerprint {
   offset: number
   length: number
   hash: string
@@ -21,7 +22,7 @@ export interface Device {
 export interface RootRegistration {
   rootId: string
   name: string
-  kind: 'file' | 'folder'
+  kind: 'folder'
 }
 
 export interface RootReceipt {
@@ -29,14 +30,27 @@ export interface RootReceipt {
   revision: number
 }
 
-export interface FileHead {
+export interface FileEntry {
+  kind: 'file'
   path: string
   size: number
   modifiedMs: number
-  chunks: Chunk[]
+  hash: string
 }
 
-export type Change = (FileHead & { kind: 'upsert'; profile: typeof CHUNK_PROFILE }) | { kind: 'delete'; path: string }
+export interface DirectoryEntry {
+  kind: 'directory'
+  path: string
+}
+
+export type MirrorEntry = FileEntry | DirectoryEntry
+
+export interface FileMove {
+  from: string
+  entry: FileEntry
+}
+
+export type Change = { kind: 'upsert'; entry: MirrorEntry } | { kind: 'delete'; path: string } | { kind: 'move'; moves: FileMove[] }
 
 export interface Offer {
   operationId: string
@@ -47,12 +61,19 @@ export interface Offer {
 export interface OperationReceipt {
   status: 'offered' | 'publishing' | 'committed' | 'aborted'
   revision: number
-  missing: string[]
+  planComplete: boolean
+  stageReady: boolean
+  uploadRequired: boolean
+}
+
+export interface RegionPage {
+  required: number[]
+  next: number | null
 }
 
 export interface HeadsPage {
   revision: number
-  heads: FileHead[]
+  heads: MirrorEntry[]
   next: string | null
 }
 

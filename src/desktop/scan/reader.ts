@@ -24,10 +24,15 @@ export class FileReader {
   }
 
   read(buffer: Uint8Array): number {
-    if (buffer.length === 0) throw new RangeError('Reader buffer must not be empty')
+    return this.readRange(buffer, 0, buffer.length)
+  }
+
+  readRange(buffer: Uint8Array, offset: number, length: number): number {
+    if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 1 || offset + length > buffer.length)
+      throw new RangeError('Invalid reader buffer range')
     if (this.descriptor < 0) throw new Error('File reader is closed.')
-    const count = readSync(this.descriptor, buffer, 0, buffer.length, null)
-    if (count < 0 || count > buffer.length) throw new Error('Invalid filesystem read result')
+    const count = readSync(this.descriptor, buffer, offset, length, null)
+    if (count < 0 || count > length) throw new Error('Invalid filesystem read result')
     this.bytes += count
     return count
   }

@@ -4,7 +4,7 @@ import { initialScan } from '../scan/state'
 import type { ScanLocation, ScanSnapshot } from '../scan/types'
 import { openDatabase, transaction } from './database'
 import { MonitoringStore } from './monitoring'
-import { bindSyncRoot } from './sync-outbox'
+import { retireSyncScope } from './sync-outbox'
 
 export class WatchStore {
   private readonly database: DatabaseSync
@@ -21,7 +21,7 @@ export class WatchStore {
       this.monitoring = new MonitoringStore(this.database)
       this.selectLocations = this.database.prepare('SELECT id, path, kind, last_scan, scan_pending FROM watch_locations ORDER BY rowid')
       this.insertLocation = this.database.prepare(`INSERT INTO watch_locations (id, path, kind, scan_pending) VALUES (?, ?, ?, 1)
-        ON CONFLICT(id) DO UPDATE SET path = excluded.path, kind = excluded.kind, scan_pending = 1`)
+        ON CONFLICT(id) DO UPDATE SET path = excluded.path, kind = excluded.kind, scan_pending = 1, coverage = 0`)
       this.updateScan = this.database.prepare('UPDATE watch_locations SET last_scan = ?, scan_pending = 0 WHERE id = ?')
       this.markPending = this.database.prepare('UPDATE watch_locations SET scan_pending = 1 WHERE id = ?')
       this.deleteLocation = this.database.prepare('DELETE FROM watch_locations WHERE id = ?')
@@ -60,7 +60,6 @@ export class WatchStore {
   saveLocation(item: ScanLocation) {
     transaction(this.database, () => {
       this.insertLocation.run(item.id, item.path, item.kind)
-      bindSyncRoot(this.database, item)
     })
   }
 
@@ -68,7 +67,7 @@ export class WatchStore {
     const snapshot = {
       state: scan.state,
       bytes: scan.bytes,
-      chunks: scan.chunks,
+      directories: scan.directories,
       files: scan.files,
       skipped: scan.skipped,
       errors: scan.errors,
@@ -89,12 +88,7 @@ export class WatchStore {
 
   removeLocation(id: string) {
     transaction(this.database, () => {
-      const root = this.database.prepare('SELECT root_id FROM sync_roots WHERE watch_id = ?').get(id)
-      this.database.prepare('UPDATE sync_roots SET active = 0, coverage = 0 WHERE watch_id = ?').run(id)
-      if (root) {
-        this.database.prepare('DELETE FROM sync_pending WHERE root_id = ?').run(root.root_id)
-        this.database.prepare('UPDATE sync_operations SET abort_requested = 1 WHERE root_id = ?').run(root.root_id)
-      }
+      retireSyncScope(this.database, id)
       this.deleteLocation.run(id)
     })
   }
