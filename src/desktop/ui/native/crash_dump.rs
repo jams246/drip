@@ -105,12 +105,12 @@ pub(crate) fn dump_worker() {
                 pointers: EXCEPTION.load(Ordering::SeqCst),
                 client_pointers: 0,
             };
-            // Include thread metadata, modules, registers, and stacks without a full memory dump.
+            // Include heap memory referenced by stacks and registers to diagnose corrupt pointers.
             let success = MiniDumpWriteDump(
                 GetCurrentProcess(),
                 GetCurrentProcessId(),
                 file,
-                0x1000,
+                0x1000 | 0x40,
                 &exception,
                 null_mut(),
                 null_mut(),
