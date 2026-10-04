@@ -1,0 +1,10 @@
+**
+!package.json
+!package-lock.json
+!tsconfig.server.json
+!src/
+!src/server/
+!src/server/**
+!src/protocol/
+!src/protocol/**
+**/.env*
