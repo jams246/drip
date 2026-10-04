@@ -25,8 +25,7 @@ function startJob(message: ScanJobStart) {
     workerStorage = new FileStore(message.databasePath, message.item.id)
     workerDatabasePath = message.databasePath
   }
-  activeJob =
-    message.kind === 'inventory' ? createInventoryJob(message, undefined, workerStorage) : createHashJob(message, scanBuffer, undefined, workerStorage)
+  activeJob = message.kind === 'inventory' ? createInventoryJob(message, undefined, workerStorage) : createHashJob(message, scanBuffer, workerStorage)
   publish(activeResponse)
 }
 

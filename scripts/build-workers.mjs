@@ -81,6 +81,8 @@ if (process.argv.includes('--sqlite-verification')) {
     ['src/checks/sqlite-native-worker.ts', '.perry/generated/sqlite-native-worker.ts']
   )
 }
+if (process.argv.includes('--desktop-sync-verification')) entries.push(['src/checks/desktop-sync.ts', '.perry/generated/desktop-sync.ts'])
+if (process.argv.includes('--desktop-hash-verification')) entries.push(['src/checks/desktop-hash.ts', '.perry/generated/desktop-hash.ts'])
 for (const [input, file] of entries) {
   await writeFile(file, await flattenWorker(input))
 }

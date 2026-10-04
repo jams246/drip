@@ -49,11 +49,13 @@ export function createInventoryJob(start: ScanJobStart, query?: PathQuery, share
     }
     if (path === start.target && selectedRoot && start.item.kind === 'folder') throw new Error('Selected folder is now a file.')
     storage.markSeen(path)
+    const needsHash = start.force || storage.needsHash(path, stats.size, stats.mtimeMs)
+    if (!needsHash) storage.observeFile(path)
     response.entries.push({
       path,
       size: stats.size,
       modifiedMs: stats.mtimeMs,
-      needsHash: start.force || storage.needsHash(path, stats.size, stats.mtimeMs)
+      needsHash
     })
     response.files++
   }
@@ -167,6 +169,7 @@ export function createInventoryJob(start: ScanJobStart, query?: PathQuery, share
       if (response.missing && eligibility !== 'missing') throw new Error('Inventory scope appeared before deletion was committed.')
       if (!response.missing && eligibility !== 'eligible') throw new Error('Inventory scope changed before commit.')
     }
+    if (selectedRoot) storage.coverage(pruningSafe && response.errors === 0 && response.skipped === 0 && !response.missing)
     response.entries = []
     response.type = 'done'
     close()

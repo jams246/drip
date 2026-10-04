@@ -4,26 +4,43 @@
   "private": true,
   "type": "module",
   "main": "src/desktop/main.ts",
+  "bin": {
+    "drip": "dist/server/bootstrap/cli.js"
+  },
   "imports": {
     "#drip-window-icon": "./src/desktop/ui/native/icon.ts"
   },
   "scripts": {
     "dev": "vite src/desktop",
-    "build": "npm run typecheck && node scripts/build-frontend.mjs",
-    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && node scripts/build-frontend.mjs && npm run build:server",
+    "build:server": "tsc -p tsconfig.server.json",
+    "typecheck": "npm run typecheck:desktop && npm run typecheck:server",
+    "typecheck:desktop": "tsc --noEmit",
+    "typecheck:server": "tsc --noEmit -p tsconfig.server.json",
+    "check:architecture": "node scripts/check-architecture.mjs",
+    "build:checks": "node scripts/verification/build-desktop-checks.mjs",
+    "verify:server": "npm run build:server && npm run build:checks && node scripts/verification/server.mjs",
+    "verify:performance": "node scripts/verification/performance.mjs",
+    "analyze:complexity": "node scripts/verification/complexity.mjs",
     "lint": "oxlint --deny-warnings",
     "lint:fix": "npm run lint -- --fix",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run check:architecture",
     "preview": "vite preview src/desktop --outDir ../../dist/desktop"
   },
   "dependencies": {
+    "@nestjs/common": "12.1.2",
+    "@nestjs/core": "12.1.2",
+    "@nestjs/platform-express": "12.1.2",
     "@noble/hashes": "2.4.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
   },
   "devDependencies": {
+    "@types/express": "5.0.6",
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

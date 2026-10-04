@@ -1,3 +1,5 @@
+import type { SyncStatus } from '../sync/types'
+
 export interface ScanLocation {
   id: string
   name: string
@@ -28,6 +30,7 @@ export type ScanRequest =
   | { type: 'remove'; id: string }
   | { type: 'pause'; paused: boolean }
   | { type: 'verify' }
+  | { type: 'connect'; url: string; token: string }
 
 export interface WatchHealth {
   id: string
@@ -43,3 +46,4 @@ export type ScanEvent =
   | { type: 'monitoring'; paused: boolean; verifying: boolean; health: WatchHealth[] }
   | { type: 'selection-ended' }
   | { type: 'error'; message: string }
+  | { type: 'sync'; status: SyncStatus }

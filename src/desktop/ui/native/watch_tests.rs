@@ -17,10 +17,29 @@ fn query(path: &str) -> String {
     metadata::query_wide(&wide_path(path))
 }
 
-fn fixture(name: &str) -> PathBuf {
-    let path = PathBuf::from(r"C:\code\drip\.perry\verification\watch")
-        .join(format!("native-{}-{name}", std::process::id()));
+fn fixture_root() -> PathBuf {
+    PathBuf::from(std::env::var_os("DRIP_SERVER_VERIFY_DIR")
+        .expect("Run native tests through the owned .server verification fixture."))
+        .join("watch")
+}
+
+pub(crate) fn fixture(name: &str) -> PathBuf {
+    let root = fixture_root();
+    let permitted = fs::canonicalize(std::env::temp_dir()).unwrap();
+    let owned_run = permitted.parent().unwrap();
+    assert!(owned_run.join(".drip-test-owner.json").is_file());
+    let parent = root.parent().unwrap();
+    let resolved_parent = if parent.exists() {
+        fs::canonicalize(parent).unwrap()
+    } else {
+        let ancestor = fs::canonicalize(parent.parent().unwrap()).unwrap();
+        assert!(ancestor.starts_with(&permitted));
+        ancestor.join(parent.file_name().unwrap())
+    };
+    assert!(resolved_parent.starts_with(&permitted));
+    let path = root.join(format!("native-{}-{name}", std::process::id()));
     fs::create_dir_all(&path).unwrap();
+    assert!(fs::canonicalize(&path).unwrap().starts_with(&permitted));
     path
 }
 
@@ -37,9 +56,9 @@ fn wait_for(needle: &str) -> String {
     panic!("Missing notification {needle}: {records}");
 }
 
-fn remove_fixture(path: &PathBuf) {
+pub(crate) fn remove_fixture(path: &PathBuf) {
     let absolute = fs::canonicalize(path).unwrap();
-    let permitted = fs::canonicalize(r"C:\code\drip\.perry\verification\watch").unwrap();
+    let permitted = fs::canonicalize(fixture_root()).unwrap();
     assert!(absolute.starts_with(&permitted));
     assert_ne!(absolute, permitted);
     fs::remove_dir_all(path).unwrap();

@@ -1,0 +1,81 @@
+diff --git a/crates/perry-runtime/src/event_pump.rs b/crates/perry-runtime/src/event_pump.rs
+index bf6799d..973b619 100644
+--- a/crates/perry-runtime/src/event_pump.rs
++++ b/crates/perry-runtime/src/event_pump.rs
+@@ -422,6 +422,9 @@ extern "C" {
+ /// when nothing is registered.
+ #[no_mangle]
+ pub extern "C" fn perry_poll() -> i32 {
++    // Native UI hosts own the wait loop, so their poll must also drive I/O.
++    // The registered fast driver yields after a bounded tick and is idle-cheap.
++    invoke_wait_driver_fast();
+     // SAFETY: every call site below is a Perry C FFI surface declared with
+     // `extern "C"` linkage and stable across host builds; no thread-safety
+     // invariants beyond what each individual function already documents.
+diff --git a/crates/perry-stdlib/src/fetch/abort_bridge.rs b/crates/perry-stdlib/src/fetch/abort_bridge.rs
+index f160cd9..31184a5 100644
+--- a/crates/perry-stdlib/src/fetch/abort_bridge.rs
++++ b/crates/perry-stdlib/src/fetch/abort_bridge.rs
+@@ -213,7 +213,16 @@ pub(crate) async fn run_request(
+                     .unwrap_or("")
+                     .to_string();
+                 let headers = super::headers_from_header_map(response.headers());
+-                let body = response.bytes().await.unwrap_or_default().to_vec();
++                let body = match response.bytes().await {
++                    Ok(body) => body.to_vec(),
++                    Err(error) => {
++                        let message = format!("Fetch response body failed: {}", error);
++                        queue_deferred_resolution(promise_ptr, false, move || unsafe {
++                            super::fetch_error_bits(message)
++                        });
++                        return;
++                    }
++                };
+                 let response_id = super::alloc_fetch_handle_id();
+                 super::FETCH_RESPONSES.lock().unwrap().insert(
+                     response_id,
+@@ -236,11 +245,10 @@ pub(crate) async fn run_request(
+                 queue_promise_resolution(promise_ptr, true, result_bits);
+             }
+             Err(e) => {
+-                let err_msg = format!("Fetch error: {}", e);
+-                // SAFETY: `fetch_error_bits` allocates an Error JSValue; this is
+-                // the worker-side error path it replaces verbatim.
+-                let err_bits = unsafe { super::fetch_error_bits(&err_msg) };
+-                queue_promise_resolution(promise_ptr, false, err_bits);
++                let err_msg = format!("Fetch error: {:?}", e);
++                queue_deferred_resolution(promise_ptr, false, move || unsafe {
++                    super::fetch_error_bits(err_msg)
++                });
+             }
+         }
+     };
+diff --git a/crates/perry-stdlib/src/fetch/mod.rs b/crates/perry-stdlib/src/fetch/mod.rs
+index ef57a1f..4fbef48 100644
+--- a/crates/perry-stdlib/src/fetch/mod.rs
++++ b/crates/perry-stdlib/src/fetch/mod.rs
+@@ -113,11 +113,22 @@ lazy_static::lazy_static! {
+ 
+ /// Shared builder options for every fetch client (direct or proxied).
+ fn fetch_client_builder() -> reqwest::ClientBuilder {
+-    reqwest::Client::builder()
++    let mut builder = reqwest::Client::builder()
++        .redirect(reqwest::redirect::Policy::none())
+         .user_agent(concat!("perry/", env!("CARGO_PKG_VERSION")))
+         .pool_idle_timeout(std::time::Duration::from_secs(90))
+         .pool_max_idle_per_host(16)
+-        .tcp_keepalive(std::time::Duration::from_secs(60))
++        .tcp_keepalive(std::time::Duration::from_secs(60));
++    if let Some(path) = std::env::var_os("SSL_CERT_FILE") {
++        if let Ok(pem) = std::fs::read(path) {
++            if let Ok(certificates) = reqwest::Certificate::from_pem_bundle(&pem) {
++                for certificate in certificates {
++                    builder = builder.add_root_certificate(certificate);
++                }
++            }
++        }
++    }
++    builder
+ }
+ 
+ /// The client every fetch path must use: the proxied client when a global

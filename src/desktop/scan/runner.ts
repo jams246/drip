@@ -26,7 +26,9 @@ export function createJobRunner(context: RunnerContext) {
   const progress = createScanProgress()
   const callbacks: (() => void)[] = []
   let nextJobId = 0
-  let active: { job: PendingJob; item: ScanLocation; jobId: number; cancelling: boolean; started: boolean } | undefined
+  let hashJobs = 0
+  let hashedBytes = 0
+  let active: { job: PendingJob; item: ScanLocation; jobId: number; cancelling: boolean; started: boolean; hashedBytes: number } | undefined
   let workerError = ''
   let stopped = false
   let idleCancellation = false
@@ -68,7 +70,7 @@ export function createJobRunner(context: RunnerContext) {
     if (!job) return
     const item = context.locations.find((entry) => entry.id === job.watchId)
     if (!item) return startNext()
-    const current = { job, item, jobId: ++nextJobId, cancelling: false, started: false }
+    const current = { job, item, jobId: ++nextJobId, cancelling: false, started: false, hashedBytes: 0 }
     active = current
     context.publish({ type: 'progress', scan: progress.begin(item, current.jobId, job.path) })
     context.writes.enqueue(
@@ -85,6 +87,7 @@ export function createJobRunner(context: RunnerContext) {
           return
         }
         current.started = true
+        if (job.kind === 'hash') hashJobs++
         post({
           type: 'start',
           jobId: current.jobId,
@@ -142,6 +145,11 @@ export function createJobRunner(context: RunnerContext) {
 
   function handleJobResult(result: ScanJobResponse) {
     if (!active || result.jobId !== active.jobId) return
+    if (active.job.kind === 'hash') {
+      const bytes = Math.max(active.hashedBytes, result.bytes)
+      hashedBytes += bytes - active.hashedBytes
+      active.hashedBytes = bytes
+    }
     if (result.type === 'cancelled' || result.type === 'error') return complete(result, true)
     if (result.type === 'done') {
       if (result.bytes) progress.update(active.item.id, result.bytes, result.chunks, result.size)
@@ -180,9 +188,10 @@ export function createJobRunner(context: RunnerContext) {
     cancel,
     activeId: () => active?.item.id,
     unavailable: () => workerError,
+    metrics: () => ({ hashJobs, hashedBytes }),
     stop: () => {
       stopped = true
-      void worker.terminate()
+      return worker.terminate()
     }
   }
 }

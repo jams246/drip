@@ -4,6 +4,7 @@ import { WebView, onTerminate, openFileDialog, openFolderDialog, webviewEvaluate
 import { normalizeFileId } from '../storage/files'
 import { resolveDatabasePath } from '../storage/path'
 import { createScanService } from './service'
+import { createSyncDriver } from '../sync/driver'
 import { isScanFinished } from './state'
 import type { ScanEvent, ScanLocation, ScanRequest } from './types'
 
@@ -12,6 +13,7 @@ let nextBridgeSession = 0
 function closeDesktop() {
   releaseInstance()
   shellExit()
+  process.exit(0)
 }
 
 function parseBridgeResponse(result: string): { ready: boolean; request?: ScanRequest } {
@@ -27,6 +29,9 @@ function parseBridgeResponse(result: string): { ready: boolean; request?: ScanRe
     return { ready: true, request: { type: 'remove', id: request.id } }
   }
   if (request.type === 'verify') return { ready: true, request: { type: 'verify' } }
+  if (request.type === 'connect' && 'url' in request && typeof request.url === 'string' && 'token' in request && typeof request.token === 'string') {
+    return { ready: true, request: { type: 'connect', url: request.url, token: request.token } }
+  }
   if (request.type === 'pause' && 'paused' in request && typeof request.paused === 'boolean')
     return { ready: true, request: { type: 'pause', paused: request.paused } }
   if (request.type !== 'select' || !('kind' in request) || (request.kind !== 'file' && request.kind !== 'folder')) {
@@ -35,6 +40,7 @@ function parseBridgeResponse(result: string): { ready: boolean; request?: ScanRe
   return { ready: true, request: { type: 'select', kind: request.kind } }
 }
 
+// oxlint-disable-next-line eslint/max-statements -- One desktop bridge owns scan, sync, and shell lifecycles.
 export function startScanBridge(webview: ReturnType<typeof WebView>) {
   const events: ScanEvent[] = []
   const bridgeSession = ++nextBridgeSession
@@ -45,6 +51,7 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
   let evaluating = false
   let closing = false
   let service: ReturnType<typeof createScanService> | undefined
+  let sync: ReturnType<typeof createSyncDriver> | undefined
   let initializationError = ''
   shellInit()
 
@@ -66,12 +73,22 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
     if (closing) return
     closing = true
     clearInterval(bridgeTimer)
-    if (service) service.stop(closeDesktop)
-    else closeDesktop()
+    void (async () => {
+      await sync?.stop()
+      if (service) service.stop(closeDesktop)
+      else closeDesktop()
+    })()
   }
 
   try {
-    service = createScanService(resolveDatabasePath(), appendEvent)
+    const databasePath = resolveDatabasePath()
+    service = createScanService(databasePath, appendEvent)
+    sync = createSyncDriver({
+      databasePath,
+      publish: (status) => appendEvent({ type: 'sync', status }),
+      rescan: (id, path) => service?.rescan(id, path),
+      busy: (id) => Boolean(service?.busy(id))
+    })
   } catch (error) {
     initializationError = `Could not open Drip database: ${String(error)}`
     appendEvent({ type: 'error', message: initializationError })
@@ -117,6 +134,7 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
       if (command === 'pause') service?.pause(!service.isPaused())
       if (command === 'exit' || command === 'shutdown') exit()
     }
+    if (!closing) void sync?.tick()
     if (evaluating || closing) return
     evaluating = true
     const batch = retryBatch ?? events.splice(0)
@@ -141,6 +159,7 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
         if (response.request?.type === 'select') select(response.request.kind)
         if (response.request?.type === 'pause') service?.pause(response.request.paused)
         if (response.request?.type === 'verify') service?.verifyAll()
+        if (response.request?.type === 'connect') void sync?.connect(response.request.url, response.request.token)
       } catch (error) {
         retryBatch = batch
         latestError = `Scan bridge failed: ${String(error)}`
@@ -150,7 +169,8 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
   onTerminate(() => {
     closing = true
     clearInterval(bridgeTimer)
+    void sync?.stop()
     service?.stop()
-    releaseInstance()
+    // Forced termination cannot await callbacks. Frozen operations are durable, and Windows keeps the mutex until process death.
   })
 }

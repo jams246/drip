@@ -28,7 +28,7 @@ export function DesktopApp() {
   }, [])
   const onSelected = useCallback(() => setPage('Home'), [])
   const scans = useScans(onSelected, addActivity)
-  const registration = useConnection(addActivity)
+  const registration = useConnection(scans.sync, scans.connect)
   const { connection } = registration
 
   function changePause(next: boolean) {

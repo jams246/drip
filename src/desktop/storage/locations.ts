@@ -4,6 +4,7 @@ import { initialScan } from '../scan/state'
 import type { ScanLocation, ScanSnapshot } from '../scan/types'
 import { openDatabase, transaction } from './database'
 import { MonitoringStore } from './monitoring'
+import { bindSyncRoot } from './sync-outbox'
 
 export class WatchStore {
   private readonly database: DatabaseSync
@@ -59,6 +60,7 @@ export class WatchStore {
   saveLocation(item: ScanLocation) {
     transaction(this.database, () => {
       this.insertLocation.run(item.id, item.path, item.kind)
+      bindSyncRoot(this.database, item)
     })
   }
 
@@ -87,6 +89,12 @@ export class WatchStore {
 
   removeLocation(id: string) {
     transaction(this.database, () => {
+      const root = this.database.prepare('SELECT root_id FROM sync_roots WHERE watch_id = ?').get(id)
+      this.database.prepare('UPDATE sync_roots SET active = 0, coverage = 0 WHERE watch_id = ?').run(id)
+      if (root) {
+        this.database.prepare('DELETE FROM sync_pending WHERE root_id = ?').run(root.root_id)
+        this.database.prepare('UPDATE sync_operations SET abort_requested = 1 WHERE root_id = ?').run(root.root_id)
+      }
       this.deleteLocation.run(id)
     })
   }

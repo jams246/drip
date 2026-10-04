@@ -1,6 +1,7 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
 import { Buffer } from 'node:buffer'
 import { openDatabase, transaction } from './database'
+import { catalogueChange } from './sync-outbox'
 
 const WORKER_WRITE_TIMEOUT_MS = 5000
 // Preserve drive roots like c:/ when trimming trailing slashes.
@@ -26,6 +27,7 @@ export class FileStore {
   private readonly insertChunk: StatementSync
   private readonly insertSeen: StatementSync
   private readonly selectMetadata: StatementSync
+  private readonly selectSourcePath: StatementSync
   private readonly deleteFile: StatementSync
   private readonly upsertFile: StatementSync
   private readonly selectFileId: StatementSync
@@ -46,9 +48,10 @@ export class FileStore {
       this.insertChunk = this.database.prepare('INSERT INTO staged_chunks (offset, length, hash) VALUES (?, ?, ?)')
       this.insertSeen = this.database.prepare('INSERT OR IGNORE INTO seen_files (id) VALUES (?)')
       this.selectMetadata = this.database.prepare('SELECT size, modified_ms FROM files WHERE watch_id = ? AND path = ?')
+      this.selectSourcePath = this.database.prepare('SELECT source_path FROM files WHERE watch_id = ? AND path = ?')
       this.deleteFile = this.database.prepare('DELETE FROM files WHERE watch_id = ? AND path = ?')
-      this.upsertFile = this.database.prepare(`INSERT INTO files (watch_id, path, size, modified_ms) VALUES (?, ?, ?, ?)
-        ON CONFLICT(watch_id, path) DO UPDATE SET size = excluded.size, modified_ms = excluded.modified_ms`)
+      this.upsertFile = this.database.prepare(`INSERT INTO files (watch_id, path, size, modified_ms, source_path) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(watch_id, path) DO UPDATE SET size = excluded.size, modified_ms = excluded.modified_ms, source_path = excluded.source_path`)
       this.selectFileId = this.database.prepare('SELECT id FROM files WHERE watch_id = ? AND path = ?')
       this.deleteChunks = this.database.prepare('DELETE FROM chunks WHERE file_id = ?')
       this.insertChunks = this.database.prepare('INSERT INTO chunks (file_id, offset, length, hash) SELECT ?, offset, length, hash FROM staged_chunks')
@@ -85,6 +88,7 @@ export class FileStore {
 
   removeFile(path: string) {
     transaction(this.database, () => {
+      catalogueChange(this.database, this.watchId, normalizeFileId(path), true)
       this.deleteFile.run(this.watchId, normalizeFileId(path))
     })
   }
@@ -99,10 +103,11 @@ export class FileStore {
       // Keep durable reads out of TEMP staging so host edits never invalidate a WAL read snapshot.
       this.database.exec('COMMIT')
       transaction(this.database, () => {
-        this.upsertFile.run(this.watchId, normalizedPath, size, modifiedMs)
+        this.upsertFile.run(this.watchId, normalizedPath, size, modifiedMs, path)
         const fileId = Number(this.selectFileId.get(this.watchId, normalizedPath)!.id)
         this.deleteChunks.run(fileId)
         this.insertChunks.run(fileId)
+        catalogueChange(this.database, this.watchId, normalizedPath)
       })
     } catch (error) {
       this.abortFile()
@@ -112,6 +117,20 @@ export class FileStore {
 
   abortFile() {
     if (this.database.isTransaction) this.database.exec('ROLLBACK')
+  }
+
+  observeFile(path: string) {
+    const normalized = normalizeFileId(path)
+    const saved = this.selectSourcePath.get(this.watchId, normalized)
+    if (!saved || saved.source_path === path) return
+    transaction(this.database, () => {
+      this.database.prepare('UPDATE files SET source_path = ? WHERE watch_id = ? AND path = ?').run(path, this.watchId, normalized)
+      catalogueChange(this.database, this.watchId, normalized)
+    })
+  }
+
+  coverage(safe: boolean) {
+    this.database.prepare('UPDATE sync_roots SET coverage = ? WHERE watch_id = ?').run(safe ? 1 : 0, this.watchId)
   }
 
   unseenPaths(scope: string, after: string, limit: number): string[] {

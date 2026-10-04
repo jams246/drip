@@ -11,8 +11,14 @@ $features = @(
     'perry-runtime/global-json',
     'perry-runtime/global-math',
     'perry-runtime/global-text',
+    'perry-runtime/regex-engine',
     'perry-runtime/global-webcrypto',
+    'perry-runtime/global-webfetch',
+    'perry-runtime/external-fetch-symbols',
+    'perry-runtime/global-url',
+    'perry-runtime/url-engine',
     'perry-stdlib/async-runtime',
+    'perry-stdlib/web-fetch',
     'perry-stdlib/database-sqlite',
     'perry-ui-windows/ffi-exports'
 ) -join ','

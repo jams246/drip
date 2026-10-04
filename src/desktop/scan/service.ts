@@ -133,6 +133,11 @@ export function createScanService(databasePath: string, publish: (event: ScanEve
     })
   }
   function select(item: ScanLocation) {
+    if (locations.some((entry) => entry.id === item.id && entry.kind !== item.kind)) {
+      failure('Stop watching this location before selecting its new file or folder type.')
+      publish({ type: 'selection-ended' })
+      return
+    }
     const names: { longPath: string } = JSON.parse(queryNames(item.path))
     if (names.longPath) item = { id: normalizeFileId(names.longPath), name: basename(names.longPath) || names.longPath, path: names.longPath, kind: item.kind }
     const metadata: { driveType: number; error: number } = JSON.parse(queryPath(item.path))
@@ -186,9 +191,11 @@ export function createScanService(databasePath: string, publish: (event: ScanEve
       checkpoint(() => {
         stopped = true
         writes.stop()
-        runner.stop()
-        store.close()
-        done()
+        void (async () => {
+          await runner.stop()
+          store.close()
+          done()
+        })()
       })
     )
   }
@@ -196,6 +203,11 @@ export function createScanService(databasePath: string, publish: (event: ScanEve
     if (paused || verification.size > 0) return
     for (const item of locations) verify(item.id)
     monitoringState()
+    runner.startNext()
+  }
+  function rescan(id: string, path: string) {
+    if (!locations.some((item) => item.id === id)) return
+    pending.add(id, path, true, false)
     runner.startNext()
   }
   publish({ type: 'hydrated', locations: locations.slice(), scans: saved.scans })
@@ -209,5 +221,16 @@ export function createScanService(databasePath: string, publish: (event: ScanEve
   }, HOST_INTERVAL_MS)
   if (!paused) resume()
   else monitoringState()
-  return { select, remove, pause, stop, verifyAll, unavailable: runner.unavailable, isPaused: () => paused }
+  return {
+    select,
+    remove,
+    pause,
+    stop,
+    verifyAll,
+    rescan,
+    busy: (id: string) => pending.has(id) || verification.has(id) || runner.activeId() === id,
+    unavailable: runner.unavailable,
+    metrics: runner.metrics,
+    isPaused: () => paused
+  }
 }

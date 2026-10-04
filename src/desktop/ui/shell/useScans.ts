@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { initialScan, isScanActive, isScanFinished } from '../../scan/state'
 import type { ScanEvent, ScanLocation, ScanRequest, ScanSnapshot, WatchHealth } from '../../scan/types'
 import type { ActivityEntry } from '../sync/types'
+import type { SyncStatus } from '../../sync/types'
 
 declare global {
   interface Window {
@@ -21,6 +22,7 @@ interface ScanState {
   paused: boolean
   verifying: boolean
   health: WatchHealth[]
+  sync: SyncStatus
 }
 
 function selectLocation(previous: ScanState, item: ScanLocation): ScanState {
@@ -48,7 +50,16 @@ function createScanActivity(scan: ScanSnapshot): Omit<ActivityEntry, 'id' | 'tim
 }
 
 export function useScans(onSelected: () => void, addActivity: (entry: Omit<ActivityEntry, 'id' | 'time'>) => void) {
-  const [state, setState] = useState<ScanState>({ locations: [], scans: [], picking: false, storage: 'loading', paused: false, verifying: false, health: [] })
+  const [state, setState] = useState<ScanState>({
+    locations: [],
+    scans: [],
+    picking: false,
+    storage: 'loading',
+    paused: false,
+    verifying: false,
+    health: [],
+    sync: { state: 'disconnected', url: '', pending: 0, message: 'Connect to a server to start synchronization.' }
+  })
   const current = useRef(state)
   const requests = useRef<ScanRequest[]>([])
 
@@ -74,6 +85,13 @@ export function useScans(onSelected: () => void, addActivity: (entry: Omit<Activ
       // oxlint-disable-next-line eslint/max-statements -- Bridge routes the concrete scan, selection, and monitoring event variants.
       receive(event) {
         const previous = current.current
+        if (event.type === 'sync') {
+          publish({ ...previous, sync: event.status })
+          if (event.status.state === 'error' && event.status.message !== previous.sync.message) {
+            addActivity({ title: 'Synchronization failed', detail: event.status.message, severity: 'error' })
+          }
+          return
+        }
         if (event.type === 'hydrated') {
           return publish({ ...previous, locations: event.locations, scans: event.scans, picking: false, storage: 'ready' })
         }
@@ -134,5 +152,9 @@ export function useScans(onSelected: () => void, addActivity: (entry: Omit<Activ
   function verify() {
     if (!current.current.paused && !current.current.verifying) requests.current.push({ type: 'verify' })
   }
-  return { ...state, busy: state.storage === 'loading' || state.picking || state.scans.some(isScanActive), select, remove, pause, verify }
+  function connect(url: string, token: string) {
+    requests.current.push({ type: 'connect', url, token })
+    publish({ ...current.current, sync: { ...current.current.sync, state: 'connecting', message: 'Connecting to your server.' } })
+  }
+  return { ...state, busy: state.storage === 'loading' || state.picking || state.scans.some(isScanActive), select, remove, pause, verify, connect }
 }

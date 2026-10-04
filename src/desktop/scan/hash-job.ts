@@ -1,11 +1,12 @@
 import { lstatSync } from 'node:fs'
+import { queryNames } from '#drip-window-icon'
 import { FileStore, normalizeFileId } from '../storage/files'
 import { ChunkScanner } from './chunker'
-import { type PathQuery, inspectScanPath, inspectScopedScanPath } from './eligibility'
+import { inspectScanPath, inspectScopedScanPath } from './eligibility'
 import { FileReader } from './reader'
 import { type ScanJobResponse, type ScanJobStart, type ScanWorkerJob, initialJobResponse } from './worker-types'
 
-export function createHashJob(start: ScanJobStart, buffer: Uint8Array, query?: PathQuery, sharedStorage?: FileStore): ScanWorkerJob {
+export function createHashJob(start: ScanJobStart, buffer: Uint8Array, sharedStorage?: FileStore): ScanWorkerJob {
   const response = initialJobResponse(start)
   const storage = sharedStorage ?? new FileStore(start.databasePath, start.item.id)
   storage.reset(start.item.id)
@@ -14,6 +15,7 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, query?: P
   let ready = false
   let closed = false
   let skipped = false
+  let sourcePath = start.target
 
   function close() {
     if (closed) return
@@ -28,7 +30,7 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, query?: P
   }
 
   function initialize() {
-    const eligibility = inspectScopedScanPath(start.target, start.item.path, start.databasePath, query)
+    const eligibility = inspectScopedScanPath(start.target, start.item.path, start.databasePath)
     if (eligibility === 'skip' && normalizeFileId(start.target) === normalizeFileId(start.item.path)) {
       throw new Error('Selected location is not currently supported; previous catalogue was retained.')
     }
@@ -38,7 +40,9 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, query?: P
       response.skipped = skipped ? 1 : 0
       ready = true
     } else {
-      reader = new FileReader(start.target)
+      const names: { longPath: string } = JSON.parse(queryNames(start.target))
+      if (names.longPath) sourcePath = names.longPath
+      reader = new FileReader(sourcePath)
       response.size = reader.size
       response.modifiedMs = reader.modifiedMs
       storage.beginFile(start.target)
@@ -78,7 +82,7 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, query?: P
 
   function commit(): ScanJobResponse {
     if (!ready || closed) throw new Error('Hash job is not ready to commit.')
-    const eligibility = inspectScopedScanPath(start.target, start.item.path, start.databasePath, query)
+    const eligibility = inspectScopedScanPath(start.target, start.item.path, start.databasePath)
     if (skipped && eligibility === 'eligible') throw new Error('File became eligible before its skipped scan was committed.')
     if (response.missing) {
       if (eligibility !== 'missing') throw new Error('File appeared before deletion was committed.')
@@ -89,7 +93,7 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, query?: P
     } else if (!skipped) {
       if (eligibility !== 'eligible') throw new Error('File is no longer eligible for hashing.')
       reader!.validate()
-      storage.commitFile(start.target, response.bytes, response.modifiedMs)
+      storage.commitFile(sourcePath, response.bytes, response.modifiedMs)
     }
     response.type = 'done'
     close()
@@ -97,10 +101,7 @@ export function createHashJob(start: ScanJobStart, buffer: Uint8Array, query?: P
   }
 
   function validateSelection() {
-    if (
-      start.item.kind === 'folder' &&
-      (inspectScanPath(start.item.path, start.databasePath, query) !== 'eligible' || !lstatSync(start.item.path).isDirectory())
-    ) {
+    if (start.item.kind === 'folder' && (inspectScanPath(start.item.path, start.databasePath) !== 'eligible' || !lstatSync(start.item.path).isDirectory())) {
       throw new Error('Selected folder is unavailable; previous catalogue was retained.')
     }
   }

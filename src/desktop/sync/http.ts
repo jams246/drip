@@ -1,0 +1,77 @@
+import type { ApiError } from '../../protocol/sync'
+import type { SyncCredentials } from './types'
+const HTTP_NO_CONTENT = 204
+const HTTP_TIMEOUT_MS = 30_000
+
+export class SyncHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+export interface SyncTransport {
+  request<T>(credentials: SyncCredentials, path: string, method?: string, body?: unknown): Promise<T>
+  cancel(): void
+}
+
+export function normalizeServerUrl(value: string, allowLoopbackHttp = false): string {
+  const url = new URL(value.trim())
+  const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
+  if (url.protocol !== 'https:' && !(allowLoopbackHttp && loopback && url.protocol === 'http:')) throw new Error('Use an HTTPS server URL.')
+  if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) {
+    throw new Error('Enter the server origin without credentials, query, or path.')
+  }
+  return url.origin
+}
+
+export function createSyncTransport(): SyncTransport {
+  const controllers = new Set<AbortController>()
+  return {
+    async request<T>(credentials: SyncCredentials, path: string, method = 'GET', body?: unknown): Promise<T> {
+      const controller = new AbortController()
+      controllers.add(controller)
+      const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS)
+      try {
+        const headers: Record<string, string> = { Authorization: `Bearer ${credentials.deviceId}.${credentials.secret}` }
+        if (body !== undefined) headers['Content-Type'] = body instanceof Uint8Array ? 'application/octet-stream' : 'application/json'
+        let payload: BodyInit | undefined
+        if (body !== undefined) payload = body instanceof Uint8Array ? new Uint8Array(body) : JSON.stringify(body)
+        // oxlint-disable-next-line unicorn/no-invalid-fetch-options -- The protocol method is dynamic; Perry requires an inline options object.
+        const response = await fetch(credentials.url + path, { method: method, headers: headers, redirect: 'error', signal: controller.signal, body: payload })
+        if (!response.ok) {
+          let error: ApiError = { code: 'http_error', message: `Server request failed (${response.status}).` }
+          try {
+            const value: unknown = JSON.parse(await response.text())
+            if (
+              value &&
+              typeof value === 'object' &&
+              'code' in value &&
+              'message' in value &&
+              typeof value.code === 'string' &&
+              typeof value.message === 'string'
+            ) {
+              error = { code: value.code, message: value.message }
+            }
+          } catch {
+            /* Keep the HTTP failure when the error response is incomplete. */
+          }
+          throw new SyncHttpError(response.status, error.code, error.message)
+        }
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Binary PUT callers expect no response body.
+        if (response.status === HTTP_NO_CONTENT) return undefined as T
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Protocol-specific callers validate the decoded response.
+        return JSON.parse(await response.text()) as T
+      } finally {
+        clearTimeout(timer)
+        controllers.delete(controller)
+      }
+    },
+    cancel() {
+      for (const controller of controllers) controller.abort()
+    }
+  }
+}

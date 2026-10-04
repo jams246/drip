@@ -73,23 +73,25 @@ export function Settings({
               required
             />
             <label className="settings__label" htmlFor="registration-code">
-              Registration code
+              Registration token
             </label>
             <input
               className="settings__input"
               id="registration-code"
               name="registration-code"
-              type="text"
+              type="password"
               autoComplete="off"
-              autoCapitalize="characters"
+              autoCapitalize="none"
               spellCheck={false}
-              placeholder="Enter your code"
+              placeholder="Paste your registration token"
               value={registrationCode}
               onChange={(event) => onRegistrationCodeChange(event.target.value)}
               disabled={connecting}
               required
             />
-            <p className="settings__hint">Use the registration code provided by your server.</p>
+            <p className="settings__hint">
+              Generate a token on your server with <code>drip token create</code>.
+            </p>
             <button className="button button--primary settings__connect" type="submit" disabled={connecting}>
               {connecting && <span className="settings__spinner" aria-hidden="true" />}
               {connecting ? 'Connecting…' : 'Connect'}
@@ -104,15 +106,6 @@ export function Settings({
               <span>{connection.message || statusText}</span>
             </div>
           </form>
-          <details className="settings__samples">
-            <summary>Try sample connection states</summary>
-            <p>
-              Connect to <code>https://sync.drip.example</code> with <code>DRIP-DEMO</code> to succeed.
-            </p>
-            <p>
-              Use another code for a registration error, or <code>https://offline.drip.example</code> for a connection error.
-            </p>
-          </details>
         </section>
         <section className="settings__panel settings__panel--appearance">
           <ThemePicker theme={theme} onThemeChange={onThemeChange} />

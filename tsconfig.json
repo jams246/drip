@@ -17,5 +17,5 @@
       "perry/*": ["./.perry/types/perry/*/index.d.ts"]
     }
   },
-  "include": ["src", ".perry/types/stdlib/index.d.ts"]
+  "include": ["src/desktop", "src/protocol", "src/checks", ".perry/types/stdlib/index.d.ts"]
 }
