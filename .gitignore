@@ -2,9 +2,4 @@
 .xwin-cache/
 dist/
 node_modules/
-.server/
-
-# Local verification tools and sources
-/scripts/build-verifier.ps1
-/scripts/generate-gear.mjs
-/scripts/verify-*
+.verification/

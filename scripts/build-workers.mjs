@@ -67,22 +67,4 @@ async function flattenWorker(entry) {
 
 // Preserve upstream TypeScript bodies and annotations; Perry workers initialize one module body.
 await mkdir('.perry/generated', { recursive: true })
-const entries = [['src/desktop/scan/worker.ts', '.perry/generated/scan-worker.ts']]
-if (process.argv.includes('--verification')) {
-  entries.push(
-    ['src/verification/worker.ts', '.perry/generated/verification-worker.ts'],
-    ['src/verification/bundle-worker-probe.ts', '.perry/generated/hash-worker.ts'],
-    ['src/verification/reader-width.ts', '.perry/generated/reader-width.ts']
-  )
-}
-if (process.argv.includes('--sqlite-verification')) {
-  entries.push(
-    ['src/checks/sqlite-performance-worker.ts', '.perry/generated/sqlite-performance-worker.ts'],
-    ['src/checks/sqlite-native-worker.ts', '.perry/generated/sqlite-native-worker.ts']
-  )
-}
-if (process.argv.includes('--desktop-sync-verification')) entries.push(['src/checks/desktop-sync.ts', '.perry/generated/desktop-sync.ts'])
-if (process.argv.includes('--desktop-hash-verification')) entries.push(['src/checks/desktop-hash.ts', '.perry/generated/desktop-hash.ts'])
-for (const [input, file] of entries) {
-  await writeFile(file, await flattenWorker(input))
-}
+await writeFile('.perry/generated/scan-worker.ts', await flattenWorker('src/desktop/scan/worker.ts'))
