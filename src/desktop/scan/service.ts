@@ -100,6 +100,7 @@ export function createScanService(databasePath: string, publish: (event: ScanEve
         store.monitoring.session(true)
       },
       () => {
+        if (paused || stopping) return
         monitoring.start()
         for (const item of locations) {
           const job = pending.add(item.id, item.path, verification.has(item.id), false)

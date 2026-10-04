@@ -5,6 +5,7 @@ import './activity.css'
 interface ActivityProps {
   entries: readonly ActivityEntry[]
   highlightedId?: string
+  onClear: () => void
 }
 
 const timeFormat = new Intl.DateTimeFormat(undefined, {
@@ -20,7 +21,7 @@ const severityLabels = {
   error: 'Error'
 }
 
-export function Activity({ entries, highlightedId }: ActivityProps) {
+export function Activity({ entries, highlightedId, onClear }: ActivityProps) {
   const highlightedEntry = useRef<HTMLLIElement>(null)
 
   useEffect(() => {
@@ -35,12 +36,14 @@ export function Activity({ entries, highlightedId }: ActivityProps) {
         <h1 className="page-heading__title" id="activity-title">
           Activity
         </h1>
+        <button className="button button--secondary" type="button" disabled={entries.length === 0} onClick={onClear}>
+          Clear all activity
+        </button>
       </div>
 
       <div className="activity__list surface">
         <div className="activity__list-heading">
           <h2 className="activity__list-title">Recent activity</h2>
-          <span className="activity__order">Newest first</span>
         </div>
         {entries.length === 0 ? (
           <div className="empty-state">

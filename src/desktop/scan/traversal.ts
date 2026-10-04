@@ -5,8 +5,9 @@ import { FileStore, normalizeFileId } from '../storage/files'
 import { type PathQuery, inspectScanPath, inspectScopedScanPath } from './eligibility'
 import { type ScanJobResponse, type ScanJobStart, type ScanWorkerJob, initialJobResponse } from './worker-types'
 
-const INVENTORY_ENTRY_LIMIT = 64
+const INVENTORY_ENTRY_LIMIT = 16
 
+// oxlint-disable-next-line eslint/max-statements -- One inventory lifecycle owns traversal, pruning safety, commit, and cancellation state.
 export function createInventoryJob(start: ScanJobStart, query?: PathQuery, sharedStorage?: FileStore): ScanWorkerJob {
   const storage = sharedStorage ?? new FileStore(start.databasePath, start.item.id)
   storage.reset(start.item.id)

@@ -14,11 +14,6 @@
   font-size: 16px;
   font-weight: 600;
 }
-.activity__order {
-  color: var(--muted);
-  font-size: 14px;
-  white-space: nowrap;
-}
 .activity__entries {
   margin: 0;
   padding: 0;

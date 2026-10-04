@@ -8,3 +8,10 @@ export function formatBytes(bytes: number) {
   if (bytes < gibibyte) return `${(bytes / mebibyte).toFixed(1)} MiB`
   return `${(bytes / gibibyte).toFixed(2)} GiB`
 }
+
+export function formatSpeed(bytesPerSecond: number) {
+  if (bytesPerSecond < kibibyte) return `${Math.floor(bytesPerSecond)} B/s`
+  if (bytesPerSecond < mebibyte) return `${Math.floor(bytesPerSecond / kibibyte)} KiB/s`
+  if (bytesPerSecond < gibibyte) return `${Math.floor(bytesPerSecond / mebibyte)} MiB/s`
+  return `${Math.floor(bytesPerSecond / gibibyte)} GiB/s`
+}

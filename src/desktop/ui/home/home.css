@@ -1,3 +1,11 @@
+.home__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-left: auto;
+}
 .home__notice,
 .home__error {
   display: block;
@@ -21,7 +29,7 @@
 }
 .home__summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 24px;
 }
@@ -54,9 +62,6 @@
 }
 .home__stat-mark--scanning {
   background: var(--accent);
-}
-.home__stat-mark--pending {
-  background: var(--warning);
 }
 .home__stat-mark--queued {
   background: var(--muted);
@@ -91,7 +96,7 @@
 }
 @media (max-width: 700px) {
   .home__summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .home__stat {
     padding: 15px;

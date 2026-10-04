@@ -28,6 +28,7 @@ function endpoint(operation: FrozenOperation) {
 }
 const yieldIo = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 const STAGE_POLL_MS = 100
+const IO_SLICE_BYTES = 16_384
 
 export function validateMetadata(path: string, entry: FileEntry, createdMs?: number) {
   try {
@@ -71,7 +72,7 @@ async function sourceFile(path: string, entry: FileEntry, consume: (reader: File
 
 export async function validateSource(path: string, entry: FileEntry, active: () => boolean) {
   await sourceFile(path, entry, async (reader, hasher) => {
-    const buffer = new Uint8Array(MAX_REGION_BYTES)
+    const buffer = new Uint8Array(IO_SLICE_BYTES)
     while (true) {
       if (!active()) throw new SourceChangedError('Source changed before commit.')
       const count = reader.read(buffer)
@@ -157,29 +158,35 @@ export async function uploadMissing(
         try {
           let count = 0
           while (count < region.length) {
-            const read = reader.readRange(bytes, count, region.length - count)
+            if (!active()) throw new SourceChangedError('Source changed during upload.')
+            const read = reader.readRange(bytes, count, Math.min(IO_SLICE_BYTES, region.length - count))
             if (!read) throw new SourceChangedError('Source file ended during upload.')
+            hasher.updateRange(bytes, count, read)
+            whole.updateRange(bytes, count, read)
             count += read
+            await yieldIo()
           }
-          hasher.updateRange(bytes, 0, region.length)
           if (hasher.hex() !== region.hash) throw new SourceChangedError('Source region changed during upload.')
         } finally {
           hasher.destroy()
         }
-        whole.updateRange(bytes, 0, region.length)
+        if (!active()) throw new SourceChangedError('Source changed during upload.')
         await advanceRequired()
+        if (!active()) throw new SourceChangedError('Source changed during upload.')
         const requiredOffset = required.required[requiredIndex]
         if (requiredOffset !== undefined && requiredOffset < region.offset) throw new Error('Server requested an unknown file region.')
         if (requiredOffset === region.offset) {
           await transport.request(credentials, endpoint(operation) + '/regions/' + region.offset, 'PUT', bytes, region.length)
           transferred(region.length)
           requiredIndex++
-        } else await yieldIo()
+        }
         offset += region.length
         after = region.offset
       }
     }
+    if (!active()) throw new SourceChangedError('Source changed during upload.')
     await advanceRequired()
+    if (!active()) throw new SourceChangedError('Source changed during upload.')
     if (requiredIndex < required.required.length || offset !== entry.size) throw new Error('Server requested regions outside the frozen file.')
   })
 }

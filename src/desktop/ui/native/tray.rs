@@ -12,14 +12,16 @@ fn notification(window: isize) -> NotifyIconData {
     data
 }
 
-pub(crate) fn add(window: isize) -> bool {
+pub(crate) fn add(window: isize) -> Option<u32> {
     let mut data = notification(window);
     if data.icon == 0 || unsafe { Shell_NotifyIconW(0, &data) } == 0 {
-        return false;
+        return None;
     }
-    data.version = 4;
-    unsafe { Shell_NotifyIconW(4, &data) };
-    true
+    data.version = NOTIFYICON_VERSION_4;
+    if unsafe { Shell_NotifyIconW(4, &data) } == 0 {
+        return Some(0);
+    }
+    Some(data.version)
 }
 
 pub(crate) fn remove(window: isize) {
@@ -47,7 +49,7 @@ pub(crate) fn menu(window: isize, paused: bool) -> Option<&'static str> {
     let selected = unsafe {
         TrackPopupMenu(
             menu,
-            0x0100 | 0x0002,
+            TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
             position.x,
             position.y,
             0,
@@ -57,7 +59,7 @@ pub(crate) fn menu(window: isize, paused: bool) -> Option<&'static str> {
     };
     unsafe {
         DestroyMenu(menu);
-        PostMessageW(window, 0, 0, 0);
+        PostMessageW(window, WM_NULL, 0, 0);
     }
     match selected {
         1 => Some("open"),

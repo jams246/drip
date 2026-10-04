@@ -3,6 +3,7 @@ const SQLITE_LOCKED = 6
 const SQLITE_CODE_MASK = 255
 const FIRST_RETRY_MS = 1000
 const MAX_RETRY_MS = 30000
+const DRAIN_BUDGET_MS = 8
 
 function isDatabaseBusy(error: unknown): boolean {
   if (!error || typeof error !== 'object' || !('errcode' in error) || typeof error.errcode !== 'number') return false
@@ -20,8 +21,9 @@ export function createStorageWrites() {
     timer = undefined
     if (stopped || running) return
     running = true
+    const started = Date.now()
     try {
-      while (waiting.length > 0) {
+      while (waiting.length > 0 && Date.now() - started < DRAIN_BUDGET_MS) {
         const pending = waiting[0]
         try {
           pending.write()
@@ -37,6 +39,7 @@ export function createStorageWrites() {
         waiting.shift()
         pending.saved()
       }
+      if (waiting.length > 0) timer = setTimeout(flush, 0)
     } finally {
       running = false
     }
@@ -45,7 +48,7 @@ export function createStorageWrites() {
   function enqueue(write: () => void, saved: () => void, failed: (error: unknown) => void) {
     if (stopped) return
     waiting.push({ write, saved, failed, attempts: 0 })
-    if (timer === undefined) flush()
+    if (timer === undefined && !running) timer = setTimeout(flush, 0)
   }
 
   function stop() {

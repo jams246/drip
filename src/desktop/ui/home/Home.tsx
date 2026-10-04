@@ -1,3 +1,4 @@
+import { isScanActive } from '../../scan/state'
 import type { ScanLocation, ScanSnapshot, WatchHealth } from '../../scan/types'
 import type { SyncStatus } from '../../sync/types'
 import { ScanNotices } from '../ScanNotices'
@@ -20,9 +21,10 @@ interface HomeProps {
 }
 
 export function Home({ locations, scans, sync, picking, loading = false, error, advanced, paused, verifying, health, onVerify, onPauseChange }: HomeProps) {
-  const counts = { scanning: 0, pending: 0, queued: 0, completed: 0, error: 0 }
+  const counts = { scanning: 0, queued: 0, completed: 0, error: 0 }
   for (const scan of scans) {
-    if (scan.state === 'pending' || scan.state === 'scanning' || scan.state === 'queued') counts[scan.state] += 1
+    if (isScanActive(scan)) counts.scanning += 1
+    else if (scan.state === 'queued') counts.queued += 1
     else if (scan.state === 'error' || scan.state === 'completed-with-errors') counts.error += 1
     else counts.completed += 1
   }
@@ -32,13 +34,15 @@ export function Home({ locations, scans, sync, picking, loading = false, error, 
         <h1 id="home-title" className="page-heading__title">
           Home
         </h1>
-        <button className="button button--secondary" type="button" disabled={loading} aria-pressed={paused} onClick={() => onPauseChange(!paused)}>
-          <span aria-hidden="true">{paused ? '▷' : 'Ⅱ'}</span>
-          {paused ? 'Resume Watching' : 'Pause Watching'}
-        </button>
-        <button className="button button--secondary" type="button" disabled={loading || paused || verifying || locations.length === 0} onClick={onVerify}>
-          {verifying ? 'Verifying contents' : 'Verify all'}
-        </button>
+        <div className="home__actions">
+          <button className="button button--secondary" type="button" disabled={loading} aria-pressed={paused} onClick={() => onPauseChange(!paused)}>
+            <span aria-hidden="true">{paused ? '▷' : 'Ⅱ'}</span>
+            {paused ? 'Resume watching' : 'Pause watching'}
+          </button>
+          <button className="button button--secondary" type="button" disabled={loading || paused || verifying || locations.length === 0} onClick={onVerify}>
+            {verifying ? 'Verifying contents' : 'Verify all'}
+          </button>
+        </div>
       </header>
       {error && (
         <p className="home__error" role="alert">
@@ -53,14 +57,13 @@ export function Home({ locations, scans, sync, picking, loading = false, error, 
         </output>
       )}
       <div className="home__summary" aria-label="Scan summary">
-        {(['scanning', 'pending', 'queued', 'completed', 'error'] as const).map((state) => (
+        {(['scanning', 'queued', 'completed', 'error'] as const).map((state) => (
           <div className="home__stat" key={state}>
             <span className="home__stat-value">{counts[state]}</span>
             <span className="home__stat-label">
               {
                 {
-                  scanning: advanced ? 'Scanning' : 'Preparing for syncronization',
-                  pending: 'Preparing',
+                  scanning: advanced ? 'Scanning' : 'Preparing for synchronization',
                   queued: 'Queued',
                   completed: 'Completed',
                   error: 'Needs attention'

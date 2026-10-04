@@ -34,11 +34,11 @@ export class PendingJobs {
   }
 
   private pathKey(watchId: string, path: string) {
-    return watchId + '\0' + path
+    return watchId + '\0' + normalizeFileId(path)
   }
 
-  private enqueue(job: PendingJob) {
-    recordDiagnostic('scan.queued', `kind=${job.kind} generation=${job.generation} attempt=${job.attempts}`)
+  private enqueue(job: PendingJob, diagnostic = true) {
+    if (diagnostic) recordDiagnostic('scan.queued', `kind=${job.kind} generation=${job.generation} attempt=${job.attempts}`)
     const key = this.pathKey(job.watchId, job.path)
     const jobs = this.paths.get(key) ?? []
     jobs.push(job)
@@ -111,12 +111,21 @@ export class PendingJobs {
       return prior
     }
     const job: PendingJob = { ...parent, path: id, force, kind: 'hash', attempts: 0 }
-    this.enqueue(job)
+    this.enqueue(job, false)
     return job
   }
 
   forcePath(watchId: string, path: string) {
-    return this.waiting.some((entry) => entry.watchId === watchId && entry.force && containsPath(entry.path, path))
+    let ancestor = normalizeFileId(path)
+    while (true) {
+      if (this.paths.get(this.pathKey(watchId, ancestor))?.some((entry) => entry.force)) return true
+      const separator = ancestor.lastIndexOf('/')
+      if (separator < 0) return false
+      const parent = ancestor.slice(0, separator)
+      const root = normalizeFileId(ancestor.slice(0, separator + 1))
+      if (root !== parent && this.paths.get(this.pathKey(watchId, root))?.some((entry) => entry.force)) return true
+      ancestor = parent
+    }
   }
 
   retry(job: PendingJob) {

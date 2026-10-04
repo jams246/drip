@@ -2,7 +2,7 @@ import { memo } from 'react'
 import { isScanActive, isScanFinished } from '../../scan/state'
 import type { ScanLocation, ScanSnapshot, WatchHealth } from '../../scan/types'
 import { FileProgress } from '../sync/FileProgress'
-import { formatBytes } from '../sync/format'
+import { formatBytes, formatSpeed } from '../sync/format'
 import './file-row.css'
 
 const millisecondsPerSecond = 1000
@@ -10,7 +10,7 @@ const millisecondsPerSecond = 1000
 const stateLabels: Record<ScanSnapshot['state'], string> = {
   queued: 'Queued',
   pending: 'Preparing scan',
-  scanning: 'Preparing for syncronization',
+  scanning: 'Preparing for synchronization',
   completed: 'Completed',
   empty: 'No file data',
   error: 'Scan failed',
@@ -77,7 +77,7 @@ export const FileRow = memo(function FileRow({ location, scan, advanced, health 
             </div>
             <div>
               <dt>Speed</dt>
-              <dd>{formatBytes(throughput)}/s</dd>
+              <dd>{formatSpeed(throughput)}</dd>
             </div>
           </dl>
         )}

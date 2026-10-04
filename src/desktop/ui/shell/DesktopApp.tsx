@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
 import { Activity } from '../activity/Activity'
 import { Brand } from '../brand/Brand'
+import { ConfirmationDialog } from '../confirmation/ConfirmationDialog'
+import { useConfirmation } from '../confirmation/useConfirmation'
 import { Home } from '../home/Home'
 import { Settings } from '../settings/Settings'
 import type { ThemeName } from '../settings/themes'
@@ -26,8 +28,8 @@ export function DesktopApp() {
     // ponytail: retain 200 recent entries; add persistent history when that phase starts.
     setEntries((current) => [{ ...entry, id: `${time}-${current.length}`, time }, ...current].slice(0, retainedActivityEntries))
   }, [])
-  const onSelected = useCallback(() => setPage('Home'), [])
-  const scans = useScans(onSelected, addActivity)
+  const scans = useScans(addActivity)
+  const confirmation = useConfirmation(scans, entries, () => setEntries([]))
   const registration = useConnection(scans.sync, scans.connect)
   const { connection } = registration
 
@@ -64,7 +66,7 @@ export function DesktopApp() {
           </button>
         ))}
       </nav>
-      <main className="desktop__content" id="main-content" ref={content}>
+      <main className="desktop__content" id="main-content" ref={content} tabIndex={-1}>
         {page === 'Home' && (
           <Home
             locations={scans.locations}
@@ -77,7 +79,7 @@ export function DesktopApp() {
             paused={scans.paused}
             verifying={scans.verifying}
             health={scans.health}
-            onVerify={scans.verify}
+            onVerify={confirmation.verify}
             onPauseChange={changePause}
           />
         )}
@@ -90,10 +92,10 @@ export function DesktopApp() {
             available={scans.storage === 'ready'}
             error={scans.error}
             onSelect={scans.select}
-            onRemove={scans.remove}
+            onRemove={confirmation.remove}
           />
         )}
-        {page === 'Activity' && <Activity entries={entries} />}
+        {page === 'Activity' && <Activity entries={entries} onClear={confirmation.clear} />}
         {page === 'Settings' && (
           <Settings
             theme={theme}
@@ -117,6 +119,13 @@ export function DesktopApp() {
           DRIP <span className="desktop__version">0.1.0</span>
         </span>
       </footer>
+      <ConfirmationDialog
+        confirmation={confirmation.confirmation}
+        available={confirmation.available}
+        fallbackFocus={content}
+        onConfirm={confirmation.confirm}
+        onDismiss={confirmation.dismiss}
+      />
     </div>
   )
 }

@@ -49,7 +49,7 @@ function createScanActivity(scan: ScanSnapshot): Omit<ActivityEntry, 'id' | 'tim
   }
 }
 
-export function useScans(onSelected: () => void, addActivity: (entry: Omit<ActivityEntry, 'id' | 'time'>) => void) {
+export function useScans(addActivity: (entry: Omit<ActivityEntry, 'id' | 'time'>) => void) {
   const [state, setState] = useState<ScanState>({
     locations: [],
     scans: [],
@@ -112,7 +112,6 @@ export function useScans(onSelected: () => void, addActivity: (entry: Omit<Activ
         }
         if (event.type === 'selected') {
           publish(selectLocation(previous, event.item))
-          onSelected()
           return
         }
         if (event.type === 'removed') {
@@ -132,7 +131,7 @@ export function useScans(onSelected: () => void, addActivity: (entry: Omit<Activ
     return () => {
       if (window['__dripBridge'] === bridge) delete window['__dripBridge']
     }
-  }, [onSelected, addActivity, publish])
+  }, [addActivity, publish])
 
   function select(kind: ScanLocation['kind']) {
     if (current.current.picking || current.current.storage !== 'ready') return
@@ -141,8 +140,9 @@ export function useScans(onSelected: () => void, addActivity: (entry: Omit<Activ
   }
 
   function remove(id: string) {
-    const scan = current.current.scans.find((entry) => entry.id === id)
-    if (!scan) return
+    const latest = current.current
+    if (latest.storage !== 'ready' || !latest.locations.some((location) => location.id === id) || !latest.scans.some((scan) => scan.id === id)) return
+    if (requests.current.some((request) => request.type === 'remove' && request.id === id)) return
     requests.current.push({ type: 'remove', id })
   }
 
@@ -150,7 +150,11 @@ export function useScans(onSelected: () => void, addActivity: (entry: Omit<Activ
     requests.current.push({ type: 'pause', paused })
   }
   function verify() {
-    if (!current.current.paused && !current.current.verifying) requests.current.push({ type: 'verify' })
+    const latest = current.current
+    if (latest.storage === 'loading' || latest.paused || latest.verifying || latest.locations.length === 0) return
+    if (requests.current.some((request) => request.type === 'verify')) return
+    requests.current.push({ type: 'verify' })
+    publish({ ...latest, verifying: true })
   }
   function connect(url: string, token: string) {
     requests.current.push({ type: 'connect', url, token })

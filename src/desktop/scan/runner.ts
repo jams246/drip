@@ -40,6 +40,9 @@ export function createJobRunner(context: RunnerContext) {
     recordDiagnostic('scan.error', error instanceof Error ? error.name : 'unknown')
     context.publish({ type: 'error', message: String(error) })
   }
+  function retryIfWatched(job: PendingJob) {
+    if (context.locations.some((item) => item.id === job.watchId)) context.pending.retry(job)
+  }
   function post(message: ScanJobCommand) {
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node worker uses commands, not browser target origins.
     worker.postMessage(message)
@@ -56,7 +59,7 @@ export function createJobRunner(context: RunnerContext) {
     workerError = String(error)
     idleCancellation = false
     if (active) {
-      context.pending.retry(active.job)
+      retryIfWatched(active.job)
       active = undefined
     }
     failure(workerError)
@@ -86,7 +89,7 @@ export function createJobRunner(context: RunnerContext) {
       () => {
         if (active !== current) return
         if (current.cancelling || !context.canRun()) {
-          context.pending.retry(job)
+          retryIfWatched(job)
           active = undefined
           closeIdle()
           return
@@ -106,7 +109,7 @@ export function createJobRunner(context: RunnerContext) {
         })
       },
       (error) => {
-        context.pending.retry(job)
+        retryIfWatched(job)
         active = undefined
         failure(error)
         if (current.cancelling) closeIdle()
@@ -132,7 +135,7 @@ export function createJobRunner(context: RunnerContext) {
       'scan.result',
       `job=${current.jobId} kind=${current.job.kind} status=${result.type} bytes=${result.bytes} errors=${result.errors} retry=${retry}`
     )
-    if (retry && context.locations.some((item) => item.id === current.item.id)) context.pending.retry(current.job)
+    if (retry) retryIfWatched(current.job)
     const waiting = context.pending.has(current.item.id)
     const files = current.job.kind === 'inventory' && result.type === 'done' ? result.files : 0
     const directories = result.type === 'done' ? result.directories : 0
@@ -154,6 +157,21 @@ export function createJobRunner(context: RunnerContext) {
     startNext()
   }
 
+  function queueEntries(entries: ScanJobResponse['entries']) {
+    const current = active!
+    let queued = 0
+    for (const entry of entries) {
+      const force = current.job.force || context.pending.forcePath(current.item.id, entry.path)
+      if (entry.needsHash || force) {
+        context.pending.file(current.job, entry.path, force)
+        queued++
+      }
+    }
+    if (current.job.kind === 'inventory' && queued > 0) {
+      recordDiagnostic('scan.queued', `kind=hash generation=${current.job.generation} entries=${entries.length} count=${queued}`)
+    }
+  }
+
   function handleJobResult(result: ScanJobResponse) {
     if (!active || result.jobId !== active.jobId) return
     if (active.job.kind === 'hash') {
@@ -167,11 +185,7 @@ export function createJobRunner(context: RunnerContext) {
       return complete(result, Boolean(result.errors || (result.missing && active.job.path === normalizeFileId(active.item.path))))
     }
     if (active.cancelling) return
-    for (const entry of result.entries) {
-      if (entry.needsHash || active.job.force || context.pending.forcePath(active.item.id, entry.path)) {
-        context.pending.file(active.job, entry.path, active.job.force || context.pending.forcePath(active.item.id, entry.path))
-      }
-    }
+    queueEntries(result.entries)
     if (result.type === 'progress') context.publish({ type: 'progress', scan: progress.update(active.item.id, result.bytes, result.size) })
     if (result.type === 'ready') {
       context.monitoring.drain()

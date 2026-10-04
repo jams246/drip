@@ -9,6 +9,8 @@ struct Shell {
     activation_message: u32,
     paused: bool,
     tray_ready: bool,
+    tray_version: u32,
+    menu_open: bool,
     commands: Vec<&'static str>,
 }
 
@@ -34,6 +36,23 @@ fn open_window(window: isize) {
     }
 }
 
+fn show_tray_menu(window: isize) {
+    let paused = SHELL.with(|shell| {
+        let mut shell = shell.borrow_mut();
+        if shell.menu_open {
+            return None;
+        }
+        shell.menu_open = true;
+        Some(shell.paused)
+    });
+    let Some(paused) = paused else { return };
+    let command = crate::tray::menu(window, paused);
+    SHELL.with(|shell| shell.borrow_mut().menu_open = false);
+    if let Some(command) = command {
+        enqueue(command);
+    }
+}
+
 unsafe extern "system" fn subclass(
     window: isize,
     message: u32,
@@ -42,12 +61,12 @@ unsafe extern "system" fn subclass(
     _id: usize,
     _data: usize,
 ) -> isize {
-    let (taskbar, activation, paused) = SHELL.with(|shell| {
+    let (taskbar, activation, tray_version) = SHELL.with(|shell| {
         let shell = shell.borrow();
         (
             shell.taskbar_message,
             shell.activation_message,
-            shell.paused,
+            shell.tray_version,
         )
     });
     if message == activation && activation != 0 {
@@ -55,9 +74,13 @@ unsafe extern "system" fn subclass(
         return 0;
     }
     if message == taskbar && taskbar != 0 {
-        let ready = crate::tray::add(window);
-        SHELL.with(|shell| shell.borrow_mut().tray_ready = ready);
-        if !ready {
+        let version = crate::tray::add(window);
+        SHELL.with(|shell| {
+            let mut shell = shell.borrow_mut();
+            shell.tray_ready = version.is_some();
+            shell.tray_version = version.unwrap_or_default();
+        });
+        if version.is_none() {
             open_window(window);
             enqueue("tray-error");
         }
@@ -83,11 +106,8 @@ unsafe extern "system" fn subclass(
         WM_TRAY => {
             match value as u32 & 0xffff {
                 0x0202 | 0x0203 | 0x0400 | 0x0401 => enqueue("open"),
-                0x007b | 0x0205 => {
-                    if let Some(command) = crate::tray::menu(window, paused) {
-                        enqueue(command);
-                    }
-                }
+                WM_CONTEXTMENU if tray_version == NOTIFYICON_VERSION_4 => show_tray_menu(window),
+                WM_RBUTTONUP if tray_version != NOTIFYICON_VERSION_4 => show_tray_menu(window),
                 _ => {}
             }
             0
@@ -119,17 +139,18 @@ fn attach(window: isize) -> bool {
     if unsafe { SetWindowSubclass(window, subclass, SUBCLASS_ID, 0) } == 0 {
         return false;
     }
-    let tray_ready = crate::tray::add(window);
+    let tray_version = crate::tray::add(window);
     SHELL.with(|shell| {
         *shell.borrow_mut() = Shell {
             window,
             taskbar_message,
             activation_message,
-            tray_ready,
+            tray_ready: tray_version.is_some(),
+            tray_version: tray_version.unwrap_or_default(),
             ..Shell::default()
         };
     });
-    tray_ready
+    tray_version.is_some()
 }
 
 #[unsafe(no_mangle)]
