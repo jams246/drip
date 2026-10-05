@@ -131,7 +131,7 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
     }
   }
 
-  const bridgeTimer = setInterval(() => {
+  const pumpBridge = () => {
     const commands: string[] = JSON.parse(shellDrain())
     for (const command of commands) {
       if (command === 'open' || command === 'tray-error') shellOpen()
@@ -172,7 +172,8 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
         latestError = `Scan bridge failed: ${String(error)}`
       }
     })
-  }, BRIDGE_INTERVAL_MS)
+  }
+  const bridgeTimer = setInterval(pumpBridge, BRIDGE_INTERVAL_MS)
   onTerminate(() => {
     recordDiagnostic('desktop.terminate')
     closing = true
@@ -181,4 +182,5 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
     service?.stop()
     // Forced termination cannot await callbacks. Frozen operations are durable, and Windows keeps the mutex until process death.
   })
+  pumpBridge()
 }

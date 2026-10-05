@@ -1,0 +1,148 @@
+diff --git a/crates/perry-ui-windows/src/widgets/webview.rs b/crates/perry-ui-windows/src/widgets/webview.rs
+index 026f09c..1bf3132 100644
+--- a/crates/perry-ui-windows/src/widgets/webview.rs
++++ b/crates/perry-ui-windows/src/widgets/webview.rs
+@@ -199,6 +236,35 @@ static NEXT_DATA_DIR_TAG: AtomicI64 = AtomicI64::new(1);
+ // Public API
+ // =============================================================================
+ 
++#[cfg(target_os = "windows")]
++fn initial_webview_background() -> Option<COREWEBVIEW2_COLOR> {
++    let color = crate::app::initial_background_color()?;
++    let [red, green, blue, _] = color.0.to_le_bytes();
++    Some(COREWEBVIEW2_COLOR { A: 255, R: red, G: green, B: blue })
++}
++
++#[cfg(target_os = "windows")]
++fn initial_controller_options(
++    env: &ICoreWebView2Environment,
++) -> Option<(ICoreWebView2Environment10, ICoreWebView2ControllerOptions)> {
++    let color = initial_webview_background()?;
++    let environment = env.cast::<ICoreWebView2Environment10>().ok()?;
++    let options = unsafe { environment.CreateCoreWebView2ControllerOptions().ok()? };
++    let options3 = options.cast::<ICoreWebView2ControllerOptions3>().ok()?;
++    unsafe { options3.SetDefaultBackgroundColor(color).ok()? };
++    Some((environment, options))
++}
++
++#[cfg(target_os = "windows")]
++unsafe extern "system" fn background_host_proc(
++    hwnd: HWND,
++    msg: u32,
++    wparam: WPARAM,
++    lparam: LPARAM,
++) -> LRESULT {
++    DefWindowProcW(hwnd, msg, wparam, lparam)
++}
++
+ pub fn create(url_ptr: *const u8, width: f64, height: f64, ephemeral_hint: f64) -> i64 {
+     let url = unsafe { str_from_header(url_ptr) }.to_string();
+     let control_id = alloc_control_id();
+@@ -217,15 +283,33 @@ pub fn create(url_ptr: *const u8, width: f64, height: f64, ephemeral_hint: f64)
+         // tolerates a prior init (`S_FALSE` / `RPC_E_CHANGED_MODE`).
+         ensure_com_sta();
+ 
+-        let class_name = to_wide("STATIC");
++        let static_class_name = to_wide("STATIC");
++        let class_name = to_wide("PerryWebViewHost");
+         let window_text = to_wide("");
+         let host = unsafe {
+             let hinstance = GetModuleHandleW(None).unwrap();
++            let mut class = WNDCLASSEXW {
++                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
++                ..Default::default()
++            };
++            GetClassInfoExW(None, PCWSTR(static_class_name.as_ptr()), &mut class).unwrap();
++            let fallback = class.hbrBackground;
++            let background = crate::app::initial_background_brush(fallback);
++            class.hInstance = HINSTANCE::from(hinstance);
++            class.hbrBackground = background;
++            class.lpszClassName = PCWSTR(class_name.as_ptr());
++            if background.0 != fallback.0 {
++                class.lpfnWndProc = Some(background_host_proc);
++                class.style = CS_HREDRAW | CS_VREDRAW;
++            }
++            if RegisterClassExW(&class) == 0 && background.0 != fallback.0 {
++                let _ = windows::Win32::Graphics::Gdi::DeleteObject(background.into());
++            }
+             CreateWindowExW(
+                 WINDOW_EX_STYLE::default(),
+                 PCWSTR(class_name.as_ptr()),
+                 PCWSTR(window_text.as_ptr()),
+-                WS_CHILD | WS_VISIBLE,
++                WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+                 0,
+                 0,
+                 if width > 0.0 { width as i32 } else { 600 },
+@@ -409,7 +493,11 @@ fn init_webview2_sync(handle: i64, user_data_dir: &PathBuf) -> windows::core::Re
+     ));
+ 
+     unsafe {
+-        env.CreateCoreWebView2Controller(host_hwnd, &ctrl_handler)?;
++        if let Some((environment, options)) = initial_controller_options(&env) {
++            environment.CreateCoreWebView2ControllerWithOptions(host_hwnd, &options, &ctrl_handler)?;
++        } else {
++            env.CreateCoreWebView2Controller(host_hwnd, &ctrl_handler)?;
++        }
+     }
+     // Same peek-don't-consume pattern as the environment handler above.
+     pump_messages_until(|| ctrl_ready.get());
+@@ -426,6 +514,11 @@ fn init_webview2_sync(handle: i64, user_data_dir: &PathBuf) -> windows::core::Re
+         let mut rect = RECT::default();
+         let _ = GetClientRect(host_hwnd, &mut rect);
+         controller.SetBounds(rect)?;
++        if let Some(color) = initial_webview_background() {
++            if let Ok(controller2) = controller.cast::<ICoreWebView2Controller2>() {
++                controller2.SetDefaultBackgroundColor(color)?;
++            }
++        }
+         controller.SetIsVisible(true)?;
+     }
+ 
+@@ -972,7 +1078,30 @@ unsafe extern "system" fn size_subclass_proc(
+     _id: usize,
+     _refdata: usize,
+ ) -> LRESULT {
++    use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, FillRect, HDC, PAINTSTRUCT};
+     use windows::Win32::UI::Shell::DefSubclassProc;
++    if matches!(msg, WM_ERASEBKGND | WM_PAINT) {
++        let handle = HWND_TO_HANDLE
++            .try_with(|m| m.borrow().get(&(hwnd.0 as isize)).copied())
++            .ok()
++            .flatten();
++        if let Some(brush) = handle.and_then(super::get_bg_brush) {
++            let mut rect = RECT::default();
++            let _ = GetClientRect(hwnd, &mut rect);
++            let mut paint = PAINTSTRUCT::default();
++            let device = if msg == WM_PAINT {
++                BeginPaint(hwnd, &mut paint)
++            } else {
++                HDC(wparam.0 as *mut _)
++            };
++            FillRect(device, &rect, brush);
++            if msg == WM_PAINT {
++                let _ = EndPaint(hwnd, &paint);
++                return LRESULT(0);
++            }
++            return LRESULT(1);
++        }
++    }
+     if msg == WM_SIZE {
+         let handle = HWND_TO_HANDLE.with(|m| m.borrow().get(&(hwnd.0 as isize)).copied());
+         if let Some(handle) = handle {
+diff --git a/crates/perry-ui-windows/src/widgets/mod.rs b/crates/perry-ui-windows/src/widgets/mod.rs
+index 04ef218..8bd1117 100644
+--- a/crates/perry-ui-windows/src/widgets/mod.rs
++++ b/crates/perry-ui-windows/src/widgets/mod.rs
+@@ -203,7 +203,10 @@ fn rgb_to_colorref(r: f64, g: f64, b: f64) -> u32 {
+ /// Get the background brush for a widget (if set).
+ #[cfg(target_os = "windows")]
+ pub fn get_bg_brush(handle: i64) -> Option<HBRUSH> {
+-    BG_BRUSHES.with(|b| b.borrow().get(&handle).copied())
++    BG_BRUSHES
++        .try_with(|b| b.borrow().get(&handle).copied())
++        .ok()
++        .flatten()
+ }
+ 
+ /// Get the background COLORREF for a widget (if set).

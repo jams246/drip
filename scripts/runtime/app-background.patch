@@ -1,0 +1,159 @@
+diff --git a/crates/perry-ui-windows/src/app.rs b/crates/perry-ui-windows/src/app.rs
+index 51792a6..03919dc 100644
+--- a/crates/perry-ui-windows/src/app.rs
++++ b/crates/perry-ui-windows/src/app.rs
+@@ -440,6 +440,34 @@ fn to_wide(s: &str) -> Vec<u16> {
+     s.encode_utf16().chain(std::iter::once(0)).collect()
+ }
+ 
++#[cfg(target_os = "windows")]
++pub(crate) fn initial_background_color() -> Option<COLORREF> {
++    let Ok(value) = std::env::var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR") else {
++        return None;
++    };
++    let value = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")).unwrap_or(&value);
++    if value.len() != 8 {
++        return None;
++    }
++    let Ok(argb) = u32::from_str_radix(value, 16) else {
++        return None;
++    };
++    let [alpha, red, green, blue] = argb.to_be_bytes();
++    if alpha != 255 {
++        return None;
++    }
++    Some(COLORREF(u32::from_le_bytes([red, green, blue, 0])))
++}
++
++#[cfg(target_os = "windows")]
++pub(crate) fn initial_background_brush(fallback: HBRUSH) -> HBRUSH {
++    let Some(color) = initial_background_color() else {
++        return fallback;
++    };
++    let brush = unsafe { CreateSolidBrush(color) };
++    if brush.0.is_null() { fallback } else { brush }
++}
++
+ /// Create an app window. Returns app handle (1-based).
+ pub fn app_create(title_ptr: *const u8, width: f64, height: f64) -> i64 {
+     crate::gc::ensure_gc_scanner_registered();
+@@ -465,23 +493,21 @@ pub fn app_create(title_ptr: *const u8, width: f64, height: f64) -> i64 {
+ 
+             // Register window class
+             let class_name = to_wide("PerryMainWindow");
++            let fallback = HBRUSH((COLOR_WINDOW.0 + 1) as *mut _);
++            let background = initial_background_brush(fallback);
+             let wc = WNDCLASSEXW {
+                 cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                 style: CS_HREDRAW | CS_VREDRAW,
+                 lpfnWndProc: Some(wnd_proc),
+                 hInstance: HINSTANCE::from(hinstance),
+                 hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+-                // Default window-color class brush (matches the secondary-window
+-                // class in window.rs). A null brush erases nothing, so any client
+-                // area not covered by a child renders black after a resize (#1542).
+-                // The WM_ERASEBKGND handler still returns early for explicit
+-                // .background() colors/gradients, so this only affects the
+-                // no-background case.
+-                hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as *mut _),
++                hbrBackground: background,
+                 lpszClassName: windows::core::PCWSTR(class_name.as_ptr()),
+                 ..Default::default()
+             };
+-            RegisterClassExW(&wc);
++            if RegisterClassExW(&wc) == 0 && background.0 != fallback.0 {
++                let _ = DeleteObject(background.into());
++            }
+ 
+             let title_wide = to_wide(&title);
+             let hwnd = CreateWindowExW(
+@@ -522,5 +548,8 @@ pub fn app_create(title_ptr: *const u8, width: f64, height: f64) -> i64 {
+             crate::dwm::apply_default_window_chrome(hwnd);
++            if initial_background_color().is_some() {
++                crate::dwm::set_attr_i32(hwnd, 20, 1);
++            }
+ 
+             APPS.with(|apps| {
+                 let mut apps = apps.borrow_mut();
+                 apps.push(AppEntry {
+@@ -1475,6 +1504,37 @@ unsafe extern "system" fn wnd_proc(
+     lparam: LPARAM,
+ ) -> LRESULT {
+     match msg {
++        WM_NCPAINT | WM_NCACTIVATE | WM_WINDOWPOSCHANGED => {
++            let property = to_wide("PerryInitialBackgroundPainted");
++            let property = windows::core::PCWSTR(property.as_ptr());
++            if initial_background_color().is_some() && GetPropW(hwnd, property).0.is_null() {
++                if let Some(root) = get_root_widget(1) {
++                    if let (Some(host), Some(brush)) = (
++                        crate::widgets::get_hwnd(root), crate::widgets::get_bg_brush(root),
++                    ) {
++                        let device = GetDCEx(Some(host), None, DCX_CACHE);
++                        if !device.0.is_null() {
++                            let mut rect = RECT::default();
++                            let mut clip = RECT::default();
++                            let _ = GetClientRect(host, &mut rect);
++                            if GetClipBox(device, &mut clip).0 > NULLREGION.0
++                                && FillRect(device, &rect, brush) != 0
++                            {
++                                let _ = GdiFlush();
++                                let _ = SetPropW(hwnd, property, Some(HANDLE(1 as *mut _)));
++                            }
++                            let _ = ReleaseDC(Some(host), device);
++                        }
++                    }
++                }
++            }
++            DefWindowProcW(hwnd, msg, wparam, lparam)
++        }
++        WM_NCDESTROY => {
++            let property = to_wide("PerryInitialBackgroundPainted");
++            let _ = RemovePropW(hwnd, windows::core::PCWSTR(property.as_ptr()));
++            DefWindowProcW(hwnd, msg, wparam, lparam)
++        }
+         WM_SIZE => {
+             let width = (lparam.0 & 0xFFFF) as i32;
+             let height = ((lparam.0 >> 16) & 0xFFFF) as i32;
+@@ -1660,15 +1720,21 @@ unsafe extern "system" fn wnd_proc(
+             DefWindowProcW(hwnd, msg, wparam, lparam)
+         }
+         WM_ERASEBKGND => {
+-            // Paint the root widget's background if set
+-            if let Some(root) = get_root_widget(1) {
+-                if let Some(brush) = crate::widgets::get_bg_brush(root) {
+-                    let hdc = HDC(wparam.0 as *mut _);
+-                    let mut rect = RECT::default();
+-                    let _ = GetClientRect(hwnd, &mut rect);
+-                    FillRect(hdc, &rect, brush);
+-                    return LRESULT(1);
+-                }
++            let brush = get_root_widget(1)
++                .and_then(crate::widgets::get_bg_brush)
++                .or_else(|| {
++                    let class_brush = GetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND);
++                    if class_brush == 0 || class_brush == (COLOR_WINDOW.0 + 1) as usize {
++                        return None;
++                    }
++                    Some(HBRUSH(class_brush as *mut _))
++                });
++            if let Some(brush) = brush {
++                let hdc = HDC(wparam.0 as *mut _);
++                let mut rect = RECT::default();
++                let _ = GetClientRect(hwnd, &mut rect);
++                FillRect(hdc, &rect, brush);
++                return LRESULT(1);
+             }
+             crate::theme::erase_background(hwnd, HDC(wparam.0 as *mut _))
+         }
+diff --git a/crates/perry-ui-windows/src/theme.rs b/crates/perry-ui-windows/src/theme.rs
+index d31124a..c7d944a 100644
+--- a/crates/perry-ui-windows/src/theme.rs
++++ b/crates/perry-ui-windows/src/theme.rs
+@@ -217,7 +217,6 @@ unsafe extern "system" fn refresh_child(hwnd: HWND, _lparam: LPARAM) -> BOOL {
+ /// Re-theme an existing top-level window and every descendant control.
+ pub fn refresh_window_tree(hwnd: HWND) {
+     refresh_mode();
+-    apply_control_theme(hwnd);
+     unsafe {
+         let _ = EnumChildWindows(Some(hwnd), Some(refresh_child), LPARAM(0));
+         let _ = InvalidateRect(Some(hwnd), None, true);

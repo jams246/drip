@@ -12,7 +12,7 @@ await build({
   configFile: false,
   root,
   plugins: [viteSingleFile()],
-  build: { outDir: fileURLToPath(output), emptyOutDir: true }
+  build: { outDir: fileURLToPath(output), emptyOutDir: true, modulePreload: { polyfill: false } }
 })
 
 assert.deepEqual(await readdir(output), ['index.html'], 'Frontend must build into one self-contained HTML file.')

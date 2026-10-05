@@ -10,7 +10,7 @@ if ($LASTEXITCODE -ne 0 -or $revision -ne '381045a8735ff325621c5dfb26a3bd4f5a879
     throw 'Runtime patches require Perry v0.5.1520 at the pinned revision.'
 }
 
-foreach ($patchName in @('worker-agent', 'webview-callback', 'native-handle', 'sqlite-statement-cleanup', 'sync-fetch', 'fetch-promise', 'json-closure', 'crash-handler')) {
+foreach ($patchName in @('worker-agent', 'webview-callback', 'app-background', 'webview-background', 'native-handle', 'sqlite-statement-cleanup', 'sync-fetch', 'fetch-promise', 'json-closure', 'crash-handler')) {
     $runtimePatch = Join-Path $PSScriptRoot "runtime/$patchName.patch"
     & git -C $runtimeSource apply --check $runtimePatch 2>$null
     if ($LASTEXITCODE -eq 0) {
