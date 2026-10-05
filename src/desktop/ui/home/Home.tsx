@@ -1,9 +1,20 @@
+import { useState } from 'react'
 import { isScanActive } from '../../scan/state'
 import type { ScanLocation, ScanSnapshot, WatchHealth } from '../../scan/types'
 import type { SyncStatus } from '../../sync/types'
 import { ScanNotices } from '../ScanNotices'
 import { FileRow } from './FileRow'
 import './home.css'
+
+const categories = ['scanning', 'queued', 'completed', 'error'] as const
+type ScanCategory = (typeof categories)[number]
+
+function getScanCategory(scan: ScanSnapshot): ScanCategory {
+  if (isScanActive(scan)) return 'scanning'
+  if (scan.state === 'queued') return 'queued'
+  if (scan.state === 'error' || scan.state === 'completed-with-errors') return 'error'
+  return 'completed'
+}
 
 interface HomeProps {
   locations: readonly ScanLocation[]
@@ -21,12 +32,19 @@ interface HomeProps {
 }
 
 export function Home({ locations, scans, sync, picking, loading = false, error, advanced, paused, verifying, health, onVerify, onPauseChange }: HomeProps) {
+  const [selectedCategory, setSelectedCategory] = useState<ScanCategory>('completed')
   const counts = { scanning: 0, queued: 0, completed: 0, error: 0 }
-  for (const scan of scans) {
-    if (isScanActive(scan)) counts.scanning += 1
-    else if (scan.state === 'queued') counts.queued += 1
-    else if (scan.state === 'error' || scan.state === 'completed-with-errors') counts.error += 1
-    else counts.completed += 1
+  for (const scan of scans) counts[getScanCategory(scan)] += 1
+  const rows = locations.flatMap((location) => {
+    const scan = scans.find((entry) => entry.id === location.id)
+    if (!scan || getScanCategory(scan) !== selectedCategory) return []
+    return [{ location, scan }]
+  })
+  const labels = {
+    scanning: advanced ? 'Scanning' : 'Preparing for synchronization',
+    queued: 'Queued',
+    completed: 'Completed',
+    error: 'Needs attention'
   }
   return (
     <section className="home" aria-labelledby="home-title">
@@ -57,27 +75,25 @@ export function Home({ locations, scans, sync, picking, loading = false, error, 
         </output>
       )}
       <div className="home__summary" aria-label="Scan summary">
-        {(['scanning', 'queued', 'completed', 'error'] as const).map((state) => (
-          <div className="home__stat" key={state}>
+        {categories.map((state) => (
+          <button
+            className={`home__stat${selectedCategory === state ? ' home__stat--selected' : ''}`}
+            key={state}
+            type="button"
+            aria-pressed={selectedCategory === state}
+            aria-controls="home-file-list"
+            onClick={() => setSelectedCategory(state)}
+          >
             <span className="home__stat-value">{counts[state]}</span>
-            <span className="home__stat-label">
-              {
-                {
-                  scanning: advanced ? 'Scanning' : 'Preparing for synchronization',
-                  queued: 'Queued',
-                  completed: 'Completed',
-                  error: 'Needs attention'
-                }[state]
-              }
-            </span>
-            <span className={`home__stat-mark home__stat-mark--${state}`} />
-          </div>
+            <span className="home__stat-label">{labels[state]}</span>
+            <span className={`home__stat-mark home__stat-mark--${state}`} aria-hidden="true" />
+          </button>
         ))}
       </div>
       <div className="surface home__files">
         <div className="home__list-heading">
           <h2>File status</h2>
-          <span>{locations.length} locations</span>
+          <output>{rows.length} locations</output>
         </div>
         {locations.length === 0 && !loading && (
           <div className="empty-state">
@@ -85,15 +101,16 @@ export function Home({ locations, scans, sync, picking, loading = false, error, 
             <p>Select a file or folder from Watch to start scanning.</p>
           </div>
         )}
-        <ul className="home__file-list">
-          {locations.map((location) => {
-            const scan = scans.find((entry) => entry.id === location.id)
-            return (
-              scan && (
-                <FileRow key={location.id} location={location} scan={scan} advanced={advanced} health={health.find((entry) => entry.id === location.id)} />
-              )
-            )
-          })}
+        {locations.length > 0 && rows.length === 0 && !loading && (
+          <div className="empty-state">
+            <h2>No matching locations</h2>
+            <p>No files or folders have this status.</p>
+          </div>
+        )}
+        <ul className="home__file-list" id="home-file-list">
+          {rows.map(({ location, scan }) => (
+            <FileRow key={location.id} location={location} scan={scan} advanced={advanced} health={health.find((entry) => entry.id === location.id)} />
+          ))}
         </ul>
       </div>
     </section>
