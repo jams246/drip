@@ -17,6 +17,20 @@
   margin-bottom: 20px;
   overflow-wrap: anywhere;
 }
+.home__sync--disconnected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 20px;
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--background));
+}
+.home__sync--disconnected .home__sync-message {
+  font-size: 18px;
+  font-weight: 600;
+}
 .home__notice {
   color: var(--muted-foreground);
 }

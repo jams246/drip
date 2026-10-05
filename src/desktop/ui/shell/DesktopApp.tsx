@@ -54,7 +54,8 @@ export function DesktopApp() {
     content.current?.scrollTo({ top: 0 })
   }
 
-  const connectionLabels = { connected: 'Connected', connecting: 'Connecting', disconnected: 'Disconnected', error: 'Connection error' }
+  const connectionStatus = scans.paused ? 'paused' : connection.status
+  const connectionLabels = { connected: 'Connected', connecting: 'Connecting', disconnected: 'Disconnected', error: 'Connection error', paused: 'Paused' }
   return (
     <Tabs
       className="desktop"
@@ -74,7 +75,7 @@ export function DesktopApp() {
               ref={page === name ? navigation : undefined}
               key={name}
               value={name}
-              className="navigation__button"
+              className="navigation__button data-[state=active]:shadow-none"
               aria-current={page === name ? 'page' : undefined}
             >
               {name}
@@ -98,6 +99,7 @@ export function DesktopApp() {
               health={scans.health}
               onVerify={confirmation.verify}
               onPauseChange={changePause}
+              onOpenSettings={() => navigate('Settings')}
             />
           )}
           {page === 'Watch' && (
@@ -129,11 +131,11 @@ export function DesktopApp() {
           )}
         </TabsContent>
       </main>
-      <footer className={`desktop__footer${connection.status === 'error' ? ' desktop__footer--error' : ''}`}>
-        <output className={`desktop__connection desktop__connection--${connection.status}`} role={connection.status === 'error' ? 'alert' : 'status'}>
+      <footer className={`desktop__footer${connectionStatus === 'error' ? ' desktop__footer--error' : ''}`}>
+        <output className={`desktop__connection desktop__connection--${connectionStatus}`} role={connectionStatus === 'error' ? 'alert' : 'status'}>
           <Badge variant="outline" className="desktop__connection-badge">
             <span className="desktop__connection-dot" aria-hidden="true" />
-            {connectionLabels[connection.status]}
+            {connectionLabels[connectionStatus]}
           </Badge>
         </output>
         <span>

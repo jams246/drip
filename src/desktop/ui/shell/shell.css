@@ -40,14 +40,18 @@
 .desktop__connection--connecting {
   color: var(--primary);
 }
+.desktop__connection--paused {
+  color: var(--warning);
+}
 .navigation {
   display: flex;
-  background: var(--muted);
+  background: var(--card);
   border-bottom: 1px solid var(--border);
 }
 .navigation__list {
   width: 100%;
   justify-content: flex-start;
+  align-items: stretch;
   height: auto;
   padding: 0 clamp(16px, 3vw, 40px);
   border-radius: 0;
@@ -56,6 +60,18 @@
 .navigation__button {
   cursor: pointer;
   padding: 10px 22px;
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.navigation__button:hover {
+  color: var(--foreground);
+  background: var(--secondary);
+}
+.navigation__button[data-state='active'] {
+  border-color: var(--border);
+  border-bottom-color: var(--background);
+  background: var(--background);
 }
 .desktop__page {
   margin: 0;

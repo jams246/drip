@@ -40,7 +40,7 @@ export function Settings({
   const statusText = {
     connected: 'Connected. Your files are ready to sync.',
     connecting: 'Connecting to your server…',
-    disconnected: 'Connect to a server to get started.',
+    disconnected: undefined,
     error: 'Could not connect. Check your details and try again.'
   }[connection.status]
 
@@ -104,15 +104,17 @@ export function Settings({
                 {connecting && <Spinner aria-hidden="true" />}
                 {connecting ? 'Connecting…' : 'Connect'}
               </Button>
-              <Alert
-                className={`settings__status settings__status--${connection.status}`}
-                variant={failed ? 'destructive' : 'default'}
-                role={failed ? 'alert' : 'status'}
-                aria-live={failed ? 'assertive' : 'polite'}
-                aria-atomic="true"
-              >
-                <AlertDescription>{connection.message || statusText}</AlertDescription>
-              </Alert>
+              {statusText && (
+                <Alert
+                  className={`settings__status settings__status--${connection.status}`}
+                  variant={failed ? 'destructive' : 'default'}
+                  role={failed ? 'alert' : 'status'}
+                  aria-live={failed ? 'assertive' : 'polite'}
+                  aria-atomic="true"
+                >
+                  <AlertDescription>{connection.message || statusText}</AlertDescription>
+                </Alert>
+              )}
             </form>
           </section>
         </Card>

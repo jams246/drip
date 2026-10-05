@@ -34,9 +34,24 @@ interface HomeProps {
   health: WatchHealth[]
   onVerify: () => void
   onPauseChange: (paused: boolean) => void
+  onOpenSettings: () => void
 }
 
-export function Home({ locations, scans, sync, picking, loading = false, error, advanced, paused, verifying, health, onVerify, onPauseChange }: HomeProps) {
+export function Home({
+  locations,
+  scans,
+  sync,
+  picking,
+  loading = false,
+  error,
+  advanced,
+  paused,
+  verifying,
+  health,
+  onVerify,
+  onPauseChange,
+  onOpenSettings
+}: HomeProps) {
   const [selectedCategory, setSelectedCategory] = useState<ScanCategory>('completed')
   const counts = { scanning: 0, queued: 0, completed: 0, error: 0 }
   for (const scan of scans) counts[getScanCategory(scan)] += 1
@@ -73,16 +88,18 @@ export function Home({ locations, scans, sync, picking, loading = false, error, 
         </Alert>
       )}
       <ScanNotices loading={loading} picking={picking} loadingMessage="Loading saved scan results." className="home__notice" />
-      {paused && (
-        <Alert asChild className="home__notice">
-          <output>
-            <AlertDescription>Watching and hashing are paused.</AlertDescription>
-          </output>
-        </Alert>
-      )}
       {sync.state !== 'idle' && (
-        <Alert className="home__sync" variant={sync.state === 'error' ? 'destructive' : 'default'} role={sync.state === 'error' ? 'alert' : 'status'}>
-          <AlertDescription>{sync.message}</AlertDescription>
+        <Alert
+          className={`home__sync${sync.state === 'disconnected' ? ' home__sync--disconnected' : ''}`}
+          variant={sync.state === 'error' ? 'destructive' : 'default'}
+          role={sync.state === 'error' ? 'alert' : 'status'}
+        >
+          <AlertDescription className="home__sync-message">{sync.message}</AlertDescription>
+          {sync.state === 'disconnected' && (
+            <Button type="button" onClick={onOpenSettings}>
+              Connect to server
+            </Button>
+          )}
         </Alert>
       )}
       <ToggleGroup
