@@ -14,6 +14,7 @@
     "target": "es2025",
     "types": ["node"],
     "paths": {
+      "@/*": ["./src/desktop/ui/*"],
       "perry/*": ["./.perry/types/perry/*/index.d.ts"]
     }
   },

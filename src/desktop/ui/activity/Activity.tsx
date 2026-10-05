@@ -1,5 +1,9 @@
 import { useEffect, useRef } from 'react'
 import type { ActivityEntry } from '../sync/types'
+import { Badge } from '../components/badge'
+import { Button } from '../components/button'
+import { Card } from '../components/card'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '../components/empty'
 import './activity.css'
 
 interface ActivityProps {
@@ -36,20 +40,22 @@ export function Activity({ entries, highlightedId, onClear }: ActivityProps) {
         <h1 className="page-heading__title" id="activity-title">
           Activity
         </h1>
-        <button className="button button--secondary" type="button" disabled={entries.length === 0} onClick={onClear}>
+        <Button variant="outline" type="button" disabled={entries.length === 0} onClick={onClear}>
           Clear all activity
-        </button>
+        </Button>
       </div>
 
-      <div className="activity__list surface">
+      <Card className="activity__list">
         <div className="activity__list-heading">
           <h2 className="activity__list-title">Recent activity</h2>
         </div>
         {entries.length === 0 ? (
-          <div className="empty-state">
-            <h3>No activity yet</h3>
-            <p>Scan results and connection events will appear here.</p>
-          </div>
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No activity yet</EmptyTitle>
+              <EmptyDescription>Scan results and connection events will appear here.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <ol className="activity__entries">
             {entries.map((entry) => {
@@ -64,7 +70,9 @@ export function Activity({ entries, highlightedId, onClear }: ActivityProps) {
                   <time className="activity__time" dateTime={entry.time}>
                     {timeFormat.format(new Date(entry.time))}
                   </time>
-                  <span className="activity__severity">{severityLabels[entry.severity]}</span>
+                  <Badge variant="outline" className="activity__severity">
+                    {severityLabels[entry.severity]}
+                  </Badge>
                   <div className="activity__entry-copy">
                     <h3 className="activity__title">{entry.title}</h3>
                     {entry.path && <p className="activity__path">{entry.path}</p>}
@@ -75,7 +83,7 @@ export function Activity({ entries, highlightedId, onClear }: ActivityProps) {
             })}
           </ol>
         )}
-      </div>
+      </Card>
     </section>
   )
 }

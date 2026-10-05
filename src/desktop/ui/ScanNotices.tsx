@@ -1,3 +1,6 @@
+import { Alert, AlertDescription } from './components/alert'
+import { Spinner } from './components/spinner'
+
 interface ScanNoticesProps {
   loading: boolean
   picking: boolean
@@ -8,8 +11,22 @@ interface ScanNoticesProps {
 export function ScanNotices({ loading, picking, loadingMessage, className }: ScanNoticesProps) {
   return (
     <>
-      {loading && <output className={className}>{loadingMessage}</output>}
-      {picking && <output className={className}>Choose a file or folder in the selection dialog, then wait for the watch location to save.</output>}
+      {loading && (
+        <Alert asChild className={className}>
+          <output>
+            <Spinner aria-hidden="true" />
+            <AlertDescription>{loadingMessage}</AlertDescription>
+          </output>
+        </Alert>
+      )}
+      {picking && (
+        <Alert asChild className={className}>
+          <output>
+            <Spinner aria-hidden="true" />
+            <AlertDescription>Choose a file or folder in the selection dialog, then wait for the watch location to save.</AlertDescription>
+          </output>
+        </Alert>
+      )}
     </>
   )
 }

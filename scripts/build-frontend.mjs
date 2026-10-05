@@ -9,7 +9,7 @@ const root = fileURLToPath(new URL('../src/desktop/', import.meta.url))
 const output = new URL('../dist/desktop/', import.meta.url)
 
 await build({
-  configFile: false,
+  configFile: fileURLToPath(new URL('../src/desktop/vite.config.ts', import.meta.url)),
   root,
   plugins: [viteSingleFile()],
   build: { outDir: fileURLToPath(output), emptyOutDir: true, modulePreload: { polyfill: false } }

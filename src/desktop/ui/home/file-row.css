@@ -4,7 +4,7 @@
   align-items: start;
   gap: 16px;
   padding: 20px;
-  border-bottom: 1px solid var(--divider);
+  border-bottom: 1px solid var(--border);
 }
 .file-row:last-child {
   border-bottom: 0;
@@ -14,9 +14,9 @@
   place-items: center;
   width: 36px;
   height: 40px;
-  color: var(--muted);
+  color: var(--muted-foreground);
   border-radius: 6px;
-  background: var(--surface-raised);
+  background: var(--secondary);
 }
 .file-row__icon svg {
   width: 21px;
@@ -40,7 +40,7 @@
 .file-row__bytes {
   font-size: 13px;
   line-height: 1.5;
-  color: var(--muted);
+  color: var(--muted-foreground);
   overflow-wrap: anywhere;
 }
 .file-row__metrics {
@@ -56,7 +56,7 @@
   gap: 3px;
 }
 .file-row__metrics dt {
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 .file-row__metrics dd {
   margin: 0;
@@ -69,7 +69,7 @@
 }
 .file-row__error {
   margin: 8px 0 0;
-  color: var(--error);
+  color: var(--destructive);
   font-size: 14px;
   overflow-wrap: anywhere;
 }
@@ -80,10 +80,10 @@
   color: var(--success);
 }
 .status-label--error {
-  color: var(--error);
+  color: var(--destructive);
 }
 .status-label--neutral {
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 @media (max-width: 700px) {
   .file-row {

@@ -3,6 +3,8 @@ import { isScanActive, isScanFinished } from '../../scan/state'
 import type { ScanLocation, ScanSnapshot, WatchHealth } from '../../scan/types'
 import { FileProgress } from '../sync/FileProgress'
 import { formatBytes, formatSpeed } from '../sync/format'
+import { Alert, AlertDescription } from '../components/alert'
+import { Badge } from '../components/badge'
 import './file-row.css'
 
 const millisecondsPerSecond = 1000
@@ -82,16 +84,20 @@ export const FileRow = memo(function FileRow({ location, scan, advanced, health 
           </dl>
         )}
         {scan.error && (
-          <p className="file-row__error" role="alert">
-            {scan.error}
-          </p>
+          <Alert variant="destructive" className="file-row__error">
+            <AlertDescription>{scan.error}</AlertDescription>
+          </Alert>
         )}
       </div>
       <div className="file-row__state">
         {active ? (
           <FileProgress value={currentFileBytes} max={scan.currentSize} label={label} />
         ) : (
-          <output className={`status-label status-label--${statusClass}`}>{label}</output>
+          <output>
+            <Badge variant="outline" className={`status-label status-label--${statusClass}`}>
+              {label}
+            </Badge>
+          </output>
         )}
         {advanced && active && scan.currentPath && (
           <span className="file-row__bytes">

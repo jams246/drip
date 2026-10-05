@@ -1,4 +1,5 @@
 import './progress.css'
+import { Progress } from '../components/progress'
 
 const percentageMaximum = 100
 
@@ -18,9 +19,7 @@ export function FileProgress({ value, max, label }: FileProgressProps) {
         <span>{label}</span>
         {percent !== undefined && <span className="file-progress__value">{percent}%</span>}
       </div>
-      <div className={`file-progress__track${hasValue ? '' : ' file-progress__track--indeterminate'}`}>
-        <progress className="file-progress__bar" value={boundedValue} max={hasValue ? max : percentageMaximum} aria-label={label} />
-      </div>
+      <Progress className="file-progress__bar" value={percent ?? null} aria-label={label} />
     </div>
   )
 }

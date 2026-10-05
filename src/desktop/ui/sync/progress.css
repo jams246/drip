@@ -7,61 +7,18 @@
   justify-content: space-between;
   gap: 12px;
   font-size: 14px;
-  color: var(--progress-color, var(--accent));
+  color: var(--primary);
   margin-bottom: 7px;
 }
 .file-progress__value {
   font-variant-numeric: tabular-nums;
 }
-.file-progress__bar {
-  display: block;
-  width: 100%;
-  height: 4px;
-  border: 0;
-  border-radius: 3px;
-  background: var(--divider);
-  accent-color: var(--progress-color, var(--accent));
-  appearance: none;
-  overflow: hidden;
-}
-.file-progress__bar::-webkit-progress-bar {
-  background: var(--divider);
-  border-radius: 3px;
-}
-.file-progress__bar::-webkit-progress-value {
-  background: var(--progress-color, var(--accent));
-  border-radius: 3px;
-  transition: width 90ms linear;
-}
-.file-progress__bar:indeterminate {
-  background: var(--divider);
-}
-.file-progress__track {
-  position: relative;
-  overflow: hidden;
-  border-radius: 3px;
-}
-.file-progress__track--indeterminate::after {
-  content: '';
-  display: block;
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 4px;
+.file-progress__bar[data-state='indeterminate'] > div {
   width: 35%;
-  background: var(--progress-color, var(--accent));
   animation: progress-scan 1.5s ease-in-out infinite alternate;
 }
 @keyframes progress-scan {
   to {
     transform: translateX(185%);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .file-progress__bar::-webkit-progress-value {
-    transition: none;
-  }
-  .file-progress__track--indeterminate::after {
-    animation: none;
   }
 }

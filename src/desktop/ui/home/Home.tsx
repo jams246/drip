@@ -4,6 +4,11 @@ import type { ScanLocation, ScanSnapshot, WatchHealth } from '../../scan/types'
 import type { SyncStatus } from '../../sync/types'
 import { ScanNotices } from '../ScanNotices'
 import { FileRow } from './FileRow'
+import { Alert, AlertDescription } from '../components/alert'
+import { Button } from '../components/button'
+import { Card } from '../components/card'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '../components/empty'
+import { ToggleGroup, ToggleGroupItem } from '../components/toggle-group'
 import './home.css'
 
 const categories = ['scanning', 'queued', 'completed', 'error'] as const
@@ -53,66 +58,78 @@ export function Home({ locations, scans, sync, picking, loading = false, error, 
           Home
         </h1>
         <div className="home__actions">
-          <button className="button button--secondary" type="button" disabled={loading} aria-pressed={paused} onClick={() => onPauseChange(!paused)}>
+          <Button variant="outline" type="button" disabled={loading} aria-pressed={paused} onClick={() => onPauseChange(!paused)}>
             <span aria-hidden="true">{paused ? '▷' : 'Ⅱ'}</span>
             {paused ? 'Resume watching' : 'Pause watching'}
-          </button>
-          <button className="button button--secondary" type="button" disabled={loading || paused || verifying || locations.length === 0} onClick={onVerify}>
+          </Button>
+          <Button variant="outline" type="button" disabled={loading || paused || verifying || locations.length === 0} onClick={onVerify}>
             {verifying ? 'Verifying contents' : 'Verify all'}
-          </button>
+          </Button>
         </div>
       </header>
       {error && (
-        <p className="home__error" role="alert">
-          {error}
-        </p>
+        <Alert className="home__error" variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
       <ScanNotices loading={loading} picking={picking} loadingMessage="Loading saved scan results." className="home__notice" />
-      {paused && <output className="home__notice">Watching and hashing are paused.</output>}
-      {sync.state !== 'idle' && (
-        <output className={`home__sync${sync.state === 'error' ? ' home__sync--error' : ''}`} role={sync.state === 'error' ? 'alert' : 'status'}>
-          {sync.message}
-        </output>
+      {paused && (
+        <Alert asChild className="home__notice">
+          <output>
+            <AlertDescription>Watching and hashing are paused.</AlertDescription>
+          </output>
+        </Alert>
       )}
-      <div className="home__summary" aria-label="Scan summary">
+      {sync.state !== 'idle' && (
+        <Alert className="home__sync" variant={sync.state === 'error' ? 'destructive' : 'default'} role={sync.state === 'error' ? 'alert' : 'status'}>
+          <AlertDescription>{sync.message}</AlertDescription>
+        </Alert>
+      )}
+      <ToggleGroup
+        type="single"
+        value={selectedCategory}
+        onValueChange={(next) => {
+          const category = categories.find((value) => value === next)
+          if (category) setSelectedCategory(category)
+        }}
+        className="home__summary"
+        aria-label="Scan summary"
+      >
         {categories.map((state) => (
-          <button
-            className={`home__stat${selectedCategory === state ? ' home__stat--selected' : ''}`}
-            key={state}
-            type="button"
-            aria-pressed={selectedCategory === state}
-            aria-controls="home-file-list"
-            onClick={() => setSelectedCategory(state)}
-          >
+          <ToggleGroupItem className="home__stat" key={state} value={state} aria-controls="home-file-list">
             <span className="home__stat-value">{counts[state]}</span>
             <span className="home__stat-label">{labels[state]}</span>
             <span className={`home__stat-mark home__stat-mark--${state}`} aria-hidden="true" />
-          </button>
+          </ToggleGroupItem>
         ))}
-      </div>
-      <div className="surface home__files">
+      </ToggleGroup>
+      <Card className="home__files">
         <div className="home__list-heading">
           <h2>File status</h2>
           <output>{rows.length} locations</output>
         </div>
         {locations.length === 0 && !loading && (
-          <div className="empty-state">
-            <h2>No scans yet</h2>
-            <p>Select a file or folder from Watch to start scanning.</p>
-          </div>
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No scans yet</EmptyTitle>
+              <EmptyDescription>Select a file or folder from Watch to start scanning.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
         {locations.length > 0 && rows.length === 0 && !loading && (
-          <div className="empty-state">
-            <h2>No matching locations</h2>
-            <p>No files or folders have this status.</p>
-          </div>
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No matching locations</EmptyTitle>
+              <EmptyDescription>No files or folders have this status.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
         <ul className="home__file-list" id="home-file-list">
           {rows.map(({ location, scan }) => (
             <FileRow key={location.id} location={location} scan={scan} advanced={advanced} health={health.find((entry) => entry.id === location.id)} />
           ))}
         </ul>
-      </div>
+      </Card>
     </section>
   )
 }

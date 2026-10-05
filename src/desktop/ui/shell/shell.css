@@ -4,7 +4,7 @@
   width: 100%;
   height: 100%;
   min-width: 0;
-  color: var(--text);
+  color: var(--foreground);
   background: var(--background);
 }
 .desktop__header {
@@ -14,50 +14,50 @@
   flex-wrap: wrap;
   gap: 20px;
   padding: 22px clamp(16px, 3vw, 40px);
-  border-bottom: 1px solid var(--divider);
-  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
 }
 .desktop__connection {
-  font-size: 14px;
-  color: var(--muted);
+  color: var(--foreground);
+}
+.desktop__connection-badge {
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 16px;
+  color: inherit;
+  border-color: color-mix(in srgb, currentColor 45%, transparent);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.desktop__connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
 }
 .desktop__connection--connected {
   color: var(--success);
-  font-size: 15px;
-  font-weight: 600;
+}
+.desktop__connection--connecting {
+  color: var(--primary);
 }
 .navigation {
   display: flex;
+  background: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.navigation__list {
+  width: 100%;
+  justify-content: flex-start;
+  height: auto;
   padding: 0 clamp(16px, 3vw, 40px);
-  gap: 6px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--divider);
+  border-radius: 0;
+  background: transparent;
 }
 .navigation__button {
-  position: relative;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-weight: 500;
-  font-size: 14px;
-  padding: 16px 22px;
-  cursor: pointer;
+  padding: 10px 22px;
 }
-.navigation__button:hover {
-  color: var(--text);
-  background: var(--surface-raised);
-}
-.navigation__button--active {
-  color: var(--accent);
-}
-.navigation__button--active::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: 18px;
-  right: 18px;
-  height: 2px;
-  background: var(--accent);
+.desktop__page {
+  margin: 0;
 }
 .desktop__content {
   min-height: 0;
@@ -72,17 +72,17 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px clamp(16px, 3vw, 40px);
-  border-top: 1px solid var(--divider);
-  color: var(--muted);
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
   font-size: 12px;
   align-items: center;
 }
 .desktop__footer--error {
-  border-top: 2px solid var(--error);
-  background: color-mix(in srgb, var(--error) 12%, var(--surface));
+  border-top: 2px solid var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 12%, var(--card));
 }
 .desktop__footer--error .desktop__connection {
-  color: var(--error);
+  color: var(--destructive);
   font-size: 16px;
   font-weight: 700;
 }
@@ -93,10 +93,6 @@
   .desktop__header {
     padding-block: 16px;
     gap: 14px;
-  }
-  .navigation {
-    gap: 0;
-    padding-inline: 8px;
   }
   .navigation__button {
     flex: 1;

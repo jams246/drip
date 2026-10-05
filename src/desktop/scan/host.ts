@@ -7,6 +7,7 @@ import { createScanService } from './service'
 import { createSyncDriver } from '../sync/driver'
 import { recordDiagnostic } from '../diagnostics'
 import { isScanFinished } from './state'
+import { createBridgeState } from './bridge-state'
 import type { ScanEvent, ScanLocation, ScanRequest } from './types'
 
 const BRIDGE_INTERVAL_MS = 100
@@ -46,6 +47,7 @@ function parseBridgeResponse(result: string): { ready: boolean; request?: ScanRe
 export function startScanBridge(webview: ReturnType<typeof WebView>) {
   recordDiagnostic('desktop.bridge.start')
   const events: ScanEvent[] = []
+  const bridgeState = createBridgeState()
   const bridgeSession = ++nextBridgeSession
   let batchId = 1
   let retryBatch: ScanEvent[] | null = null
@@ -59,6 +61,7 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
   shellInit()
 
   function appendEvent(event: ScanEvent) {
+    bridgeState.record(event)
     if (event.type === 'monitoring') shellPaused(event.paused)
     if (event.type === 'error') {
       latestError = event.message
@@ -148,7 +151,8 @@ export function startScanBridge(webview: ReturnType<typeof WebView>) {
       latestError = null
     }
     // Retried receipts preserve already-consumed UI commands and terminal events.
-    const script = `(() => { const bridge = window.__dripBridge; if (!bridge) return { ready: false }; const receipt = window.__dripScanReceipt; if (receipt?.session === ${bridgeSession} && receipt.id === ${batchId}) return receipt.response; const events = ${JSON.stringify(batch)}; for (const event of events) bridge.receive(event); const response = { ready: true, request: bridge.takeRequest() }; window.__dripScanReceipt = { session: ${bridgeSession}, id: ${batchId}, response }; return response; })()`
+    // A new document has no receipt. Restore live host state without restarting workers or synchronization.
+    const script = `(() => { const bridge = window.__dripBridge; if (!bridge) return { ready: false }; const receipt = window.__dripScanReceipt; if (receipt?.session === ${bridgeSession} && receipt.id === ${batchId}) return receipt.response; const events = receipt?.session === ${bridgeSession} ? ${JSON.stringify(batch)} : ${JSON.stringify(bridgeState.snapshot())}; for (const event of events) bridge.receive(event); const response = { ready: true, request: bridge.takeRequest() }; window.__dripScanReceipt = { session: ${bridgeSession}, id: ${batchId}, response }; return response; })()`
     webviewEvaluateJs(webview, script, (result: string) => {
       evaluating = false
       if (closing) return

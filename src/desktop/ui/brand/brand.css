@@ -9,11 +9,11 @@
   flex: 0 0 auto;
   width: 33px;
   height: 40px;
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .brand__arrow {
-  color: var(--accent-text);
+  color: var(--primary-foreground);
 }
 
 .brand__copy {
@@ -33,15 +33,15 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0 4px;
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: 13px;
   line-height: 1.5;
 }
 
 .brand__initial {
-  color: var(--text);
+  color: var(--foreground);
   text-decoration: underline;
-  text-decoration-color: var(--accent);
+  text-decoration-color: var(--primary);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }

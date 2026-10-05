@@ -32,20 +32,20 @@
   border-top: 1px solid var(--border);
 }
 .activity__entry--highlighted {
-  background: var(--surface-raised);
-  border-left-color: var(--error);
+  background: var(--secondary);
+  border-left-color: var(--destructive);
 }
 .activity__entry:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: -2px;
 }
 .activity__time {
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 .activity__severity {
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: 13px;
   font-weight: 600;
 }
@@ -56,7 +56,7 @@
   color: var(--warning);
 }
 .activity__entry--error .activity__severity {
-  color: var(--error);
+  color: var(--destructive);
 }
 .activity__entry-copy {
   min-width: 0;
@@ -69,14 +69,14 @@
 }
 .activity__path {
   margin: 0.35rem 0 0;
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .activity__detail {
   margin: 0.4rem 0 0;
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: 14px;
   line-height: 1.6;
   overflow-wrap: anywhere;

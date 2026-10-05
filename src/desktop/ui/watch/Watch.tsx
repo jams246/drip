@@ -1,5 +1,10 @@
 import type { ScanLocation } from '../../scan/types'
 import { ScanNotices } from '../ScanNotices'
+import { Alert, AlertDescription } from '../components/alert'
+import { Badge } from '../components/badge'
+import { Button } from '../components/button'
+import { Card } from '../components/card'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '../components/empty'
 import './watch.css'
 
 interface WatchProps {
@@ -21,22 +26,28 @@ export function Watch({ items, busy, picking, loading = false, available = true,
           Watch
         </h1>
         <div className="watch__actions">
-          <button className="button button--secondary" type="button" disabled={picking || !available} onClick={() => onSelect('file')}>
+          <Button variant="outline" type="button" disabled={picking || !available} onClick={() => onSelect('file')}>
             Select file
-          </button>
-          <button className="button button--primary" type="button" disabled={picking || !available} onClick={() => onSelect('folder')}>
+          </Button>
+          <Button type="button" disabled={picking || !available} onClick={() => onSelect('folder')}>
             Select folder
-          </button>
+          </Button>
         </div>
       </div>
       {error && (
-        <p className="watch__error" role="alert">
-          {error}
-        </p>
+        <Alert className="watch__error" variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
       <ScanNotices loading={loading} picking={picking} loadingMessage="Loading saved watch locations." className="watch__notice" />
-      {busy && !picking && !loading && <output className="watch__notice">Processing continues. Additional selections join the queue.</output>}
-      <div className="watch__list surface">
+      {busy && !picking && !loading && (
+        <Alert asChild className="watch__notice">
+          <output>
+            <AlertDescription>Processing continues. Additional selections join the queue.</AlertDescription>
+          </output>
+        </Alert>
+      )}
+      <Card className="watch__list">
         <div className="watch__list-heading">
           <h2 className="watch__list-title">Selected locations</h2>
           <span className="watch__count">
@@ -44,10 +55,12 @@ export function Watch({ items, busy, picking, loading = false, available = true,
           </span>
         </div>
         {items.length === 0 && !loading ? (
-          <div className="empty-state">
-            <h3>No selected locations</h3>
-            <p>Select a file or folder to scan its contents.</p>
-          </div>
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No selected locations</EmptyTitle>
+              <EmptyDescription>Select a file or folder to scan its contents.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <ul className="watch__items">
             {items.map((item) => {
@@ -62,21 +75,24 @@ export function Watch({ items, busy, picking, loading = false, available = true,
                     <h3 className="watch__name">{item.name}</h3>
                     <p className="watch__path">{item.path}</p>
                   </div>
-                  <span className="watch__type">{item.kind === 'folder' ? 'Folder' : 'File'}</span>
-                  <button
-                    className="button button--secondary watch__remove"
+                  <Badge variant="outline" className="watch__type">
+                    {item.kind === 'folder' ? 'Folder' : 'File'}
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    className="watch__remove"
                     type="button"
                     aria-label={`Remove ${item.name} from watch list`}
                     onClick={() => onRemove(item.id)}
                   >
                     Remove
-                  </button>
+                  </Button>
                 </li>
               )
             })}
           </ul>
         )}
-      </div>
+      </Card>
     </section>
   )
 }

@@ -15,20 +15,18 @@
 .home__sync {
   display: block;
   margin-bottom: 20px;
-  color: var(--muted);
-}
-.home__sync--error {
-  color: var(--error);
+  overflow-wrap: anywhere;
 }
 .home__notice {
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 .home__error {
-  color: var(--error);
+  color: var(--destructive);
   overflow-wrap: anywhere;
 }
 .home__summary {
   display: grid;
+  align-items: stretch;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 24px;
@@ -36,22 +34,25 @@
 .home__stat {
   position: relative;
   display: grid;
+  justify-content: stretch;
+  height: auto;
+  white-space: normal;
   gap: 4px;
   padding: 20px;
-  border: 1px solid var(--divider);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
+  background: var(--card);
+  color: var(--foreground);
   text-align: left;
   cursor: pointer;
 }
 .home__stat:hover {
-  background: var(--surface-raised);
+  background: var(--secondary);
 }
-.home__stat--selected {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-  background: var(--surface-raised);
+.home__stat[data-state='on'] {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+  background: var(--secondary);
 }
 .home__stat-value {
   font-size: 32px;
@@ -61,7 +62,7 @@
 }
 .home__stat-label {
   font-size: 14px;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 .home__stat-mark {
   position: absolute;
@@ -72,16 +73,16 @@
   border-radius: 50%;
 }
 .home__stat-mark--scanning {
-  background: var(--accent);
+  background: var(--primary);
 }
 .home__stat-mark--queued {
-  background: var(--muted);
+  background: var(--muted-foreground);
 }
 .home__stat-mark--completed {
   background: var(--success);
 }
 .home__stat-mark--error {
-  background: var(--error);
+  background: var(--destructive);
 }
 .home__list-heading {
   display: flex;
@@ -89,7 +90,7 @@
   align-items: center;
   gap: 12px;
   padding: 18px 20px;
-  border-bottom: 1px solid var(--divider);
+  border-bottom: 1px solid var(--border);
 }
 .home__list-heading h2 {
   font-size: 16px;
@@ -97,7 +98,7 @@
   margin: 0;
 }
 .home__list-heading > output {
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: 14px;
 }
 .home__file-list {
@@ -128,4 +129,8 @@
   .home__stat-value {
     font-size: 26px;
   }
+}
+
+.home__files {
+  overflow: hidden;
 }

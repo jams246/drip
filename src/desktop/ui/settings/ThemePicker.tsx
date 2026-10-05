@@ -1,5 +1,6 @@
 import { type ThemeName, themes } from './themes'
-import './themes.css'
+import { Label } from '../components/label'
+import { RadioGroup, RadioGroupItem } from '../components/radio-group'
 
 type ThemePickerProps = {
   theme: ThemeName
@@ -10,17 +11,18 @@ export function ThemePicker({ theme, onThemeChange }: ThemePickerProps) {
   return (
     <fieldset className="theme-picker">
       <legend className="theme-picker__legend">Appearance</legend>
-      <div className="theme-picker__choices">
+      <RadioGroup
+        className="theme-picker__choices"
+        value={theme}
+        onValueChange={(next) => {
+          const choice = themes.find((value) => value.name === next)
+          if (choice) onThemeChange(choice.name)
+        }}
+        aria-label="Appearance"
+      >
         {themes.map((choice) => (
-          <label className="theme-picker__choice" key={choice.name}>
-            <input
-              className="theme-picker__radio"
-              type="radio"
-              name="theme"
-              value={choice.name}
-              checked={theme === choice.name}
-              onChange={() => onThemeChange(choice.name)}
-            />
+          <Label className="theme-picker__choice" key={choice.name} htmlFor={`theme-${choice.name}`}>
+            <RadioGroupItem className="theme-picker__radio" id={`theme-${choice.name}`} value={choice.name} aria-label={choice.label} />
             <span className="theme-picker__preview" data-theme={choice.name} aria-hidden="true">
               <span className="theme-picker__preview-line" />
               <span className="theme-picker__preview-line theme-picker__preview-line--short" />
@@ -28,9 +30,9 @@ export function ThemePicker({ theme, onThemeChange }: ThemePickerProps) {
             </span>
             <span className="theme-picker__label">{choice.label}</span>
             <span className="theme-picker__mode">{choice.description}</span>
-          </label>
+          </Label>
         ))}
-      </div>
+      </RadioGroup>
     </fieldset>
   )
 }
