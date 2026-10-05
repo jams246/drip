@@ -19,7 +19,6 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 a:focus-visible,
-.desktop__content:focus-visible,
 .activity__entry:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 4px;

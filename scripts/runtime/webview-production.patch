@@ -1,0 +1,27 @@
+diff --git a/crates/perry-ui-windows/Cargo.toml b/crates/perry-ui-windows/Cargo.toml
+--- a/crates/perry-ui-windows/Cargo.toml
++++ b/crates/perry-ui-windows/Cargo.toml
+@@ -118,4 +118,5 @@ default = ["ffi-exports"]
+ # backend to reuse the implementation modules and provide its own dispatching
+ # exports without duplicate `perry_ui_*` symbols in the final archive.
+ ffi-exports = []
++drip-production = []
+ geisterhand = []
+diff --git a/crates/perry-ui-windows/src/widgets/webview.rs b/crates/perry-ui-windows/src/widgets/webview.rs
+--- a/crates/perry-ui-windows/src/widgets/webview.rs
++++ b/crates/perry-ui-windows/src/widgets/webview.rs
+@@ -528,6 +528,14 @@ fn init_webview2_sync(handle: i64, user_data_dir: &PathBuf) -> windows::core::Re
+     let webview = unsafe { controller.CoreWebView2()? };
+     install_navigation_handlers(handle, &webview);
+ 
++    #[cfg(feature = "drip-production")]
++    unsafe {
++        let settings = webview.Settings()?;
++        let settings3 = settings.cast::<ICoreWebView2Settings3>()?;
++        settings.SetAreDefaultContextMenusEnabled(false)?;
++        settings3.SetAreBrowserAcceleratorKeysEnabled(false)?;
++    }
++
+     WEBVIEW_STATES.with(|s| {
+         if let Some(st) = s.borrow_mut().get_mut(&handle) {
+             st.controller = Some(controller);

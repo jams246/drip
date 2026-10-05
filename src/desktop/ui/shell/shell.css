@@ -54,12 +54,14 @@
   background: transparent;
 }
 .navigation__button {
+  cursor: pointer;
   padding: 10px 22px;
 }
 .desktop__page {
   margin: 0;
 }
 .desktop__content {
+  outline: none;
   min-height: 0;
   min-width: 0;
   overflow-y: auto;

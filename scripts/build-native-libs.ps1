@@ -23,6 +23,7 @@ $features = @(
     'perry-stdlib/database-sqlite',
     'perry-ui-windows/ffi-exports'
 ) -join ','
+if ($Production) { $features += ',perry-ui-windows/drip-production' }
 # UI and worker bindings must share one Rust dependency graph and runtime state.
 # Mixing the downloaded UI archive with a patched runtime splits native getters.
 $environmentNames = @(

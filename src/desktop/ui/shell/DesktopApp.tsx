@@ -29,6 +29,7 @@ export function DesktopApp() {
   const [advanced, setAdvanced] = useState(false)
   const [entries, setEntries] = useState<ActivityEntry[]>([])
   const content = useRef<HTMLElement>(null)
+  const navigation = useRef<HTMLButtonElement>(null)
   const addActivity = useCallback((entry: Omit<ActivityEntry, 'id' | 'time'>) => {
     const time = new Date().toISOString()
     // ponytail: retain 200 recent entries; add persistent history when that phase starts.
@@ -69,14 +70,20 @@ export function DesktopApp() {
       <nav className="navigation" aria-label="Main navigation">
         <TabsList className="navigation__list" aria-label="Pages">
           {pages.map((name) => (
-            <TabsTrigger key={name} value={name} className="navigation__button" aria-current={page === name ? 'page' : undefined}>
+            <TabsTrigger
+              ref={page === name ? navigation : undefined}
+              key={name}
+              value={name}
+              className="navigation__button"
+              aria-current={page === name ? 'page' : undefined}
+            >
               {name}
             </TabsTrigger>
           ))}
         </TabsList>
       </nav>
       <main className="desktop__content" id="main-content" ref={content} tabIndex={-1}>
-        <TabsContent value={page} key={page} className="desktop__page">
+        <TabsContent value={page} key={page} className="desktop__page" tabIndex={undefined}>
           {page === 'Home' && (
             <Home
               locations={scans.locations}
@@ -136,7 +143,7 @@ export function DesktopApp() {
       <ConfirmationDialog
         confirmation={confirmation.confirmation}
         available={confirmation.available}
-        fallbackFocus={content}
+        fallbackFocus={navigation}
         onConfirm={confirmation.confirm}
         onDismiss={confirmation.dismiss}
       />
