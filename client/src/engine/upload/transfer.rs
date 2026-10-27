@@ -83,11 +83,13 @@ async fn finish(
     events: &mpsc::Sender<ActivityEvent>,
 ) -> Result<UploadResult, EngineError> {
     source.verify().await?;
-    let _ = events.try_send(ActivityEvent::UploadCompleted {
-        source_path: result.source_path.clone(),
-        size: result.size,
-        digest: result.digest,
-    });
+    let _ = events
+        .send(ActivityEvent::UploadCompleted {
+            source_path: result.source_path.clone(),
+            size: result.size,
+            digest: result.digest,
+        })
+        .await;
     Ok(result)
 }
 

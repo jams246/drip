@@ -1,11 +1,15 @@
 pub(crate) mod activity;
 mod api;
 mod error;
+mod lifecycle;
+mod logging;
 mod selection;
 mod upload;
 
 pub use activity::{ActivityEvent, ProgressSnapshot, UploadPhase};
 pub use error::EngineError;
+pub use lifecycle::{EventKind, EventSink, LifecycleEvent, SelectionProgress};
+pub use logging::ActivityLog;
 
 use std::path::Path;
 

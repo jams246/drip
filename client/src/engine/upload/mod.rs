@@ -20,10 +20,12 @@ pub(super) async fn upload(
 ) -> Result<UploadResult, EngineError> {
     let source_path = source.protocol_path().clone();
     let size = source.size();
-    let _ = events.try_send(ActivityEvent::UploadStarted {
-        source_path: source_path.clone(),
-        size,
-    });
+    let _ = events
+        .send(ActivityEvent::UploadStarted {
+            source_path: source_path.clone(),
+            size,
+        })
+        .await;
     let credential = pairing.credential();
     let active = selection::activate(transport, credential, &source_path).await?;
     let digest = source.hash(events).await?;
