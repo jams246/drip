@@ -21,15 +21,29 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) fn io_error(error: std::io::Error) -> crate::StoreError {
     if error.kind() == std::io::ErrorKind::StorageFull {
         crate::StoreError::InsufficientStagingSpace
-    } else if matches!(
-        error.kind(),
-        std::io::ErrorKind::Interrupted
-            | std::io::ErrorKind::WouldBlock
-            | std::io::ErrorKind::TimedOut
-            | std::io::ErrorKind::Other
-    ) {
+    } else if error.raw_os_error() == Some(rustix::io::Errno::IO.raw_os_error())
+        || matches!(
+            error.kind(),
+            std::io::ErrorKind::Interrupted
+                | std::io::ErrorKind::WouldBlock
+                | std::io::ErrorKind::TimedOut
+                | std::io::ErrorKind::Other
+        )
+    {
         crate::StoreError::RetryableIo
     } else {
         crate::database::io_error(error)
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod io_tests {
+    #[test]
+    fn linux_eio_is_a_retryable_io_failure() {
+        let failure = std::io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error());
+        assert!(matches!(
+            super::io_error(failure),
+            crate::StoreError::RetryableIo
+        ));
     }
 }
