@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use drip_core::protocol::{SelectionUpdate, SelectionUpdateResponse};
+use drip_core::protocol::{
+    SelectionRelocationRequest, SelectionRootMove, SelectionUpdate, SelectionUpdateResponse,
+};
 use reqwest::Method;
 
 use crate::{
@@ -67,6 +69,23 @@ pub(super) async fn synchronize(
         return Ok(active(local, remote.generation));
     }
     let pending = store.prepare_update(remote.generation)?;
+    let mut root_moves = Vec::new();
+    for incoming in &pending.selections {
+        if let Some(previous) = remote
+            .selections
+            .iter()
+            .find(|previous| previous.id == incoming.id)
+            && previous.source != incoming.source
+        {
+            if !incoming.active || !crate::source::same_path(&previous.source, &incoming.source) {
+                return Err(EngineError::SelectionChanged);
+            }
+            root_moves.push(SelectionRootMove {
+                selection_id: incoming.id.clone(),
+                previous_source: previous.source.clone(),
+            });
+        }
+    }
     let update = SelectionUpdate {
         expected_generation: pending.expected_generation,
         selections: pending.selections.clone(),
@@ -77,7 +96,7 @@ pub(super) async fn synchronize(
         "v1/selections",
         Some(pairing.credential()),
         &[],
-        Some(&update),
+        Some(&SelectionRelocationRequest { update, root_moves }),
     )
     .await?;
     store.acknowledge_update(&pending, result.generation)?;

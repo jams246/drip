@@ -12,6 +12,7 @@ mod http;
 mod inventory;
 mod metadata_revisions;
 mod mirror;
+mod selection_paths;
 mod selections;
 mod store;
 mod upload_commit;

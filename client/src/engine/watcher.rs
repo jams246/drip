@@ -53,21 +53,10 @@ impl SourceWatcher {
                 move |result: notify::Result<notify::Event>| match result {
                     Ok(event) if !matches!(event.kind, notify::EventKind::Access(_)) => {
                         let internal_only = !event.paths.is_empty()
-                            && event.paths.iter().all(|path| {
-                                path.parent()
-                                    .is_some_and(|parent| same_directory(parent, &app_directory))
-                                    && path.file_name().and_then(|name| name.to_str()).is_some_and(
-                                        |name| {
-                                            let name = name.to_ascii_lowercase();
-                                            name != "drip.json"
-                                                && (name.starts_with("drip.log")
-                                                    || name.starts_with("drip.settings.lock")
-                                                    || name.starts_with("drip.run.lock")
-                                                    || name.starts_with("drip.json.")
-                                                    || name.starts_with("drip.credentials"))
-                                        },
-                                    )
-                            });
+                            && event
+                                .paths
+                                .iter()
+                                .all(|path| internal_event(path, &app_directory));
                         if event.need_rescan() || !internal_only {
                             signal.mark(event.need_rescan());
                         }
@@ -116,6 +105,18 @@ fn same_directory(left: &Path, right: &Path) -> bool {
     }
 }
 
+fn internal_event(path: &Path, app_directory: &Path) -> bool {
+    path.parent()
+        .is_some_and(|parent| same_directory(parent, app_directory))
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| {
+                !name.eq_ignore_ascii_case("drip.json")
+                    && crate::source::is_application_data_name(name)
+            })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,5 +131,14 @@ mod tests {
         signal.mark(false);
         assert_eq!(signal.take(), (true, true));
         assert_eq!(signal.take(), (false, false));
+    }
+
+    #[test]
+    fn state_replacements_and_logs_do_not_wake_watcher_but_saved_settings_do() {
+        let app = Path::new(r"\\?\C:\app");
+        assert!(internal_event(Path::new(r"C:\app\.drip.json.42.tmp"), app));
+        assert!(internal_event(Path::new(r"C:\app\drip.log.1"), app));
+        assert!(!internal_event(Path::new(r"C:\app\drip.json"), app));
+        assert!(!internal_event(Path::new(r"C:\sources\drip.log"), app));
     }
 }

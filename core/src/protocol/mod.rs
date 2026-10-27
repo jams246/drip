@@ -11,7 +11,10 @@ pub use entry_mutation::{
     DirectoryCreateRequest, DirectoryCreateResponse, EntryDeleteRequest, EntryDeleteResponse,
 };
 pub use error::{ApiError, ApiErrorCode};
-pub use selection::{Selection, SelectionSet, SelectionUpdate, SelectionUpdateResponse};
+pub use selection::{
+    Selection, SelectionRelocationRequest, SelectionRootMove, SelectionSet, SelectionUpdate,
+    SelectionUpdateResponse,
+};
 pub use upload::{
     Entry, EntryKind, EntryPage, EntryPrecondition, UploadCommitResponse, UploadPrepareRequest,
     UploadPrepareResponse, UploadState, UploadStateResponse,

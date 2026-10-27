@@ -69,7 +69,7 @@ pub(super) fn reject_application_data(path: &SourcePath) -> Result<(), SourceErr
     Ok(())
 }
 
-pub(super) fn is_application_data_name(name: &str) -> bool {
+pub(crate) fn is_application_data_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     matches!(
         name.as_str(),

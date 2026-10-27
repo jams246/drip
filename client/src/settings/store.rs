@@ -1,3 +1,5 @@
+mod refresh;
+
 use std::{
     fs::{self, File, OpenOptions},
     io,

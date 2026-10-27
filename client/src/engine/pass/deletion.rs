@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use drip_core::protocol::{EntryDeleteRequest, EntryDeleteResponse, EntryPrecondition};
+use drip_core::protocol::{EntryDeleteRequest, EntryDeleteResponse, EntryKind, EntryPrecondition};
 use reqwest::Method;
 
 use crate::{
@@ -29,7 +29,7 @@ impl PassContext<'_> {
         let mut remote =
             mirror_api::inventory(self.transport, self.pairing.credential(), active).await?;
         remote.sort_by_key(|entry| std::cmp::Reverse(entry.source_path.components().len()));
-        for entry in remote {
+        for mut entry in remote {
             if source_paths.contains(&entry.source_path)
                 || scan
                     .protected_paths
@@ -43,6 +43,22 @@ impl PassContext<'_> {
                 return Err(EngineError::SelectionChanged);
             }
             selection::require_current(self.transport, self.pairing.credential(), active).await?;
+            if entry.kind == EntryKind::Directory {
+                let fresh =
+                    mirror_api::inventory(self.transport, self.pairing.credential(), active)
+                        .await?;
+                let Some(current) = fresh
+                    .into_iter()
+                    .find(|current| current.source_path == entry.source_path)
+                else {
+                    continue;
+                };
+                if current.kind != EntryKind::Directory {
+                    return Err(EngineError::DestinationMismatch);
+                }
+                // Child deletions change directory metadata, so the old revision cannot authorize removal.
+                entry.revision = current.revision;
+            }
             if !confirm_absent(saved, &entry.source_path, self.store.directory())? {
                 return Err(EngineError::SelectionChanged);
             }

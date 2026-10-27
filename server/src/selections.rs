@@ -1,7 +1,10 @@
+mod read;
+pub(crate) use read::load_selections;
+
 use drip_core::protocol::{
-    EntryKind, Selection, SelectionSet, SelectionUpdate, SelectionUpdateResponse,
+    EntryKind, Selection, SelectionRootMove, SelectionSet, SelectionUpdate, SelectionUpdateResponse,
 };
-use rusqlite::{OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{Transaction, TransactionBehavior};
 
 use crate::{DeviceIdentity, Store, StoreError, StoreResult, auth, database};
 
@@ -24,70 +27,32 @@ impl Store {
         credential: &str,
         update: SelectionUpdate,
     ) -> StoreResult<SelectionUpdateResponse> {
+        self.update_selections_relocating(credential, update, &[])
+    }
+
+    pub(crate) fn update_selections_relocating(
+        &self,
+        credential: &str,
+        update: SelectionUpdate,
+        root_moves: &[SelectionRootMove],
+    ) -> StoreResult<SelectionUpdateResponse> {
         validate_selections(&update.selections)?;
         let now = self.now()?;
         let device = crate::upload_store::authenticated_device(self, credential)?;
-        let response = self.with_authorized_mutation(credential, |transaction, device| {
-            apply_selection_update(transaction, device.pc_id.as_str(), update)
-        })?;
+        let response =
+            self.with_authorized_device_mutation(credential, |transaction, device, directory| {
+                apply_selection_update(
+                    transaction,
+                    device.pc_id.as_str(),
+                    update,
+                    directory,
+                    root_moves,
+                )
+            })?;
         self.uploads
             .abort_obsolete(&device.pc_id, response.generation, now);
         Ok(response)
     }
-}
-
-pub(crate) fn load_selections(
-    transaction: &Transaction<'_>,
-    pc_id: &str,
-) -> StoreResult<SelectionSet> {
-    let generation = transaction
-        .query_row(
-            "SELECT generation FROM device_state WHERE pc_id = ?1",
-            [pc_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()
-        .map_err(database::sql_error)?
-        .ok_or(StoreError::NotFound)?;
-    let mut statement = transaction
-        .prepare(
-            "SELECT selection_id, source_json, root_kind, active FROM selections \
-         WHERE pc_id = ?1 ORDER BY selection_id",
-        )
-        .map_err(database::sql_error)?;
-    let rows = statement
-        .query_map([pc_id], |row| {
-            let source_json = row.get::<_, String>(1)?;
-            let source = serde_json::from_str(&source_json).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    source_json.len(),
-                    rusqlite::types::Type::Text,
-                    Box::new(error),
-                )
-            })?;
-            let root_kind = row.get::<_, String>(2)?;
-            let root_kind = serde_json::from_str(&format!("\"{root_kind}\"")).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    root_kind.len(),
-                    rusqlite::types::Type::Text,
-                    Box::new(error),
-                )
-            })?;
-            Ok(Selection {
-                id: row.get(0)?,
-                source,
-                root_kind,
-                active: row.get(3)?,
-            })
-        })
-        .map_err(database::sql_error)?;
-    let selections = rows
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(database::sql_error)?;
-    Ok(SelectionSet {
-        generation: u64::try_from(generation).map_err(|_| StoreError::Conflict)?,
-        selections,
-    })
 }
 
 pub(crate) fn require_active_selection(
@@ -120,6 +85,8 @@ fn apply_selection_update(
     transaction: &Transaction<'_>,
     pc_id: &str,
     update: SelectionUpdate,
+    directory: &cap_std::fs::Dir,
+    root_moves: &[SelectionRootMove],
 ) -> StoreResult<SelectionUpdateResponse> {
     let current = load_selections(transaction, pc_id)?;
     if current.generation != update.expected_generation {
@@ -128,20 +95,24 @@ fn apply_selection_update(
     for previous in &current.selections {
         if let Some(incoming) = update.selections.iter().find(|item| item.id == previous.id)
             && incoming.source != previous.source
+            && !root_moves.iter().any(|moved| {
+                moved.selection_id == previous.id && moved.previous_source == previous.source
+            })
         {
             return Err(StoreError::Conflict);
         }
     }
     let mut selections = update.selections;
-    for previous in current.selections {
+    for previous in &current.selections {
         if !selections.iter().any(|item| item.id == previous.id) {
             selections.push(Selection {
                 active: false,
-                ..previous
+                ..previous.clone()
             });
         }
     }
     validate_selections(&selections)?;
+    crate::selection_paths::relocate(directory, &current.selections, &selections, root_moves)?;
     let next = current
         .generation
         .checked_add(1)

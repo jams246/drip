@@ -7,7 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post, put},
 };
-use drip_core::protocol::{EnrollmentRequest, SelectionUpdate};
+use drip_core::protocol::{EnrollmentRequest, SelectionRelocationRequest};
 use tokio::net::TcpListener;
 
 use crate::{ApiFailure, Store};
@@ -114,10 +114,10 @@ async fn put_selections(
     body: Result<Bytes, BytesRejection>,
 ) -> Result<axum::Json<drip_core::protocol::SelectionUpdateResponse>, ApiFailure> {
     let credential = crate::auth::credential(&headers)?;
-    let update: SelectionUpdate = parse_json(body)?;
+    let request: SelectionRelocationRequest = parse_json(body)?;
     state
         .store
-        .update_selections(credential, update)
+        .update_selections_relocating(credential, request.update, &request.root_moves)
         .map(axum::Json)
         .map_err(Into::into)
 }

@@ -4,6 +4,7 @@ mod ordinal;
 mod paths;
 mod scanner;
 mod source;
+mod spelling;
 
 use std::{
     fs,

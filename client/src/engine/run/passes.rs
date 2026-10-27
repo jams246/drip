@@ -25,9 +25,9 @@ impl Engine {
             if let Ok(current) = capture_root(&PathBuf::from(saved.source.to_windows_path()))
                 && same_path(&current.source, &saved.source)
                 && current.volume_identity == saved.volume_identity
-                && current.kind != saved.root_kind
+                && (current.kind != saved.root_kind || current.source != saved.source)
             {
-                self.settings.refresh_root_kind(&saved.id, current.kind)?;
+                self.settings.refresh_root(&saved.id, &current)?;
             }
         }
         let active = saved::synchronize(&self.settings, transport, pairing, barrier).await?;
