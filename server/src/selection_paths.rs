@@ -59,10 +59,7 @@ fn move_root(
         None => false,
     };
     let new_exists = ordinary_entry_exists(&new_parent, &new_name)?;
-    if old_exists && new_exists {
-        return Err(StoreError::Conflict);
-    }
-    if old_exists {
+    if old_exists && !new_exists {
         let (parent, name) = old_parent.as_ref().ok_or(StoreError::Conflict)?;
         upload_files::checkpoint("before_root_relocation");
         rename_noreplace(parent, name, &new_parent, &new_name)?;

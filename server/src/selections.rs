@@ -65,9 +65,6 @@ pub(crate) fn require_active_selection(
         return Err(StoreError::NotFound);
     }
     let current = load_selections(transaction, &device.pc_id)?;
-    if current.generation != expected_generation {
-        return Err(StoreError::Conflict);
-    }
     let Some(selection) = current
         .selections
         .into_iter()
@@ -75,6 +72,9 @@ pub(crate) fn require_active_selection(
     else {
         return Err(StoreError::NotFound);
     };
+    if current.generation != expected_generation {
+        return Err(StoreError::Conflict);
+    }
     if !selection.active {
         return Err(StoreError::DisallowedNamespace);
     }
@@ -188,16 +188,9 @@ pub(crate) fn selection_contains_path(
     selection: &Selection,
     source: &drip_core::SourcePath,
 ) -> bool {
-    selection.source.drive() == source.drive()
-        && source.components().len() >= selection.source.components().len()
+    source.has_windows_prefix(&selection.source)
         && (selection.root_kind == EntryKind::Directory
             || source.components().len() == selection.source.components().len())
-        && selection
-            .source
-            .components()
-            .iter()
-            .zip(source.components())
-            .all(|(left, right)| left == right)
 }
 
 fn entry_kind_name(kind: EntryKind) -> &'static str {

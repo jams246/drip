@@ -1,12 +1,13 @@
 use drip_core::protocol::{Entry, EntryKind, EntryPage};
 
 use crate::{
-    Store, StoreError, StoreResult, entry_files, selections, upload_files, upload_metadata,
+    Store, StoreError, StoreResult, entry_files, upload_files, upload_metadata,
     upload_store::authorized_active_selection,
 };
 
 mod cursor;
 mod page;
+mod roots;
 mod scan;
 
 use cursor::{CursorAnchor, decode as decode_cursor};
@@ -40,7 +41,7 @@ impl Store {
         }
         let after = cursor.map(decode_cursor).transpose()?;
         if after.as_ref().is_some_and(|anchor| match anchor {
-            CursorAnchor::Path(source) => !selections::selection_contains_path(&selection, source),
+            CursorAnchor::Path(source) => !source.has_windows_prefix(&selection.source),
             CursorAnchor::Digest(_) => false,
         }) {
             return Err(StoreError::InvalidInput);

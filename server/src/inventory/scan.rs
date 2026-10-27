@@ -34,7 +34,8 @@ pub(crate) fn page(
         has_more: false,
         anchor_found: false,
     };
-    let Some(snapshot) = entry_files::read_entry(root, source)? else {
+    let roots = super::roots::resolve(root, source)?;
+    if roots.is_empty() {
         if matches!(after, Some(CursorAnchor::Digest(_))) {
             return Err(StoreError::Conflict);
         }
@@ -42,12 +43,19 @@ pub(crate) fn page(
             entries: Vec::new(),
             has_more: false,
         });
-    };
-    let kind = snapshot.kind();
-    scan.push(source.clone(), snapshot)?;
-    if kind == EntryKind::Directory && !scan.has_more {
-        let directory = entry_files::open_directory(root, source)?.ok_or(StoreError::Conflict)?;
-        scan.children(source, &directory)?;
+    }
+    for source in roots {
+        let snapshot = entry_files::read_entry(root, &source)?.ok_or(StoreError::Conflict)?;
+        let kind = snapshot.kind();
+        scan.push(source.clone(), snapshot)?;
+        if kind == EntryKind::Directory && !scan.has_more {
+            let directory =
+                entry_files::open_directory(root, &source)?.ok_or(StoreError::Conflict)?;
+            scan.children(&source, &directory)?;
+        }
+        if scan.has_more {
+            break;
+        }
     }
     if matches!(after, Some(CursorAnchor::Digest(_))) && !scan.anchor_found {
         return Err(StoreError::Conflict);
