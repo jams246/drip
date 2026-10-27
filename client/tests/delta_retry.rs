@@ -17,10 +17,14 @@ use tokio::sync::mpsc;
 #[ignore = "requires the owned synthetic HTTPS fixture and 64 MiB free source space"]
 async fn accepted_chunk_response_loss_retries_and_counts_each_payload() {
     let fixture = support::Fixture::prepare();
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join(".verification/phase-03");
+    let root = std::env::var_os("DRIP_TEST_ARTIFACT_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .join(".verification/phase-03")
+        });
     let control_path = root.join("proxy-control.json");
     let mut control: serde_json::Value =
         serde_json::from_slice(&fs::read(&control_path).unwrap()).unwrap();

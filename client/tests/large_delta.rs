@@ -35,6 +35,10 @@ async fn large_delta() {
     let measured_payload = traffic_delta.0 - traffic_baseline.0;
     assert_eq!(measured_payload, payload);
     assert!(measured_payload <= 8 * 1024 * 1024);
+    if fixture.size == 10 * 1024 * 1024 * 1024 {
+        assert!(traffic_baseline.2 - traffic_before.2 > 1);
+        assert!(traffic_delta.2 - traffic_baseline.2 > 1);
+    }
     let memory = fixture.memory();
     println!(
         "LARGE_DELTA {}",
@@ -47,6 +51,8 @@ async fn large_delta() {
             "pc_id": pairing.pc_id(), "mirror_directory": pairing.mirror_directory(),
             "baseline_metadata_bytes": traffic_baseline.1 - traffic_before.1,
             "delta_metadata_bytes": traffic_delta.1 - traffic_baseline.1,
+            "baseline_plan_requests": traffic_baseline.2 - traffic_before.2,
+            "delta_plan_requests": traffic_delta.2 - traffic_baseline.2,
             "metadata_definition": "HTTP headers and decoded JSON request/response bytes; excludes TLS and transfer framing",
             "memory": memory,
         })
@@ -65,11 +71,18 @@ async fn upload(
     let reporting = tokio::spawn(async move {
         let mut sent = 0;
         let mut phases = std::collections::BTreeSet::new();
-        let mut latest = None;
+        let mut latest: Option<drip_client::ProgressSnapshot> = None;
         let mut completed = 0;
         while let Some(event) = receiver.recv().await {
             match event {
                 ActivityEvent::Progress(snapshot) => {
+                    if let Some(previous) = &latest {
+                        assert!(snapshot.source_hashed_bytes >= previous.source_hashed_bytes);
+                        assert!(snapshot.source_chunked_bytes >= previous.source_chunked_bytes);
+                        assert!(snapshot.chunk_count >= previous.chunk_count);
+                        assert!(snapshot.planned_payload_bytes >= previous.planned_payload_bytes);
+                        assert!(snapshot.file_payload_sent >= previous.file_payload_sent);
+                    }
                     phases.insert(format!("{:?}", snapshot.phase));
                     if snapshot.phase == UploadPhase::Uploading {
                         sent = sent.max(snapshot.processed_bytes);
@@ -89,6 +102,9 @@ async fn upload(
     assert_eq!(latest.source_hashed_bytes, result.size);
     assert_eq!(latest.source_chunked_bytes, result.size);
     assert!(latest.chunk_count > 0);
+    if result.size > 10 * 1024 * 1024 * 1024 {
+        assert!(latest.chunk_count > drip_core::CHUNK_PLAN_MAX_DESCRIPTORS as u64);
+    }
     assert_eq!(latest.planned_payload_bytes, sent);
     assert_eq!(latest.file_payload_sent, sent);
     for phase in ["Hashing", "Chunking", "Uploading", "Verifying"] {

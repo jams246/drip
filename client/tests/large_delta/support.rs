@@ -100,10 +100,11 @@ impl Fixture {
         token
     }
 
-    pub fn traffic(&self) -> (u64, u64) {
+    pub fn traffic(&self) -> (u64, u64, u64) {
         let traffic = BufReader::new(File::open(&self.traffic_file).unwrap());
         let mut payload = 0;
         let mut metadata = 0;
+        let mut plans = 0;
         for line in traffic.lines() {
             let value: serde_json::Value = serde_json::from_str(&line.unwrap()).unwrap();
             if value["run_id"] == self.run_id && value["event"] == "traffic" {
@@ -112,9 +113,10 @@ impl Fixture {
                     + value["response_metadata"].as_u64().unwrap()
                     + value["request_header_bytes"].as_u64().unwrap()
                     + value["response_header_bytes"].as_u64().unwrap();
+                plans += u64::from(value["route"] == "plan");
             }
         }
-        (payload, metadata)
+        (payload, metadata, plans)
     }
 
     pub fn memory(&self) -> serde_json::Value {
