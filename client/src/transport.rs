@@ -50,6 +50,8 @@ impl ServerUrl {
 pub struct HttpTransport {
     server: ServerUrl,
     client: Client,
+    #[cfg(windows)]
+    reachability: Option<crate::engine::connection::Reachability>,
 }
 
 impl HttpTransport {
@@ -64,7 +66,21 @@ impl HttpTransport {
             .read_timeout(std::time::Duration::from_secs(60))
             .build()
             .map_err(TransportError::Client)?;
-        Ok(Self { server, client })
+        Ok(Self {
+            server,
+            client,
+            #[cfg(windows)]
+            reachability: None,
+        })
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn with_reachability(
+        mut self,
+        reachability: crate::engine::connection::Reachability,
+    ) -> Self {
+        self.reachability = Some(reachability);
+        self
     }
 
     /// Returns the validated server origin.
@@ -97,11 +113,26 @@ impl HttpTransport {
         if request.url().origin() != self.server.0.origin() {
             return Err(TransportError::WrongOrigin);
         }
-        let response = self
-            .client
-            .execute(request)
-            .await
-            .map_err(TransportError::Request)?;
+        #[cfg(windows)]
+        let authenticated = request
+            .headers()
+            .contains_key(reqwest::header::AUTHORIZATION);
+        let result = self.client.execute(request).await;
+        #[cfg(windows)]
+        if authenticated && let Some(reachability) = &self.reachability {
+            match &result {
+                Ok(response) if response.status().is_success() => reachability.succeeded(),
+                Ok(response)
+                    if response.status() == StatusCode::UNAUTHORIZED
+                        || response.status().is_redirection() =>
+                {
+                    reachability.failed()
+                }
+                Err(_) => reachability.failed(),
+                _ => {}
+            }
+        }
+        let response = result.map_err(TransportError::Request)?;
         if response.status().is_redirection() {
             return Err(TransportError::Redirect(response.status()));
         }

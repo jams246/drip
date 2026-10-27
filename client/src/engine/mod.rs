@@ -1,5 +1,6 @@
 pub(crate) mod activity;
 mod api;
+pub(crate) mod connection;
 mod error;
 mod lifecycle;
 mod logging;

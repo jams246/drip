@@ -3,7 +3,8 @@ mod passes;
 use std::{
     fs::{File, OpenOptions},
     os::windows::fs::OpenOptionsExt,
-    time::{Duration, Instant},
+    sync::Arc,
+    time::Instant,
 };
 
 use tokio::sync::watch;
@@ -12,7 +13,7 @@ use super::{
     Engine, EngineError, EventKind, EventSink,
     pass::auth_failure,
     saved,
-    schedule::Schedule,
+    schedule::{Schedule, backoff},
     watcher::{DirtySignal, SourceWatcher},
 };
 use crate::{source::random_id, transport::HttpTransport};
@@ -36,14 +37,24 @@ impl Engine {
     ) -> Result<(), EngineError> {
         let _worker_lock = worker_lock(self.settings.directory())?;
         let events = events.with_log(self.settings.directory());
-        let pairing = self.credentials.load()?;
-        let transport = HttpTransport::new(pairing.server_url())?;
+        let pairing = Arc::new(self.credentials.load()?);
+        let reachability = events.reachability();
+        let transport =
+            HttpTransport::new(pairing.server_url())?.with_reachability(reachability.clone());
+        let _connection = super::connection::Monitor::start(
+            transport.clone(),
+            pairing.clone(),
+            reachability.clone(),
+            events.clone(),
+        );
+        let mut connection = events.subscribe_status();
         let signal = DirtySignal::default();
         let mut watcher: Option<SourceWatcher> = None;
         let mut seen_selections = Vec::new();
         let mut schedule = Schedule::new(Instant::now());
         let mut barrier = true;
         let mut paused = false;
+        let mut acknowledged_failure_epoch = 0;
         let mut attempts = 0u32;
         let mut closed = false;
         let mut reconciled_request = 0;
@@ -54,6 +65,10 @@ impl Engine {
                 schedule.force(Instant::now());
             }
             if desired.paused || desired.stop || closed {
+                if paused && reachability.failure_epoch() != acknowledged_failure_epoch {
+                    paused = false;
+                    barrier = true;
+                }
                 if !paused {
                     let pause_operation = random_id()?;
                     events
@@ -66,10 +81,16 @@ impl Engine {
                         )
                         .await?;
                     loop {
+                        let epoch = reachability.failure_epoch();
                         match saved::synchronize(&self.settings, &transport, &pairing, true).await {
-                            Ok(_) => break,
+                            Ok(_) if reachability.failure_epoch() == epoch => {
+                                acknowledged_failure_epoch = epoch;
+                                break;
+                            }
+                            Ok(_) => continue,
                             Err(error) if auth_failure(&error) => return Err(error),
                             Err(error) => {
+                                reachability.observe_error(&error);
                                 events
                                     .emit(
                                         EventKind::Retry,
@@ -110,7 +131,10 @@ impl Engine {
                 if !current.paused {
                     continue;
                 }
-                closed = control.changed().await.is_err();
+                tokio::select! {
+                    changed = control.changed() => { closed = changed.is_err(); }
+                    _ = connection.changed() => {}
+                }
                 continue;
             }
             if paused {
@@ -142,6 +166,7 @@ impl Engine {
                     let context = super::pass::PassContext { store: &self.settings,
                         transport: &transport, pairing: &pairing, events: &events, signal: &signal, control: &control };
                     let result = self.continuous_pass(&context, &mut watcher, &mut seen_selections, barrier).await;
+                    if let Err(error) = &result { reachability.observe_error(error); }
                     match result {
                         Ok(true) => {
                             barrier = false;
@@ -195,17 +220,6 @@ fn worker_lock(directory: &std::path::Path) -> Result<File, EngineError> {
         .map_err(EngineError::Io)
 }
 
-fn backoff(attempt: u32) -> Result<Duration, EngineError> {
-    let seconds = 1u64.checked_shl(attempt.min(6)).unwrap_or(60).min(60);
-    let jitter = random_id()?;
-    let jitter = u8::from_str_radix(&jitter[..2], 16)
-        .map_err(|_| EngineError::InvalidResponse("invalid random retry identifier"))?;
-    Ok(
-        (Duration::from_secs(seconds) + Duration::from_millis(u64::from(jitter)))
-            .min(Duration::from_secs(60)),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,17 +232,5 @@ mod tests {
         let (progress, _) = watch::channel(None);
         let future = engine.run(receiver, EventSink::new(events, progress));
         assert!(std::mem::size_of_val(&future) < 64 * 1024);
-    }
-
-    #[test]
-    fn retry_backoff_starts_at_one_second_and_stays_bounded() {
-        for attempt in 0..100 {
-            let delay = backoff(attempt).unwrap();
-            assert!(delay >= Duration::from_secs(1));
-            assert!(delay <= Duration::from_secs(60));
-            if attempt == 0 {
-                assert!(delay < Duration::from_millis(1256));
-            }
-        }
     }
 }

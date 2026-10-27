@@ -84,16 +84,23 @@ impl EventSink {
         }
     }
 
-    pub(super) fn with_log(mut self, directory: &std::path::Path) -> Self {
-        self.log = Some(std::sync::Arc::new(super::logging::ActivityLog::new(
-            directory,
-        )));
+    /// Attaches the shared bounded activity log for background consumers.
+    pub fn with_log(mut self, directory: &std::path::Path) -> Self {
+        if self.log.is_none() {
+            self.log = Some(std::sync::Arc::new(super::logging::ActivityLog::new(
+                directory,
+            )));
+        }
         self
     }
 
     /// Subscribes to the latest connection and root states.
     pub fn subscribe_status(&self) -> watch::Receiver<super::status::SyncSnapshot> {
         self.status.subscribe()
+    }
+
+    pub(super) fn reachability(&self) -> super::connection::Reachability {
+        super::connection::Reachability::new(self.status.clone())
     }
 
     pub async fn emit(

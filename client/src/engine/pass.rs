@@ -83,6 +83,7 @@ impl PassContext<'_> {
                 )
                 .await
             {
+                self.events.reachability().observe_error(&error);
                 if matches!(
                     error,
                     EngineError::Cancelled | EngineError::SelectionChanged

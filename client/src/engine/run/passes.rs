@@ -31,15 +31,6 @@ impl Engine {
             }
         }
         let active = saved::synchronize(&self.settings, transport, pairing, barrier).await?;
-        events
-            .emit(
-                EventKind::Connected,
-                None,
-                None,
-                "connection",
-                "server selection state confirmed",
-            )
-            .await?;
         let latest = self.settings.load()?;
         for selection in &latest.selections {
             if !seen_selections.iter().any(|previous| previous == selection) {
@@ -98,6 +89,7 @@ impl Engine {
                     return Err(error);
                 }
                 Err(error) => {
+                    events.reachability().observe_error(&error);
                     successful = false;
                     let kind = if matches!(error, EngineError::Source(_)) {
                         EventKind::UnavailableRoot

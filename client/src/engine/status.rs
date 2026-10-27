@@ -1,5 +1,6 @@
 use drip_core::SourcePath;
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 use super::lifecycle::{EventKind, LifecycleEvent};
@@ -40,6 +41,32 @@ pub struct RootStatus {
 pub struct SyncSnapshot {
     pub connection: ConnectionState,
     pub roots: Vec<RootStatus>,
+    #[serde(skip)]
+    pub(super) last_authenticated: Option<Instant>,
+    #[serde(skip)]
+    pub(super) authentication_failed: bool,
+    #[serde(skip)]
+    pub(super) failure_epoch: u64,
+}
+
+impl SyncSnapshot {
+    /// Footer reachability is independent of source activity and pending pause intent.
+    pub fn footer_label(&self, now: Instant) -> &'static str {
+        if !self.authenticated_at(now) {
+            "Disconnected"
+        } else if self.connection == ConnectionState::Paused {
+            "Paused"
+        } else {
+            "Connected"
+        }
+    }
+
+    pub(super) fn authenticated_at(&self, now: Instant) -> bool {
+        !self.authentication_failed
+            && self
+                .last_authenticated
+                .is_some_and(|last| now.saturating_duration_since(last) <= Duration::from_secs(45))
+    }
 }
 
 pub(super) fn update(sender: &watch::Sender<SyncSnapshot>, event: &LifecycleEvent) {
@@ -48,11 +75,24 @@ pub(super) fn update(sender: &watch::Sender<SyncSnapshot>, event: &LifecycleEven
 
 pub(super) fn apply(snapshot: &mut SyncSnapshot, event: &LifecycleEvent) {
     match event.kind {
-        EventKind::Connected | EventKind::Resumed => {
-            snapshot.connection = ConnectionState::Connected
+        EventKind::Connected => {
+            if !matches!(
+                snapshot.connection,
+                ConnectionState::Paused | ConnectionState::Pausing
+            ) {
+                snapshot.connection = ConnectionState::Connected;
+            }
         }
+        EventKind::Resumed => snapshot.connection = ConnectionState::Connected,
         EventKind::Disconnected => {
-            snapshot.connection = ConnectionState::Disconnected;
+            snapshot.connection = if matches!(
+                snapshot.connection,
+                ConnectionState::Paused | ConnectionState::Pausing
+            ) {
+                ConnectionState::Pausing
+            } else {
+                ConnectionState::Disconnected
+            };
             for root in &mut snapshot.roots {
                 root.state = SelectionState::Offline;
             }

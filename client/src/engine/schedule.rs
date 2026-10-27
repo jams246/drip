@@ -3,6 +3,17 @@ use std::time::{Duration, Instant};
 pub(super) const DEBOUNCE: Duration = Duration::from_millis(500);
 pub(super) const FULL_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
+pub(super) fn backoff(attempt: u32) -> Result<Duration, super::EngineError> {
+    let seconds = 1u64.checked_shl(attempt.min(6)).unwrap_or(60).min(60);
+    let jitter = crate::source::random_id()?;
+    let jitter = u8::from_str_radix(&jitter[..2], 16)
+        .map_err(|_| super::EngineError::InvalidResponse("invalid random retry identifier"))?;
+    Ok(
+        (Duration::from_secs(seconds) + Duration::from_millis(u64::from(jitter)))
+            .min(Duration::from_secs(60)),
+    )
+}
+
 pub(super) struct Schedule {
     full_at: Instant,
     hinted_at: Option<Instant>,
@@ -38,6 +49,18 @@ impl Schedule {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retry_backoff_starts_at_one_second_and_stays_bounded() {
+        for attempt in 0..100 {
+            let delay = backoff(attempt).unwrap();
+            assert!(delay >= Duration::from_secs(1));
+            assert!(delay <= Duration::from_secs(60));
+            if attempt == 0 {
+                assert!(delay < Duration::from_millis(1256));
+            }
+        }
+    }
 
     #[test]
     fn hints_coalesce_but_periodic_pass_cannot_be_starved() {
