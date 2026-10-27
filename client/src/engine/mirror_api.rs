@@ -65,5 +65,24 @@ pub(super) async fn inventory(
 }
 
 pub(super) fn contains(parent: &SourcePath, child: &SourcePath) -> bool {
-    parent.drive() == child.drive() && child.components().starts_with(parent.components())
+    child.has_windows_prefix(parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inventory_accepts_windows_spelling_aliases_without_crossing_root_boundaries() {
+        let root = SourcePath::new('C', vec!["parent".into(), "selected".into()]).unwrap();
+        let alias =
+            SourcePath::new('C', vec!["PARENT".into(), "SELECTED".into(), "file".into()]).unwrap();
+        let sibling = SourcePath::new('C', vec!["parent".into(), "selected-extra".into()]).unwrap();
+        assert!(contains(&root, &alias));
+        assert!(!contains(&root, &sibling));
+        assert!(!contains(
+            &root,
+            &SourcePath::new('D', alias.components().to_vec()).unwrap()
+        ));
+    }
 }

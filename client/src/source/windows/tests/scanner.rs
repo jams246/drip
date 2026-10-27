@@ -134,6 +134,44 @@ fn deleted_selected_file_is_unavailable_not_absent() {
     ));
 }
 
+#[test]
+fn stale_root_spelling_is_absent_only_under_the_current_canonical_selection() {
+    let directory = TestDirectory::new();
+    let root = directory.path.join("canonical");
+    let app = directory.path.join("app");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir(&app).unwrap();
+    fs::write(root.join("visible.bin"), b"synthetic").unwrap();
+    let saved = saved(&root);
+    let mut components = saved.source.components().to_vec();
+    *components.last_mut().unwrap() = "CANONICAL".to_owned();
+    let old_root = SourcePath::new(saved.source.drive(), components).unwrap();
+
+    assert!(confirm_absent(&saved, &old_root, &app).unwrap());
+    assert!(confirm_absent(&saved, &child(&old_root, "visible.bin"), &app).unwrap());
+    assert!(!confirm_absent(&saved, &saved.source, &app).unwrap());
+    assert!(!confirm_absent(&saved, &child(&saved.source, "visible.bin"), &app).unwrap());
+
+    fs::rename(&root, directory.path.join("CANONICAL")).unwrap();
+    assert!(matches!(
+        confirm_absent(&saved, &child(&saved.source, "missing.bin"), &app),
+        Err(SourceError::Changed)
+    ));
+}
+
+#[test]
+fn selected_file_spelling_alias_is_absent_but_current_file_is_retained() {
+    let directory = TestDirectory::new();
+    let file = directory.path.join("canonical.bin");
+    fs::write(&file, b"synthetic").unwrap();
+    let saved = saved(&file);
+    let mut components = saved.source.components().to_vec();
+    *components.last_mut().unwrap() = "CANONICAL.bin".to_owned();
+    let old = SourcePath::new(saved.source.drive(), components).unwrap();
+    assert!(confirm_absent(&saved, &old, &directory.path).unwrap());
+    assert!(!confirm_absent(&saved, &saved.source, &directory.path).unwrap());
+}
+
 fn saved(path: &Path) -> SavedSelection {
     let root: SourceRoot = capture_root(path).unwrap();
     SavedSelection {
