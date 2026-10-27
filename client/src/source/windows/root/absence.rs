@@ -15,7 +15,7 @@ use std::{
 };
 use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
-/// Rechecks root identity and confirms a descendant is absent without following links.
+/// Rechecks the canonical root and confirms an inventoried spelling is absent without following links.
 pub fn confirm_absent(
     selection: &SavedSelection,
     target: &SourcePath,

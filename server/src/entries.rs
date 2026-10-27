@@ -16,11 +16,23 @@ impl Store {
     ) -> StoreResult<EntryDeleteResponse> {
         let (device, selection) =
             authorized_selection(self, credential, &request.selection_id, request.generation)?;
-        if !selections::selection_contains_path(&selection, &request.source_path) {
+        if !contains_delete_path(&selection, &request.source_path) {
             return Err(StoreError::DisallowedNamespace);
         }
         let mirror = self.open_device_directory(&device)?;
         let actual = entry_files::read_entry(&mirror, &request.source_path)?;
+        let root_depth = selection.source.components().len();
+        let replacement = if actual.is_some()
+            && selection.root_kind == EntryKind::File
+            && request.source_path.components()[..root_depth] != *selection.source.components()
+        {
+            match entry_files::read_entry(&mirror, &selection.source)? {
+                Some(EntrySnapshot::File(snapshot)) => Some(snapshot),
+                _ => return Err(StoreError::Conflict),
+            }
+        } else {
+            None
+        };
         if actual
             .as_ref()
             .is_some_and(|entry| entry.kind() != request.expected_entry.kind)
@@ -37,6 +49,9 @@ impl Store {
                     || current_selection.root_kind != selection.root_kind
                 {
                     return Err(StoreError::Conflict);
+                }
+                if let Some(replacement) = &replacement {
+                    upload_files::check_snapshot(directory, &selection.source, Some(replacement))?;
                 }
                 let Some(actual) = actual else {
                     entry_files::check_absent(directory, &request.source_path)?;
@@ -94,4 +109,19 @@ impl Store {
             },
         )
     }
+}
+
+fn contains_delete_path(
+    selection: &drip_core::protocol::Selection,
+    source: &drip_core::SourcePath,
+) -> bool {
+    if selections::selection_contains_path(selection, source) {
+        return true;
+    }
+    let root_depth = selection.source.components().len();
+    // A verified file root can retire an old directory under a different canonical spelling.
+    selection.root_kind == EntryKind::File
+        && source.components().len() > root_depth
+        && source.has_windows_prefix(&selection.source)
+        && source.components()[..root_depth] != *selection.source.components()
 }
