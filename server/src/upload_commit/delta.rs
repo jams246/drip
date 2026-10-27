@@ -14,6 +14,14 @@ pub(super) fn check_before_commit(
     Ok(())
 }
 
+pub(super) fn integrity_error(delta_mode: bool) -> StoreError {
+    if delta_mode {
+        StoreError::CorruptContent
+    } else {
+        StoreError::Conflict
+    }
+}
+
 pub(super) fn require_complete(
     transaction: &Transaction<'_>,
     session: &UploadSession,

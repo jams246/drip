@@ -59,11 +59,12 @@ pub(crate) fn verify_stage(
     expected_size: u64,
     expected_digest: Blake3Digest,
     last_write: Timestamp,
+    integrity_error: StoreError,
 ) -> StoreResult<FileSnapshot> {
     let file = open_read(staging, name)?;
     let mut snapshot = hash_file(file)?;
     if snapshot.size != expected_size || snapshot.digest != expected_digest {
-        return Err(StoreError::Conflict);
+        return Err(integrity_error);
     }
     staging
         .set_mtime(

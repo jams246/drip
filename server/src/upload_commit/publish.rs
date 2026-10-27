@@ -70,6 +70,7 @@ impl Store {
             expected_size,
             digest,
             last_write,
+            delta::integrity_error(delta_mode),
         ) {
             Ok(snapshot) => snapshot,
             Err(error) => {
