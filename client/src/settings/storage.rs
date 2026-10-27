@@ -8,9 +8,12 @@ use std::{
     path::{Path, PathBuf},
     process,
     sync::atomic::{AtomicU64, Ordering},
+    thread,
+    time::Duration,
 };
 
 use windows::{
+    Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION},
     Win32::Storage::FileSystem::{
         FILE_ATTRIBUTE_REPARSE_POINT, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
         MoveFileExW,
@@ -21,6 +24,8 @@ use windows::{
 use super::store::{SettingsError, path_error};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+const REPLACE_RETRY_COUNT: u8 = 20;
+const REPLACE_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 pub(super) fn replace_with(destination: &Path, bytes: &[u8]) -> Result<(), SettingsError> {
     let temporary = write_temporary(destination, bytes)?;
@@ -74,15 +79,43 @@ fn move_replace(source: &Path, destination: &Path) -> Result<(), SettingsError> 
     let source_wide = wide_path(source).map_err(|error| path_error("encode", source, error))?;
     let destination_wide =
         wide_path(destination).map_err(|error| path_error("encode", destination, error))?;
-    // SAFETY: both paths are NUL terminated, name same-directory files, and remain live for the call.
-    unsafe {
-        MoveFileExW(
-            PCWSTR(source_wide.as_ptr()),
-            PCWSTR(destination_wide.as_ptr()),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
+    let mut retries = 0;
+    loop {
+        // SAFETY: both paths are NUL terminated, name same-directory files, and remain live for the call.
+        let result = unsafe {
+            MoveFileExW(
+                PCWSTR(source_wide.as_ptr()),
+                PCWSTR(destination_wide.as_ptr()),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        match result {
+            Ok(()) => return Ok(()),
+            Err(error) if retries < REPLACE_RETRY_COUNT && is_transient_replace_error(&error) => {
+                retries += 1;
+                thread::sleep(REPLACE_RETRY_DELAY);
+            }
+            Err(source) => {
+                return Err(path_error(
+                    "atomically replace",
+                    destination,
+                    io::Error::other(source),
+                ));
+            }
+        }
     }
-    .map_err(|source| path_error("atomically replace", destination, io::Error::other(source)))
+}
+
+// A destination handle without FILE_SHARE_DELETE can report access denied.
+fn is_transient_replace_error(error: &windows::core::Error) -> bool {
+    let code = error.code().0 as u32;
+    if code & 0xffff_0000 != 0x8007_0000 {
+        return false;
+    }
+    let code = code & 0xffff;
+    code == ERROR_ACCESS_DENIED.0
+        || code == ERROR_SHARING_VIOLATION.0
+        || code == ERROR_LOCK_VIOLATION.0
 }
 
 fn wide_path(path: &Path) -> io::Result<Vec<u16>> {

@@ -141,13 +141,17 @@ fn blocked_settings_replace_preserves_existing_bytes_and_cleans_temporary_file()
         ..ClientSettings::default()
     };
 
-    assert!(matches!(
-        store.save(&replacement),
-        Err(SettingsError::Io {
-            action: "atomically replace",
-            ..
-        })
-    ));
+    let SettingsError::Io { action, source, .. } = store.save(&replacement).unwrap_err() else {
+        panic!("blocked replace should return a settings I/O error");
+    };
+    assert_eq!(action, "atomically replace");
+    assert_eq!(
+        source
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<windows::core::Error>())
+            .map(|source| source.code().0 as u32),
+        Some(0x8007_0005)
+    );
     drop(blocker);
 
     assert_eq!(fs::read(&path).unwrap(), bytes);
@@ -159,6 +163,35 @@ fn blocked_settings_replace_preserves_existing_bytes_and_cleans_temporary_file()
             .to_string_lossy()
             .starts_with(".drip.json.")
     }));
+}
+
+#[test]
+fn blocked_settings_replace_retries_after_target_handle_closes() {
+    let directory = TestDirectory::new();
+    let store = SettingsStore::open(&directory.path);
+    store.save(&ClientSettings::default()).unwrap();
+    let path = directory.path.join("drip.json");
+    let blocker = OpenOptions::new()
+        .read(true)
+        .share_mode(0x1 | 0x2)
+        .open(&path)
+        .unwrap();
+    let replacement = ClientSettings {
+        acknowledged_generation: 8,
+        ..ClientSettings::default()
+    };
+    let writer_store = SettingsStore::open(&directory.path);
+    let (started, waiting) = std::sync::mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        started.send(()).unwrap();
+        writer_store.save(&replacement)
+    });
+    waiting.recv().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    drop(blocker);
+
+    writer.join().unwrap().unwrap();
+    assert_eq!(store.load().unwrap().acknowledged_generation, 8);
 }
 
 #[test]
