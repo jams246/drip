@@ -46,8 +46,13 @@ impl Engine {
         let mut paused = false;
         let mut attempts = 0u32;
         let mut closed = false;
+        let mut reconciled_request = 0;
         loop {
             let desired = *control.borrow_and_update();
+            if desired.reconcile != reconciled_request {
+                reconciled_request = desired.reconcile;
+                schedule.force(Instant::now());
+            }
             if desired.paused || desired.stop || closed {
                 if !paused {
                     let pause_operation = random_id()?;
@@ -86,6 +91,7 @@ impl Engine {
                             }
                         }
                     }
+                    watcher = None;
                     events
                         .emit(
                             EventKind::Paused,
