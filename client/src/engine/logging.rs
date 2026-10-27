@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn rotation_keeps_both_logs_bounded_and_valid_json_lines() {
         let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../.verification/phase-02/log-tests")
+            .join("../.verification/phase-03/log-tests")
             .join(crate::source::random_id().unwrap());
         fs::create_dir_all(&directory).unwrap();
         let log = ActivityLog::new(&directory);
@@ -95,6 +95,7 @@ mod tests {
             source_path: None,
             operation_id: "operation".into(),
             message: "synthetic".repeat(1024),
+            progress: None,
         };
         for _ in 0..700 {
             log.append(&event).unwrap();

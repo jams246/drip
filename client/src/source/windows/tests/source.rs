@@ -51,6 +51,41 @@ async fn changed_open_source_is_rejected() {
 }
 
 #[tokio::test]
+async fn missing_range_reread_uses_independent_handle() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("source.bin");
+    let bytes = (0usize..1536 * 1024)
+        .map(|index| (index.wrapping_mul(67) >> 7) as u8)
+        .collect::<Vec<_>>();
+    fs::write(&path, &bytes).unwrap();
+    let source = SourceFile::open(&path).unwrap();
+    let mut stream = drip_core::ChunkStream::new(source.chunk_reader().unwrap());
+    let first = stream.next_chunk().unwrap().unwrap();
+    let reread = source
+        .read_range(first.descriptor.offset, first.descriptor.length)
+        .await
+        .unwrap();
+    let next = stream.next_chunk().unwrap().unwrap();
+
+    assert_eq!(reread, first.bytes);
+    assert_eq!(next.descriptor.offset, u64::from(first.descriptor.length));
+}
+
+#[tokio::test]
+async fn changed_source_before_missing_range_reread_is_rejected() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("source.bin");
+    fs::write(&path, vec![4; 128 * 1024]).unwrap();
+    let source = SourceFile::open(&path).unwrap();
+    fs::write(&path, vec![9; 128 * 1024 + 1]).unwrap();
+
+    assert!(matches!(
+        source.read_range(0, 64 * 1024).await,
+        Err(SourceError::Changed)
+    ));
+}
+
+#[tokio::test]
 async fn same_size_mutation_with_restored_last_write_is_rejected() {
     let directory = TestDirectory::new();
     let path = directory.path.join("source.bin");

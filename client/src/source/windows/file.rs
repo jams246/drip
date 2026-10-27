@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use drip_core::{Blake3Digest, SourcePath, Timestamp};
 use tokio::{
@@ -18,8 +18,10 @@ use super::{
 };
 use crate::engine::activity::{ActivityEvent, ProgressSnapshot, UploadPhase};
 
+mod read;
+
 const CHUNK_BYTES: usize = 64 * 1024;
-const REPORT_BYTES: u64 = 1024 * 1024;
+const REPORT_INTERVAL: Duration = Duration::from_millis(200);
 const WINDOWS_EPOCH_TICKS: i64 = 116_444_736_000_000_000;
 
 /// Opened regular source file with stable Windows identity observations.
@@ -85,12 +87,14 @@ impl SourceFile {
         &self,
         events: &tokio::sync::mpsc::Sender<ActivityEvent>,
     ) -> Result<Blake3Digest, SourceError> {
-        let mut file = self.file.lock().await;
+        let reader = self.reader();
+        let mut file = reader.lock().await;
         file.seek(SeekFrom::Start(0)).await?;
         let mut hasher = blake3::Hasher::new();
         let mut buffer = vec![0; CHUNK_BYTES];
         let mut processed = 0u64;
-        let mut next_report = 0;
+        let mut last_report = std::time::Instant::now();
+        let mut last_reported = 0;
         while processed < self.initial.size {
             let remaining =
                 usize::try_from((self.initial.size - processed).min(CHUNK_BYTES as u64))
@@ -103,14 +107,35 @@ impl SourceFile {
             processed = processed
                 .checked_add(count as u64)
                 .ok_or(SourceError::Changed)?;
-            if processed >= next_report || processed == self.initial.size {
+            if processed == self.initial.size && processed != last_reported {
+                let _ = events
+                    .send(ActivityEvent::Progress(ProgressSnapshot {
+                        phase: UploadPhase::Hashing,
+                        source_path: self.protocol_path.clone(),
+                        processed_bytes: processed,
+                        total_bytes: Some(self.initial.size),
+                        source_hashed_bytes: processed,
+                        source_chunked_bytes: 0,
+                        chunk_count: 0,
+                        planned_payload_bytes: 0,
+                        file_payload_sent: 0,
+                    }))
+                    .await;
+                last_reported = processed;
+            } else if last_report.elapsed() >= REPORT_INTERVAL {
                 let _ = events.try_send(ActivityEvent::Progress(ProgressSnapshot {
                     phase: UploadPhase::Hashing,
                     source_path: self.protocol_path.clone(),
                     processed_bytes: processed,
-                    total_bytes: self.initial.size,
+                    total_bytes: Some(self.initial.size),
+                    source_hashed_bytes: processed,
+                    source_chunked_bytes: 0,
+                    chunk_count: 0,
+                    planned_payload_bytes: 0,
+                    file_payload_sent: 0,
                 }));
-                next_report = processed.saturating_add(REPORT_BYTES);
+                last_report = std::time::Instant::now();
+                last_reported = processed;
             }
         }
         file.seek(SeekFrom::Start(0)).await?;

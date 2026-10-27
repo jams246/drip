@@ -1,3 +1,4 @@
+mod chunking;
 mod reconcile;
 mod transfer;
 

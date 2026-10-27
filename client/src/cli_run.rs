@@ -19,12 +19,15 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
     let progress_reporting = tokio::spawn(async move {
         while snapshots.changed().await.is_ok() {
             if let Some(progress) = &*snapshots.borrow_and_update() {
+                let total = progress
+                    .file
+                    .total_bytes
+                    .map_or_else(|| "unknown".to_owned(), |total| total.to_string());
                 eprintln!(
-                    "{:?}: {}: {} of {} bytes",
+                    "{:?}: {}: {} of {total} bytes",
                     progress.file.phase,
                     progress.file.source_path.to_windows_path(),
-                    progress.file.processed_bytes,
-                    progress.file.total_bytes
+                    progress.file.processed_bytes
                 );
             }
         }

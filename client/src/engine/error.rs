@@ -32,6 +32,7 @@ pub enum EngineError {
         status: StatusCode,
         code: ApiErrorCode,
         message: String,
+        retryable: bool,
     },
     #[error("server uses unsupported protocol version {0}")]
     UnsupportedProtocol(u32),
@@ -57,6 +58,14 @@ pub enum EngineError {
 }
 
 impl EngineError {
+    pub(crate) fn should_retry_request(&self) -> bool {
+        match self {
+            Self::Transport(TransportError::Request(_)) => true,
+            Self::Api { retryable, .. } => *retryable,
+            _ => false,
+        }
+    }
+
     pub(crate) fn is_uncertain_commit(&self) -> bool {
         match self {
             Self::Transport(TransportError::Request(_))
@@ -66,5 +75,38 @@ impl EngineError {
             Self::Api { status, .. } => status.is_server_error(),
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn structured_retryable_server_errors_retry_but_integrity_errors_do_not() {
+        let retryable = EngineError::Api {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: ApiErrorCode::RetryableIo,
+            message: "temporary filesystem failure".into(),
+            retryable: true,
+        };
+        let corrupt = EngineError::Api {
+            status: StatusCode::BAD_REQUEST,
+            code: ApiErrorCode::CorruptContent,
+            message: "chunk digest mismatch".into(),
+            retryable: false,
+        };
+
+        assert!(retryable.should_retry_request());
+        assert!(retryable.is_uncertain_commit());
+        assert!(!corrupt.should_retry_request());
+        assert!(matches!(
+            corrupt,
+            EngineError::Api {
+                code: ApiErrorCode::CorruptContent,
+                retryable: false,
+                ..
+            }
+        ));
     }
 }

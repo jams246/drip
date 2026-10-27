@@ -1,6 +1,5 @@
 use std::{
-    fs::{self, File},
-    io::Write,
+    fs,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -8,52 +7,43 @@ use std::{
     },
 };
 
-use drip_core::SourcePath;
 use futures_util::TryStreamExt;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
-use super::{body_stream, finish};
+use super::{
+    finish,
+    requests::{self, ChunkProgress},
+};
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[tokio::test]
-async fn body_stream_sends_only_declared_bytes_in_bounded_chunks() {
-    let directory = TestDirectory::new();
-    let path = directory.path.join("source.bin");
-    File::create(&path)
-        .unwrap()
-        .write_all(b"bytes beyond declared length")
-        .unwrap();
-    let file = tokio::fs::File::from_std(File::open(path).unwrap());
+async fn body_stream_sends_one_chunk_in_bounded_buffers() {
+    let sent = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let (events, _receiver) = mpsc::channel(4);
-    let stream = body_stream(
-        Arc::new(Mutex::new(file)),
-        5,
-        SourcePath::new('C', vec!["source.bin".to_owned()]).unwrap(),
-        events,
+    let bytes = vec![12; 160 * 1024];
+    let stream = requests::body_stream(
+        bytes.clone(),
+        ChunkProgress {
+            sent: Arc::clone(&sent),
+            report_clock: Arc::new(tokio::sync::Mutex::new(std::time::Instant::now())),
+            events,
+            source_path: drip_core::SourcePath::new('C', vec!["source.bin".into()]).unwrap(),
+            source_hashed_bytes: bytes.len() as u64,
+            source_chunked_bytes: bytes.len() as u64,
+            chunk_count: 1,
+            planned_payload_bytes: bytes.len() as u64,
+            total_bytes: Some(bytes.len() as u64),
+        },
     );
     let chunks: Vec<Vec<u8>> = stream.try_collect().await.unwrap();
 
-    assert_eq!(chunks.concat(), b"bytes");
+    assert_eq!(chunks.concat(), bytes);
     assert!(chunks.iter().all(|chunk| chunk.len() <= 64 * 1024));
-}
-
-#[tokio::test]
-async fn body_stream_fails_when_open_file_ends_before_declared_size() {
-    let directory = TestDirectory::new();
-    let path = directory.path.join("source.bin");
-    File::create(&path).unwrap().write_all(b"short").unwrap();
-    let file = tokio::fs::File::from_std(File::open(path).unwrap());
-    let (events, _receiver) = mpsc::channel(4);
-    let stream = body_stream(
-        Arc::new(Mutex::new(file)),
-        6,
-        SourcePath::new('C', vec!["source.bin".to_owned()]).unwrap(),
-        events,
+    assert_eq!(
+        sent.load(Ordering::Relaxed),
+        chunks.iter().map(|chunk| chunk.len() as u64).sum::<u64>()
     );
-    let error = stream.try_collect::<Vec<_>>().await.unwrap_err();
-
-    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
 #[tokio::test]
@@ -96,7 +86,7 @@ struct TestDirectory {
 impl TestDirectory {
     fn new() -> Self {
         let project = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let root = project.join(".verification/phase-01/upload-stream-tests");
+        let root = project.join(".verification/phase-03/client-upload-tests");
         fs::create_dir_all(&root).unwrap();
         loop {
             let count = NEXT_DIR.fetch_add(1, Ordering::Relaxed);

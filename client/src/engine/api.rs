@@ -102,5 +102,6 @@ fn api_error(status: StatusCode, body: Vec<u8>) -> EngineError {
         status,
         code: error.code,
         message: error.message,
+        retryable: error.retryable,
     }
 }

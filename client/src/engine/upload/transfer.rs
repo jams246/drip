@@ -1,31 +1,20 @@
-use std::{io, sync::Arc};
-
+use drip_core::Blake3Digest;
 use drip_core::protocol::{UploadCommitResponse, UploadPrepareResponse};
-use drip_core::{Blake3Digest, SourcePath};
-use futures_util::stream;
-use reqwest::{
-    Method,
-    header::{CONTENT_LENGTH, CONTENT_TYPE},
-};
-use tokio::{
-    fs::File,
-    io::AsyncReadExt,
-    sync::{Mutex, mpsc},
-};
+use reqwest::Method;
+use tokio::sync::mpsc;
 
 use crate::{
     engine::{
-        ActivityEvent, EngineError, ProgressSnapshot, UploadPhase, UploadResult, api, selection,
-        selection::ActiveSelection,
+        ActivityEvent, EngineError, UploadResult, api, selection, selection::ActiveSelection,
     },
     source::SourceFile,
-    transport::{HttpTransport, TransportError},
+    transport::HttpTransport,
 };
 
 use super::reconcile;
 
-const CHUNK_BYTES: usize = 64 * 1024;
-const REPORT_BYTES: u64 = 1024 * 1024;
+mod delta;
+mod requests;
 
 pub(super) async fn run(
     transport: &HttpTransport,
@@ -38,8 +27,14 @@ pub(super) async fn run(
 ) -> Result<UploadResult, EngineError> {
     let size = source.size();
     selection::require_current(transport, credential, active).await?;
-    send_data(
-        transport, credential, active, source, prepared, size, events,
+    delta::send(
+        transport,
+        credential,
+        active,
+        source,
+        &prepared.upload_id,
+        digest,
+        events,
     )
     .await?;
     selection::require_current(transport, credential, active).await?;
@@ -91,77 +86,6 @@ async fn finish(
         })
         .await;
     Ok(result)
-}
-
-async fn send_data(
-    transport: &HttpTransport,
-    credential: &str,
-    active: &ActiveSelection,
-    source: &SourceFile,
-    prepared: &UploadPrepareResponse,
-    size: u64,
-    events: &mpsc::Sender<ActivityEvent>,
-) -> Result<(), EngineError> {
-    selection::require_current(transport, credential, active).await?;
-    let stream = body_stream(
-        source.reader(),
-        size,
-        source.protocol_path().clone(),
-        events.clone(),
-    );
-    let path = format!("v1/uploads/{}/data", prepared.upload_id);
-    let request = transport
-        .request(Method::PUT, &path)?
-        .bearer_auth(credential)
-        .header(CONTENT_TYPE, "application/octet-stream")
-        .header(CONTENT_LENGTH, size.to_string())
-        .body(reqwest::Body::wrap_stream(stream))
-        .build()
-        .map_err(TransportError::Build)?;
-    api::ensure_success(transport.send(request).await?).await
-}
-
-fn body_stream(
-    reader: Arc<Mutex<File>>,
-    size: u64,
-    source_path: SourcePath,
-    events: mpsc::Sender<ActivityEvent>,
-) -> impl futures_util::TryStream<Ok = Vec<u8>, Error = io::Error> + Send + 'static {
-    stream::try_unfold(
-        (reader, 0u64, 0u64, source_path, events),
-        move |(reader, sent, next_report, source_path, events)| async move {
-            if sent == size {
-                return Ok(None);
-            }
-            let capacity = usize::try_from((size - sent).min(CHUNK_BYTES as u64))
-                .map_err(|_| io::Error::other("file chunk length is invalid"))?;
-            let mut bytes = vec![0; capacity];
-            let count = reader.lock().await.read(&mut bytes).await?;
-            if count == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "source ended before its recorded size",
-                ));
-            }
-            bytes.truncate(count);
-            let processed = sent + count as u64;
-            let next_report = if processed >= next_report || processed == size {
-                let _ = events.try_send(ActivityEvent::Progress(ProgressSnapshot {
-                    phase: UploadPhase::Uploading,
-                    source_path: source_path.clone(),
-                    processed_bytes: processed,
-                    total_bytes: size,
-                }));
-                processed.saturating_add(REPORT_BYTES)
-            } else {
-                next_report
-            };
-            Ok(Some((
-                bytes,
-                (reader, processed, next_report, source_path, events),
-            )))
-        },
-    )
 }
 
 async fn commit(
