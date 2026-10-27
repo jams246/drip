@@ -16,6 +16,7 @@ pub mod settings;
 
 #[cfg(windows)]
 pub use engine::{
-    ActivityEvent, ActivityLog, Engine, EngineError, EventKind, EventSink, LifecycleEvent,
-    ProgressSnapshot, SelectionProgress, UploadPhase, UploadResult,
+    ActivityEvent, ActivityLog, ConnectionState, Engine, EngineError, EventKind, EventSink,
+    LifecycleEvent, ProgressSnapshot, RootStatus, RunControl, SelectionProgress, SelectionState,
+    SyncSnapshot, UploadPhase, UploadResult,
 };

@@ -3,13 +3,22 @@ mod api;
 mod error;
 mod lifecycle;
 mod logging;
+mod mirror_api;
+mod pass;
+mod run;
+mod saved;
+mod schedule;
 mod selection;
+mod status;
 mod upload;
+mod watcher;
 
 pub use activity::{ActivityEvent, ProgressSnapshot, UploadPhase};
 pub use error::EngineError;
 pub use lifecycle::{EventKind, EventSink, LifecycleEvent, SelectionProgress};
 pub use logging::ActivityLog;
+pub use run::RunControl;
+pub use status::{ConnectionState, RootStatus, SelectionState, SyncSnapshot};
 
 use std::path::Path;
 
@@ -25,6 +34,7 @@ use crate::{
 /// Shared pairing and one-file upload engine for the diagnostic CLI and GUI.
 pub struct Engine {
     credentials: CredentialStore,
+    settings: crate::settings::SettingsStore,
 }
 
 /// Metadata verified by the server after upload publication.
@@ -43,6 +53,7 @@ impl Engine {
     pub fn beside_executable() -> Result<Self, EngineError> {
         Ok(Self {
             credentials: CredentialStore::beside_executable()?,
+            settings: crate::settings::SettingsStore::beside_executable()?,
         })
     }
 

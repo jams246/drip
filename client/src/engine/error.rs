@@ -17,6 +17,8 @@ pub enum EngineError {
     Source(#[from] SourceError),
     #[error("local client I/O failed: {0}")]
     Io(#[from] io::Error),
+    #[error(transparent)]
+    Settings(#[from] crate::settings::SettingsError),
     #[error("could not encode a control message: {0}")]
     Encode(#[from] serde_json::Error),
     #[error("server response exceeds the 4 MiB client limit")]
@@ -45,6 +47,8 @@ pub enum EngineError {
     CommitUncertain,
     #[error("upload session was aborted before publication")]
     UploadAborted,
+    #[error("sync operation cancelled by a control request")]
+    Cancelled,
     #[error("upload failed and its abort outcome is uncertain: transfer={transfer}; abort={abort}")]
     AbortFailed {
         transfer: Box<EngineError>,

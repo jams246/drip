@@ -50,6 +50,30 @@ impl ActivityLog {
         file.write_all(&line)?;
         file.flush()
     }
+
+    /// Rebuilds last reported status from the two bounded activity logs.
+    pub fn snapshot(&self) -> io::Result<super::status::SyncSnapshot> {
+        use std::io::Read;
+        let mut snapshot = super::status::SyncSnapshot::default();
+        for path in [self.path.with_file_name("drip.log.1"), self.path.clone()] {
+            let file = match fs::File::open(path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+            let mut bytes = Vec::new();
+            file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
+            if bytes.len() as u64 > MAX_BYTES {
+                return Err(io::Error::other("activity log exceeds its size limit"));
+            }
+            for line in bytes.split(|byte| *byte == b'\n') {
+                if let Ok(event) = serde_json::from_slice::<LifecycleEvent>(line) {
+                    super::status::apply(&mut snapshot, &event);
+                }
+            }
+        }
+        Ok(snapshot)
+    }
 }
 
 #[cfg(test)]

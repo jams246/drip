@@ -11,8 +11,14 @@ use drip_client::{ActivityEvent, Engine, UploadPhase};
 use tokio::sync::mpsc;
 
 #[cfg(windows)]
+mod cli_run;
+
+#[cfg(windows)]
 #[derive(Parser)]
-#[command(name = "drip", about = "Secure one-way file upload to a Drip server")]
+#[command(
+    name = "drip",
+    about = "Continuously mirror selected local paths to a Drip server"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -30,6 +36,14 @@ enum Command {
     Upload {
         path: PathBuf,
     },
+    Add {
+        path: PathBuf,
+    },
+    Remove {
+        path: PathBuf,
+    },
+    Status,
+    Run,
 }
 
 #[cfg(windows)]
@@ -67,6 +81,55 @@ async fn run() -> Result<(), Box<dyn Error>> {
             }
             upload(path).await?;
         }
+        Command::Add { path } => {
+            let result = Engine::beside_executable()?.add(&path)?;
+            println!(
+                "Selection saved: {}",
+                result.selection.source.to_windows_path()
+            );
+            for retained in result.authority_over {
+                println!(
+                    "Ancestor selection now controls retained {} including confirmed deletions.",
+                    retained.to_windows_path()
+                );
+            }
+            println!("Run `drip run` to reconcile saved selections.");
+        }
+        Command::Remove { path } => {
+            Engine::beside_executable()?.remove(&path).await?;
+            println!("Selection removed. Existing mirror retained.");
+        }
+        Command::Status => {
+            let engine = Engine::beside_executable()?;
+            let settings = engine.status()?;
+            let snapshot = engine.snapshot()?;
+            println!("Last connection state: {:?}", snapshot.connection);
+            println!(
+                "Acknowledged generation: {}; update pending: {}",
+                settings.acknowledged_generation,
+                settings.pending_update.is_some()
+            );
+            for selection in settings.selections {
+                let state = snapshot
+                    .roots
+                    .iter()
+                    .find(|root| root.selection_id == selection.id);
+                println!(
+                    "{}: {}: {}",
+                    selection.source.to_windows_path(),
+                    if selection.active {
+                        "Active"
+                    } else {
+                        "Retained"
+                    },
+                    state.map_or_else(
+                        || "Pending reconciliation".to_owned(),
+                        |root| format!("{:?}: {}", root.state, root.message)
+                    )
+                );
+            }
+        }
+        Command::Run => cli_run::run().await?,
     }
     Ok(())
 }

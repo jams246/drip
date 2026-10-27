@@ -101,7 +101,7 @@ async fn inventory_matches(
             ));
         }
         for entry in &page.entries {
-            if entry.source_path != active.selection.source {
+            if entry.source_path != *source.protocol_path() {
                 continue;
             }
             if found {
@@ -111,7 +111,7 @@ async fn inventory_matches(
             }
             match verify_entry(
                 entry,
-                &active.selection.source,
+                source.protocol_path(),
                 size,
                 digest,
                 source.last_write(),

@@ -18,6 +18,20 @@ pub(super) async fn upload(
     source: SourceFile,
     events: &mpsc::Sender<ActivityEvent>,
 ) -> Result<UploadResult, EngineError> {
+    let active =
+        selection::activate(transport, pairing.credential(), source.protocol_path()).await?;
+    upload_selected(transport, pairing, source, &active, None, None, events).await
+}
+
+pub(super) async fn upload_selected(
+    transport: &HttpTransport,
+    pairing: &Pairing,
+    source: SourceFile,
+    active: &selection::ActiveSelection,
+    expected_entry: Option<drip_core::protocol::EntryPrecondition>,
+    digest: Option<drip_core::Blake3Digest>,
+    events: &mpsc::Sender<ActivityEvent>,
+) -> Result<UploadResult, EngineError> {
     let source_path = source.protocol_path().clone();
     let size = source.size();
     let _ = events
@@ -27,17 +41,20 @@ pub(super) async fn upload(
         })
         .await;
     let credential = pairing.credential();
-    let active = selection::activate(transport, credential, &source_path).await?;
-    let digest = source.hash(events).await?;
-    selection::require_current(transport, credential, &active).await?;
+    source.verify().await?;
+    let digest = match digest {
+        Some(digest) => digest,
+        None => source.hash(events).await?,
+    };
+    selection::require_current(transport, credential, active).await?;
     let request = UploadPrepareRequest {
         selection_id: active.selection.id.clone(),
         generation: active.generation,
-        source_path: active.selection.source.clone(),
+        source_path,
         expected_size: size,
         digest,
         last_write: source.last_write(),
-        expected_entry: None,
+        expected_entry,
     };
     let prepared: UploadPrepareResponse = api::json(
         transport,
@@ -54,7 +71,7 @@ pub(super) async fn upload(
         ));
     }
     let result = transfer::run(
-        transport, credential, &active, &source, &prepared, digest, events,
+        transport, credential, active, &source, &prepared, digest, events,
     )
     .await;
     match result {

@@ -60,6 +60,8 @@ impl HttpTransport {
             .tls_backend_native()
             .https_only(true)
             .redirect(Policy::none())
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .read_timeout(std::time::Duration::from_secs(60))
             .build()
             .map_err(TransportError::Client)?;
         Ok(Self { server, client })

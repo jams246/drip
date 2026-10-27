@@ -1,13 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use drip_core::{SourcePath, Timestamp};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
 
 use super::{EngineError, ProgressSnapshot};
 
 /// Ordered activity consumed by the diagnostic CLI and future GUI.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventKind {
     SourceChanged,
@@ -30,7 +30,7 @@ pub enum EventKind {
 }
 
 /// One lifecycle record, never containing credentials or file contents.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LifecycleEvent {
     pub timestamp: Timestamp,
     pub kind: EventKind,
@@ -53,6 +53,8 @@ pub struct SelectionProgress {
 pub struct EventSink {
     events: mpsc::Sender<LifecycleEvent>,
     progress: watch::Sender<Option<SelectionProgress>>,
+    log: Option<std::sync::Arc<super::logging::ActivityLog>>,
+    status: watch::Sender<super::status::SyncSnapshot>,
 }
 
 impl EventSink {
@@ -60,7 +62,25 @@ impl EventSink {
         events: mpsc::Sender<LifecycleEvent>,
         progress: watch::Sender<Option<SelectionProgress>>,
     ) -> Self {
-        Self { events, progress }
+        let (status, _) = watch::channel(super::status::SyncSnapshot::default());
+        Self {
+            events,
+            progress,
+            log: None,
+            status,
+        }
+    }
+
+    pub(super) fn with_log(mut self, directory: &std::path::Path) -> Self {
+        self.log = Some(std::sync::Arc::new(super::logging::ActivityLog::new(
+            directory,
+        )));
+        self
+    }
+
+    /// Subscribes to the latest connection and root states.
+    pub fn subscribe_status(&self) -> watch::Receiver<super::status::SyncSnapshot> {
+        self.status.subscribe()
     }
 
     pub async fn emit(
@@ -78,17 +98,19 @@ impl EventSink {
             .map_err(|_| std::io::Error::other("system clock exceeds supported range"))?;
         let timestamp =
             Timestamp::new(seconds, elapsed.subsec_nanos()).map_err(std::io::Error::other)?;
-        let _ = self
-            .events
-            .send(LifecycleEvent {
-                timestamp,
-                kind,
-                selection_id: selection_id.map(str::to_owned),
-                source_path: source_path.cloned(),
-                operation_id: operation_id.to_owned(),
-                message: message.into(),
-            })
-            .await;
+        let event = LifecycleEvent {
+            timestamp,
+            kind,
+            selection_id: selection_id.map(str::to_owned),
+            source_path: source_path.cloned(),
+            operation_id: operation_id.to_owned(),
+            message: message.into(),
+        };
+        if let Some(log) = &self.log {
+            log.append(&event)?;
+        }
+        super::status::update(&self.status, &event);
+        let _ = self.events.send(event).await;
         Ok(())
     }
 

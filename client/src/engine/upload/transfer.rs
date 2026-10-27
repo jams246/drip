@@ -49,7 +49,7 @@ pub(super) async fn run(
         Ok(response) => {
             reconcile::verify_entry(
                 &response.entry,
-                &active.selection.source,
+                source.protocol_path(),
                 size,
                 digest,
                 source.last_write(),
@@ -106,7 +106,7 @@ async fn send_data(
     let stream = body_stream(
         source.reader(),
         size,
-        active.selection.source.clone(),
+        source.protocol_path().clone(),
         events.clone(),
     );
     let path = format!("v1/uploads/{}/data", prepared.upload_id);
