@@ -33,13 +33,13 @@ impl PassContext<'_> {
         &self,
         active: &ActiveSelection,
         saved: &SavedSelection,
+        operation: &str,
     ) -> Result<bool, EngineError> {
-        let operation = crate::source::random_id()?;
         self.emit(
             EventKind::Scanning,
             active,
             &saved.source,
-            &operation,
+            operation,
             "scanning source and actual mirror",
         )
         .await?;
@@ -57,7 +57,7 @@ impl PassContext<'_> {
                 EventKind::Error,
                 active,
                 issue.source_path.as_ref().unwrap_or(&saved.source),
-                &operation,
+                operation,
                 &issue.message,
             )
             .await?;
@@ -134,7 +134,7 @@ impl PassContext<'_> {
                 EventKind::Synced,
                 active,
                 &saved.source,
-                &operation,
+                operation,
                 "source and actual mirror agree",
             )
             .await?;
@@ -144,7 +144,7 @@ impl PassContext<'_> {
                 EventKind::Retry,
                 active,
                 &saved.source,
-                &operation,
+                operation,
                 "root remains unsynced; source uncertainty or activity requires another pass",
             )
             .await?;

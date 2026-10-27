@@ -86,7 +86,8 @@ impl Engine {
                 .iter()
                 .find(|saved| saved.id == selection.selection.id)
                 .ok_or(EngineError::SelectionChanged)?;
-            match context.root(&selection, saved).await {
+            let operation = crate::source::random_id()?;
+            match context.root(&selection, saved, &operation).await {
                 Ok(complete) => successful &= complete,
                 Err(error)
                     if matches!(
@@ -108,7 +109,7 @@ impl Engine {
                             kind,
                             Some(&saved.id),
                             Some(&saved.source),
-                            "scan",
+                            &operation,
                             error.to_string(),
                         )
                         .await?;
