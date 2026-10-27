@@ -1,5 +1,9 @@
+use drip_core::protocol::UploadPrepareRequest;
 use drip_core::protocol::{UploadPlanRequest, UploadPlanValidationError};
-use drip_core::{CHUNK_MAX_SIZE, CHUNK_MIN_SIZE, ChunkConfig, ChunkDescriptor, SourcePath};
+use drip_core::{
+    Blake3Digest, CHUNK_MAX_SIZE, CHUNK_MIN_SIZE, CHUNK_PLAN_MAX_BODY_BYTES,
+    CHUNK_PLAN_MAX_DESCRIPTORS, ChunkConfig, ChunkDescriptor, SourcePath, Timestamp,
+};
 use drip_server::StoreError;
 
 use super::support::{Fixture, digest, plan, prepare, pseudo_random};
@@ -94,4 +98,61 @@ fn descriptor(ordinal: u64, offset: u64, length: u32, bytes: &[u8]) -> ChunkDesc
         length,
         digest: digest(bytes),
     }
+}
+
+#[tokio::test]
+async fn full_1024_descriptor_page_and_maximum_chunk_are_accepted() {
+    let fixture = Fixture::new();
+    let _device = fixture.enroll("Maximum page");
+    let credential = _device.device_credential.expose_secret();
+    let source = SourcePath::new('C', vec!["max-page.bin".to_owned()]).unwrap();
+    let selection_id = "4".repeat(32);
+    let generation = fixture.select(credential, &selection_id, source.clone());
+    let mut offset = 0u64;
+    let descriptors: Vec<_> = (0..CHUNK_PLAN_MAX_DESCRIPTORS)
+        .map(|ordinal| {
+            let length = if ordinal == 0 {
+                CHUNK_MAX_SIZE
+            } else {
+                CHUNK_MIN_SIZE
+            };
+            let descriptor = ChunkDescriptor {
+                ordinal: ordinal as u64,
+                offset,
+                length,
+                digest: Blake3Digest::new([0; 32]),
+            };
+            offset += u64::from(length);
+            descriptor
+        })
+        .collect();
+    let request = UploadPlanRequest {
+        config: ChunkConfig::V1,
+        descriptors,
+    };
+    assert!(serde_json::to_vec(&request).unwrap().len() <= CHUNK_PLAN_MAX_BODY_BYTES);
+    let prepared = fixture
+        .store
+        .prepare_upload(
+            credential,
+            UploadPrepareRequest {
+                selection_id,
+                generation,
+                source_path: source,
+                expected_size: offset,
+                digest: Blake3Digest::new([0; 32]),
+                last_write: Timestamp::new(1_700_000_000, 0).unwrap(),
+                expected_entry: None,
+            },
+        )
+        .unwrap();
+    let response = fixture
+        .store
+        .plan_upload(credential, &prepared.upload_id, request)
+        .unwrap();
+    assert_eq!(response.missing_ordinals.len(), CHUNK_PLAN_MAX_DESCRIPTORS);
+    fixture
+        .store
+        .abort_upload(credential, &prepared.upload_id)
+        .unwrap();
 }
