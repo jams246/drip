@@ -9,6 +9,8 @@ use crate::{
     upload_files, upload_paths,
 };
 
+use super::cursor::{CursorAnchor, source_path_bytes};
+
 pub(crate) const PAGE_SIZE: usize = 1024;
 
 pub(crate) struct ScannedEntry {
@@ -24,14 +26,18 @@ pub(crate) struct EntryPageScan {
 pub(crate) fn page(
     root: &Dir,
     source: &SourcePath,
-    after: Option<&SourcePath>,
+    after: Option<&CursorAnchor>,
 ) -> StoreResult<EntryPageScan> {
     let mut scan = Scan {
         after,
         entries: Vec::with_capacity(PAGE_SIZE),
         has_more: false,
+        anchor_found: false,
     };
     let Some(snapshot) = entry_files::read_entry(root, source)? else {
+        if matches!(after, Some(CursorAnchor::Digest(_))) {
+            return Err(StoreError::Conflict);
+        }
         return Ok(EntryPageScan {
             entries: Vec::new(),
             has_more: false,
@@ -43,6 +49,9 @@ pub(crate) fn page(
         let directory = entry_files::open_directory(root, source)?.ok_or(StoreError::Conflict)?;
         scan.children(source, &directory)?;
     }
+    if matches!(after, Some(CursorAnchor::Digest(_))) && !scan.anchor_found {
+        return Err(StoreError::Conflict);
+    }
     Ok(EntryPageScan {
         entries: scan.entries,
         has_more: scan.has_more,
@@ -50,9 +59,10 @@ pub(crate) fn page(
 }
 
 struct Scan<'a> {
-    after: Option<&'a SourcePath>,
+    after: Option<&'a CursorAnchor>,
     entries: Vec<ScannedEntry>,
     has_more: bool,
+    anchor_found: bool,
 }
 
 impl Scan<'_> {
@@ -130,13 +140,22 @@ impl Scan<'_> {
     }
 
     fn reserve_slot(&mut self, source: &SourcePath) -> StoreResult<bool> {
-        if self
-            .after
-            .is_some_and(|after| compare_paths(source, after) != Ordering::Greater)
-        {
-            Ok(false)
-        } else if self.entries.len() < PAGE_SIZE {
-            super::validate_cursor_path(source)?;
+        let bytes = source_path_bytes(source)?;
+        match self.after {
+            Some(CursorAnchor::Path(after))
+                if compare_paths(source, after) != Ordering::Greater =>
+            {
+                return Ok(false);
+            }
+            Some(CursorAnchor::Digest(digest)) if !self.anchor_found => {
+                if blake3::hash(&bytes).as_bytes() == digest {
+                    self.anchor_found = true;
+                }
+                return Ok(false);
+            }
+            _ => {}
+        }
+        if self.entries.len() < PAGE_SIZE {
             Ok(true)
         } else {
             self.has_more = true;
