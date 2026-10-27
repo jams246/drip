@@ -18,6 +18,7 @@ pub struct Fixture {
     pub size: u64,
     container: String,
     mirror_volume: String,
+    hash_image: String,
     traffic_file: PathBuf,
     run_id: String,
 }
@@ -68,6 +69,12 @@ impl Fixture {
                     mount["Name"] == mirror_volume && mount["Destination"] == "/mirror"
                 })
         );
+        let hash_image = docker(&["image", "inspect", "drip:hash", "--format={{.Id}}"]);
+        let hash_image = String::from_utf8(hash_image.stdout)
+            .unwrap()
+            .trim()
+            .to_owned();
+        assert!(hash_image.starts_with("sha256:"));
         let directory = root.join("large-fixture");
         fs::create_dir_all(&directory).unwrap();
         let run_id = format!("large-delta-{size}-{}", std::process::id());
@@ -82,6 +89,7 @@ impl Fixture {
             size,
             container,
             mirror_volume,
+            hash_image,
             traffic_file,
             run_id,
         }
@@ -187,7 +195,7 @@ impl Fixture {
             "type=volume,source={},target=/mirror,readonly",
             self.mirror_volume
         );
-        let output = docker(&["run", "--rm", "--mount", &mount, "drip:hash", &mirror]);
+        let output = docker(&["run", "--rm", "--mount", &mount, &self.hash_image, &mirror]);
         let actual = String::from_utf8(output.stdout).unwrap();
         assert_eq!(
             actual.split_whitespace().next(),
@@ -200,7 +208,7 @@ impl Fixture {
             &mount,
             "--entrypoint",
             "stat",
-            "drip:hash",
+            &self.hash_image,
             "--format=%s",
             &mirror,
         ]);
@@ -216,11 +224,12 @@ impl Fixture {
 }
 
 fn docker(arguments: &[&str]) -> Output {
-    let output = Command::new("wsl.exe")
-        .args(["-d", "Docker", "--", "docker"])
-        .args(arguments)
-        .output()
-        .unwrap();
+    let mut command = Command::new("wsl.exe");
+    command.args(["-d", "Docker", "--", "docker", arguments[0]]);
+    if arguments[0] == "run" {
+        command.arg("--pull=never");
+    }
+    let output = command.args(&arguments[1..]).output().unwrap();
     assert!(
         output.status.success(),
         "synthetic Docker fixture command failed"
