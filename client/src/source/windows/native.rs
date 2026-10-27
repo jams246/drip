@@ -61,7 +61,11 @@ pub(super) fn reject_application_data(path: &SourcePath) -> Result<(), SourceErr
     let directory = executable
         .parent()
         .ok_or(SourceError::InvalidPath)
-        .and_then(|path| SourcePath::try_from_path(path).map_err(|_| SourceError::InvalidPath))?;
+        .and_then(|path| {
+            let path = path.to_str().ok_or(SourceError::InvalidPath)?;
+            let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+            SourcePath::parse_absolute(path).map_err(|_| SourceError::InvalidPath)
+        })?;
     if same_path(&parent, &directory) && is_application_data_name(name) {
         return Err(SourceError::ExcludedApplicationData);
     }
