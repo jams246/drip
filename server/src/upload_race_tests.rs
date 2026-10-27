@@ -1,4 +1,4 @@
 mod before_writer_lock;
-mod common;
+pub(crate) mod common;
 mod expiry;
 mod publication_barrier;

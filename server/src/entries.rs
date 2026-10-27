@@ -27,6 +27,7 @@ impl Store {
         {
             return Err(StoreError::Conflict);
         }
+        upload_files::checkpoint("before_writer_lock");
         self.with_authorized_selection_mutation(
             credential,
             &request.selection_id,

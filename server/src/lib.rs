@@ -29,6 +29,10 @@ mod selection_mutation_tests;
 #[cfg(test)]
 mod upload_race_tests;
 #[cfg(test)]
+pub(crate) use upload_race_tests::common as upload_race_test_common;
+#[cfg(test)]
+mod entry_race_tests;
+#[cfg(test)]
 mod upload_session_tests;
 #[cfg(test)]
 mod upload_test_support;

@@ -13,7 +13,7 @@ use drip_core::protocol::{
 };
 use drip_core::{Blake3Digest, SensitiveString, SourcePath, Timestamp};
 
-pub(super) use checkpoint_gate::CheckpointGate;
+pub(crate) use checkpoint_gate::CheckpointGate;
 
 mod checkpoint_gate;
 
@@ -22,21 +22,21 @@ static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 const OLD_BYTES: &[u8] = b"older mirror bytes";
 const NEW_BYTES: &[u8] = b"new verified upload";
 
-pub(super) struct Fixture {
+pub(crate) struct Fixture {
     root: PathBuf,
     state_dir: PathBuf,
-    mirror_dir: PathBuf,
-    device_directory: String,
-    pub(super) store: Store,
-    pub(super) credential: String,
+    pub(crate) mirror_dir: PathBuf,
+    pub(crate) device_directory: String,
+    pub(crate) store: Store,
+    pub(crate) credential: String,
     pub(super) pc_id: String,
-    pub(super) generation: u64,
-    pub(super) source: SourcePath,
+    pub(crate) generation: u64,
+    pub(crate) source: SourcePath,
     pub(super) upload_id: String,
 }
 
 impl Fixture {
-    pub(super) async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join(".verification/phase-02/server-tests");
@@ -128,7 +128,7 @@ impl Fixture {
         .unwrap()
     }
 
-    pub(super) fn remove_selection(&self) -> StoreResult<u64> {
+    pub(crate) fn remove_selection(&self) -> StoreResult<u64> {
         self.store
             .update_selections(
                 &self.credential,
@@ -140,7 +140,7 @@ impl Fixture {
             .map(|response| response.generation)
     }
 
-    pub(super) fn start_commit(
+    pub(crate) fn start_commit(
         &self,
         checkpoint: &'static str,
     ) -> (
@@ -156,7 +156,7 @@ impl Fixture {
         (gate, commit)
     }
 
-    pub(super) fn run_revoke_cli(&self) -> Output {
+    pub(crate) fn run_revoke_cli(&self) -> Output {
         let binary = server_binary();
         Command::new(binary)
             .args(["--state-dir", state_path(&self.state_dir)])
@@ -197,12 +197,12 @@ fn prepare(
         .unwrap()
 }
 
-pub(super) fn assert_cli_busy(output: &Output) {
+pub(crate) fn assert_cli_busy(output: &Output) {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("storage is busy"));
 }
 
-pub(super) fn assert_cli_success(output: &Output) {
+pub(crate) fn assert_cli_success(output: &Output) {
     assert!(
         output.status.success(),
         "CLI revoke failed: {}",
@@ -210,7 +210,7 @@ pub(super) fn assert_cli_success(output: &Output) {
     );
 }
 
-pub(super) fn assert_old_bytes(fixture: &Fixture) {
+pub(crate) fn assert_old_bytes(fixture: &Fixture) {
     assert_eq!(fixture.visible_bytes(), OLD_BYTES);
 }
 
@@ -218,7 +218,7 @@ pub(super) fn assert_new_bytes(fixture: &Fixture) {
     assert_eq!(fixture.visible_bytes(), NEW_BYTES);
 }
 
-fn mirror_path(mirror: &Path, directory: &str, source: &SourcePath) -> PathBuf {
+pub(crate) fn mirror_path(mirror: &Path, directory: &str, source: &SourcePath) -> PathBuf {
     let mut path = mirror.join(directory).join(source.drive().to_string());
     for component in source.components() {
         path.push(component);

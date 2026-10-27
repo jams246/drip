@@ -145,6 +145,11 @@ async fn deletion_checks_revision_and_removes_only_empty_directories() {
         .unwrap()
         .deleted
     );
+    let current = fixture
+        .store
+        .list_entries(credential, &selection_id, None)
+        .unwrap();
+    let blocked_entry = entry(&current.entries, &blocked);
     assert!(
         delete(
             &fixture,
