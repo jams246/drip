@@ -54,7 +54,7 @@ pub(crate) fn open_file(parent: &Dir, name: &str) -> StoreResult<Option<File>> {
 fn child_dir(parent: &Dir, name: &str, create: bool) -> StoreResult<Option<Dir>> {
     if create {
         match parent.create_dir(name) {
-            Ok(()) => {}
+            Ok(()) => crate::upload_files::fsync_directory(parent)?,
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(crate::database::io_error(error)),
         }

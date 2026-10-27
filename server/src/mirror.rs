@@ -20,6 +20,7 @@ pub(crate) fn create_device_directory(root: &Dir, name: &str) -> StoreResult<boo
                 )
                 .map_err(database::io_error)?;
             }
+            crate::upload_files::fsync_directory(root)?;
             Ok(true)
         }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
