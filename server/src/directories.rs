@@ -167,6 +167,9 @@ impl Store {
             },
         );
         if let Some(stage_name) = stage_name {
+            if retired_kind.is_some() {
+                upload_files::checkpoint("before_retired_cleanup");
+            }
             let cleanup = match retired_kind {
                 Some(kind) => self.uploads.remove_retired_stage(&stage_name, kind),
                 None => self.uploads.remove_directory_stage(&stage_name),

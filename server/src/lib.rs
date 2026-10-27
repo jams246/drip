@@ -34,6 +34,8 @@ mod upload_race_tests;
 pub(crate) use upload_race_tests::common as upload_race_test_common;
 #[cfg(test)]
 mod entry_race_tests;
+#[cfg(all(test, target_os = "linux"))]
+mod exchange_fault_tests;
 #[cfg(test)]
 mod upload_session_tests;
 #[cfg(test)]
