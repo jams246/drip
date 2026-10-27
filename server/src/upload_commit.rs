@@ -99,8 +99,10 @@ impl Store {
                 }
                 let current_time = self.now()?;
                 if current_time.saturating_sub(session.last_progress) >= 30 * 60 {
-                    let _ = self.uploads.remove(upload_id);
                     self.abort_conflicted(&mut session, current_time)?;
+                    drop(session);
+                    upload_files::checkpoint("expired_session_before_remove");
+                    let _ = self.uploads.remove(upload_id);
                     return Err(StoreError::NotFound);
                 }
                 if upload_files::check_snapshot(directory, &source_path, base_snapshot.as_ref())
