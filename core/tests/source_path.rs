@@ -47,6 +47,22 @@ fn windows_prefix_does_not_expand_sharp_s_to_two_characters() {
 }
 
 #[test]
+fn windows_prefix_uses_ordinal_utf16_casing_instead_of_unicode_full_uppercase() {
+    for (left, right, expected) in [
+        ("é", "É", true),
+        ("ǅ", "ǆ", false),
+        ("ᾀ", "ᾈ", true),
+        ("ı", "I", false),
+        ("σ", "ς", false),
+        ("𐐀", "𐐨", false),
+    ] {
+        let left = SourcePath::new('C', vec![left.into()]).unwrap();
+        let right = SourcePath::new('C', vec![right.into()]).unwrap();
+        assert_eq!(left.has_windows_prefix(&right), expected);
+    }
+}
+
+#[test]
 fn parse_absolute_path_rejects_drive_relative_paths() {
     assert_eq!(
         SourcePath::parse_absolute("C:relative\\file"),

@@ -67,7 +67,7 @@ impl SourcePath {
         &self.components
     }
 
-    /// Returns whether this path has `prefix` under single-character Unicode uppercase matching.
+    /// Returns whether this path has `prefix` under the pinned Windows ordinal UTF-16 casing table.
     pub fn has_windows_prefix(&self, prefix: &Self) -> bool {
         self.drive == prefix.drive
             && self.components.len() >= prefix.components.len()
@@ -90,22 +90,16 @@ impl SourcePath {
 }
 
 fn components_equal_ordinal_ignore_case(left: &str, right: &str) -> bool {
-    let mut left = left.chars();
-    let mut right = right.chars();
-    loop {
-        match (left.next(), right.next()) {
-            (Some(left), Some(right)) if left == right => {}
-            (Some(left), Some(right)) => {
-                let mut left = left.to_uppercase();
-                let mut right = right.to_uppercase();
-                if left.next() != right.next() || left.next().is_some() || right.next().is_some() {
-                    return false;
-                }
-            }
-            (None, None) => return true,
-            _ => return false,
-        }
-    }
+    left.encode_utf16()
+        .map(windows_uppercase)
+        .eq(right.encode_utf16().map(windows_uppercase))
+}
+
+fn windows_uppercase(value: u16) -> u16 {
+    // Windows ordinal casing differs from Unicode full uppercase and does not expand characters.
+    const TABLE: &[u8; 131_072] = include_bytes!("windows_upcase.bin");
+    let offset = usize::from(value) * 2;
+    u16::from_le_bytes([TABLE[offset], TABLE[offset + 1]])
 }
 
 impl<'de> Deserialize<'de> for SourcePath {
