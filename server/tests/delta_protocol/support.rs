@@ -1,7 +1,10 @@
 use std::{
     io::Cursor,
     path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicI64, AtomicU64, Ordering},
+    },
 };
 
 use axum::body::Body;
@@ -31,6 +34,21 @@ impl Fixture {
         let root = parent.join(format!("{}-{suffix}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
         let store = Store::open(root.join("state"), root.join("mirror")).unwrap();
+        Self { root, store }
+    }
+
+    pub fn with_clock(clock: Arc<AtomicI64>) -> Self {
+        let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(".verification/phase-03/protocol-tests");
+        std::fs::create_dir_all(&parent).unwrap();
+        let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
+        let root = parent.join(format!("{}-{suffix}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let store = Store::open_with_clock(root.join("state"), root.join("mirror"), move || {
+            Ok(clock.load(Ordering::SeqCst))
+        })
+        .unwrap();
         Self { root, store }
     }
 

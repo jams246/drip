@@ -10,13 +10,15 @@ use drip_core::protocol::UploadState;
 use http_body_util::BodyExt;
 
 use crate::{
-    Store, StoreError, StoreResult, entry_files, upload_sessions::UploadSession,
+    Store, StoreError, StoreResult, entry_files,
+    upload_data::{SESSION_TTL, expire_body, progress},
+    upload_sessions::UploadSession,
     upload_store::authenticated_device,
 };
 
 use super::{lock, state};
 
-const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(SESSION_TTL as u64);
 
 impl Store {
     /// Accepts one declared missing chunk into its final staging range.
@@ -65,7 +67,17 @@ impl Store {
         };
         let outcome = receive(self, &session, &stage_name, descriptor, &mut body).await;
         if let Err(error) = outcome {
-            lock(&session).receiving = false;
+            let expired = {
+                let mut current = lock(&session);
+                current.receiving = false;
+                current.state == UploadState::Aborted
+            };
+            if expired {
+                let stage_result = self.uploads.remove_stage(&stage_name);
+                let plan_result = state::delete_plan(self, upload_id);
+                stage_result?;
+                plan_result?;
+            }
             return Err(error);
         }
         let now = match self.now() {
@@ -150,7 +162,13 @@ async fn receive(
     loop {
         let frame = match wait_frame(body.frame(), deadline).await {
             Ok(frame) => frame,
-            Err(()) => return Err(StoreError::NotFound),
+            Err(()) => {
+                let now = store
+                    .now()
+                    .unwrap_or_else(|_| lock(session).last_progress.saturating_add(SESSION_TTL));
+                expire_body(store, session, stage_name, now);
+                return Err(StoreError::NotFound);
+            }
         };
         let Some(frame) = frame else {
             break;
@@ -172,6 +190,7 @@ async fn receive(
                 StoreError::InvalidInput
             });
         }
+        progress(session, store.now()?)?;
         if let Some(stage) = &mut stage {
             stage.write_all(&bytes).map_err(super::io_error)?;
         }

@@ -14,7 +14,7 @@ use crate::{
     upload_store::authenticated_device,
 };
 
-const SESSION_TTL: i64 = 30 * 60;
+pub(crate) const SESSION_TTL: i64 = 30 * 60;
 const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(SESSION_TTL as u64);
 
 impl Store {
@@ -126,7 +126,7 @@ async fn wait_frame<F: Future>(future: F, deadline: tokio::time::Instant) -> Res
         .map_err(|_| ())
 }
 
-fn progress(session: &Arc<Mutex<UploadSession>>, now: i64) -> StoreResult<()> {
+pub(crate) fn progress(session: &Arc<Mutex<UploadSession>>, now: i64) -> StoreResult<()> {
     let mut session = lock(session);
     if session.state != UploadState::Active || !session.receiving {
         return Err(StoreError::Conflict);
@@ -152,7 +152,12 @@ fn reset_body(store: &Store, session: &Arc<Mutex<UploadSession>>, stage_name: &s
     let _ = store.uploads.remove_stage(stage_name);
 }
 
-fn expire_body(store: &Store, session: &Arc<Mutex<UploadSession>>, stage_name: &str, now: i64) {
+pub(crate) fn expire_body(
+    store: &Store,
+    session: &Arc<Mutex<UploadSession>>,
+    stage_name: &str,
+    now: i64,
+) {
     let mut session = lock(session);
     if session.state == UploadState::Active {
         session.state = UploadState::Aborted;
