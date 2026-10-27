@@ -14,20 +14,27 @@ name = "drip"
 path = "src/main.rs"
 
 [dependencies]
+blake3 = { workspace = true }
+clap = { workspace = true }
 drip_core = { package = "core", path = "../core" }
+futures-util = { workspace = true }
 reqwest = { workspace = true, features = ["native-tls"] }
+rpassword = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 url = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
+    "Win32_System_SystemServices",
 ] }
 
 [lints]
