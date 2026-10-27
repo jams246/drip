@@ -55,10 +55,9 @@ enum Command {
 }
 
 #[cfg(windows)]
-#[tokio::main]
-async fn main() {
+fn main() {
     console::prepare();
-    if let Err(error) = run().await {
+    if let Err(error) = run() {
         eprintln!("error: {error}");
         std::process::exit(1);
     }
@@ -71,8 +70,11 @@ fn main() {
 }
 
 #[cfg(windows)]
-async fn run() -> Result<(), Box<dyn Error>> {
+fn run() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
+    let runtime = tokio::runtime::Runtime::new()?;
+    // GPUI owns the foreground executor outside Tokio's cooperative task budget.
+    let _entered = runtime.enter();
     let executable = std::env::current_exe()?;
     let directory = executable
         .parent()
@@ -84,7 +86,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         } else {
             InstanceMode::Diagnostic
         };
-        match acquire(directory, mode).await? {
+        match runtime.block_on(acquire(directory, mode))? {
             InstanceAcquire::Acquired(guard) => Some(guard),
             InstanceAcquire::AlreadyRunning if cli.command.is_none() => return Ok(()),
             InstanceAcquire::AlreadyRunning => return Err("Another Drip engine already owns this app directory. Use the running app or quit it before starting a diagnostic engine.".into()),
@@ -100,6 +102,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 .and_then(|instance| instance.take_open_listener()),
         );
     };
+    runtime.block_on(async {
     match command {
         Command::Pair { server, label } => {
             let server = ServerUrl::parse(&server)?;
@@ -169,6 +172,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Run => cli_run::run().await?,
     }
     Ok(())
+    })
 }
 
 #[cfg(windows)]
