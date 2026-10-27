@@ -5,7 +5,7 @@ use std::{
 
 use thiserror::Error;
 
-mod acl;
+pub(crate) mod acl;
 mod dpapi;
 mod pairing;
 mod storage;

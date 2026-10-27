@@ -12,6 +12,9 @@ mod engine;
 pub mod source;
 
 #[cfg(windows)]
+pub mod settings;
+
+#[cfg(windows)]
 pub use engine::{
     ActivityEvent, ActivityLog, Engine, EngineError, EventKind, EventSink, LifecycleEvent,
     ProgressSnapshot, SelectionProgress, UploadPhase, UploadResult,

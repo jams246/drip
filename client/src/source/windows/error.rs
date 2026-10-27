@@ -21,6 +21,12 @@ pub enum SourceError {
     Changed,
     #[error("source pathname now identifies a different file or volume")]
     Replaced,
+    #[error("selected source root is unavailable: {0}")]
+    RootUnavailable(#[source] io::Error),
+    #[error("selected source volume identity changed")]
+    VolumeChanged,
+    #[error("selected source root kind changed and needs a new selection generation")]
+    RootKindChanged,
     #[error("source last-write timestamp is invalid")]
     InvalidTimestamp,
     #[error("could not read source: {0}")]

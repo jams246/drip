@@ -78,6 +78,8 @@ fn application_data_names_are_excluded_case_insensitively() {
         "drip.log.replacement",
         "drip.state",
         "DRIP.STATE.17.TMP",
+        "drip.settings.lock",
+        "DRIP.RUN.LOCK",
     ] {
         assert!(super::super::native::is_application_data_name(name));
     }

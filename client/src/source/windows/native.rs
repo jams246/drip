@@ -58,14 +58,11 @@ pub(super) fn reject_application_data(path: &SourcePath) -> Result<(), SourceErr
     )
     .map_err(|_| SourceError::InvalidPath)?;
     let executable = std::env::current_exe()?;
-    let directory = executable
-        .parent()
-        .ok_or(SourceError::InvalidPath)
-        .and_then(|path| {
-            let path = path.to_str().ok_or(SourceError::InvalidPath)?;
-            let path = path.strip_prefix(r"\\?\").unwrap_or(path);
-            SourcePath::parse_absolute(path).map_err(|_| SourceError::InvalidPath)
-        })?;
+    let directory = executable.parent().ok_or(SourceError::InvalidPath)?;
+    let directory = std::fs::canonicalize(directory)?;
+    let directory = directory.to_str().ok_or(SourceError::InvalidPath)?;
+    let directory = directory.strip_prefix(r"\\?\").unwrap_or(directory);
+    let directory = SourcePath::parse_absolute(directory).map_err(|_| SourceError::InvalidPath)?;
     if same_path(&parent, &directory) && is_application_data_name(name) {
         return Err(SourceError::ExcludedApplicationData);
     }
@@ -76,12 +73,20 @@ pub(super) fn is_application_data_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     matches!(
         name.as_str(),
-        "drip.json" | "drip.credentials" | "drip.log" | "drip.log.1" | "drip.state"
+        "drip.json"
+            | "drip.credentials"
+            | "drip.log"
+            | "drip.log.1"
+            | "drip.state"
+            | "drip.settings.lock"
+            | "drip.run.lock"
     ) || [
         "drip.json.",
         "drip.credentials.",
         "drip.log.",
         "drip.state.",
+        "drip.settings.",
+        "drip.run.",
         ".drip.",
     ]
     .iter()
@@ -175,6 +180,14 @@ pub(super) fn validate_final_path(
     file: &impl AsRawHandle,
     expected: &SourcePath,
 ) -> Result<(), SourceError> {
+    let final_path = final_path(file)?;
+    if !same_path(&final_path, expected) {
+        return Err(SourceError::PathResolution);
+    }
+    Ok(())
+}
+
+pub(super) fn final_path(file: &impl AsRawHandle) -> Result<SourcePath, SourceError> {
     let mut final_path = vec![0u16; 32768];
     let length = unsafe {
         GetFinalPathNameByHandleW(
@@ -189,10 +202,7 @@ pub(super) fn validate_final_path(
     final_path.truncate(length as usize);
     let final_path = String::from_utf16(&final_path).map_err(|_| SourceError::PathResolution)?;
     let final_path = final_path.strip_prefix("\\\\?\\").unwrap_or(&final_path);
-    if !same_strings(final_path, &expected.to_windows_path()) {
-        return Err(SourceError::PathResolution);
-    }
-    Ok(())
+    SourcePath::parse_absolute(final_path).map_err(|_| SourceError::PathResolution)
 }
 
 fn same_strings(left: &str, right: &str) -> bool {

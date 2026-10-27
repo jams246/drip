@@ -18,7 +18,7 @@ use windows::Win32::{
 };
 use windows::core::{BOOL, PCWSTR};
 
-pub(super) fn secure_file(path: &Path) -> io::Result<()> {
+pub(crate) fn secure_file(path: &Path) -> io::Result<()> {
     let path_wide = wide_path(path)?;
     let sddl: Vec<u16> = "D:P(A;;FA;;;OW)(A;;FA;;;SY)(A;;FA;;;BA)\0"
         .encode_utf16()

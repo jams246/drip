@@ -1,5 +1,7 @@
+mod client_settings;
 mod native;
 mod paths;
+mod scanner;
 mod source;
 
 use std::{
@@ -20,7 +22,7 @@ struct TestDirectory {
 impl TestDirectory {
     fn new() -> Self {
         let project = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let root = project.join(".verification/phase-01/source-tests");
+        let root = project.join(".verification/phase-02/source-tests");
         fs::create_dir_all(&root).unwrap();
         loop {
             let count = NEXT_DIR.fetch_add(1, Ordering::Relaxed);

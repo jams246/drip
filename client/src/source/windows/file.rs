@@ -14,6 +14,7 @@ use super::{
         HandleInfo, file_info, is_disk_file, open_file, reject_application_data,
         validate_directories, validate_drive, validate_final_path,
     },
+    root::file_volume_identity,
 };
 use crate::engine::activity::{ActivityEvent, ProgressSnapshot, UploadPhase};
 
@@ -27,6 +28,7 @@ pub struct SourceFile {
     protocol_path: SourcePath,
     file: Arc<Mutex<TokioFile>>,
     initial: Observation,
+    volume_identity: String,
 }
 
 impl SourceFile {
@@ -48,11 +50,13 @@ impl SourceFile {
         }
         validate_final_path(&file, &protocol_path)?;
         let initial = info.observation()?;
+        let volume_identity = file_volume_identity(&file)?;
         Ok(Self {
             path: path.to_owned(),
             protocol_path,
             file: Arc::new(Mutex::new(TokioFile::from_std(file))),
             initial,
+            volume_identity,
         })
     }
 
@@ -69,6 +73,11 @@ impl SourceFile {
     /// Returns the recorded Windows last-write timestamp.
     pub fn last_write(&self) -> Timestamp {
         self.initial.last_write
+    }
+
+    /// Returns the native volume identity captured from the opened handle.
+    pub fn volume_identity(&self) -> &str {
+        &self.volume_identity
     }
 
     /// Hashes the opened file using bounded memory and restores its position.
@@ -113,19 +122,23 @@ impl SourceFile {
     /// Rechecks opened-handle observations and current pathname identity.
     pub async fn verify(&self) -> Result<(), SourceError> {
         let file = self.file.lock().await;
-        if file_info(&*file)?.observation()? != self.initial {
-            return Err(SourceError::Changed);
-        }
+        let opened = file_info(&*file)?.observation()?;
         validate_drive(self.protocol_path.drive())?;
         validate_directories(&self.protocol_path)?;
         let resolved = open_file(&self.path)?;
         if !is_disk_file(&resolved) {
             return Err(SourceError::NotRegular);
         }
-        let same_file = file_info(&resolved)?.observation()? == self.initial;
+        let current = file_info(&resolved)?.observation()?;
         validate_final_path(&resolved, &self.protocol_path)?;
-        if !same_file {
+        if current.volume != self.initial.volume
+            || current.file_id != self.initial.file_id
+            || file_volume_identity(&resolved)? != self.volume_identity
+        {
             return Err(SourceError::Replaced);
+        }
+        if opened != self.initial || current != self.initial {
+            return Err(SourceError::Changed);
         }
         Ok(())
     }
@@ -141,6 +154,7 @@ struct Observation {
     file_id: [u8; 16],
     size: u64,
     last_write: Timestamp,
+    change_time: i64,
 }
 
 impl HandleInfo {
@@ -159,6 +173,7 @@ impl HandleInfo {
             size,
             last_write: Timestamp::new(seconds, nanos)
                 .map_err(|_| SourceError::InvalidTimestamp)?,
+            change_time: self.basic.ChangeTime,
         })
     }
 }
