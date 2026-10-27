@@ -143,7 +143,7 @@ fn scan_file(
 ) {
     match SourceFile::open(path) {
         Ok(file) if file.volume_identity() == selection.volume_identity => {
-            if !same_path(file.protocol_path(), source_path) {
+            if file.protocol_path() != source_path {
                 scan.issue(
                     Some(source_path.clone()),
                     "opened file resolved to a different source path",

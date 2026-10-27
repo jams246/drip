@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use super::{
     error::SourceError,
     file::SourceFile,
-    native::same_path,
     root::{self, SourceRoot},
 };
 use crate::settings::SavedSelection;
@@ -45,7 +44,11 @@ pub fn scan_root(selection: &SavedSelection, exe_dir: &Path) -> Result<SourceSca
     let root_path = PathBuf::from(selection.source.to_windows_path());
     let current = root::capture_root(&root_path)?;
     if !same_root(selection, &current) {
-        return Err(SourceError::VolumeChanged);
+        return Err(if current.volume_identity != selection.volume_identity {
+            SourceError::VolumeChanged
+        } else {
+            SourceError::Changed
+        });
     }
     let mut scan = SourceScan {
         root_kind: current.kind,
@@ -102,7 +105,7 @@ fn scan_file(
 ) -> Result<(), SourceError> {
     match SourceFile::open(path) {
         Ok(file) if file.volume_identity() == selection.volume_identity => {
-            if !same_path(file.protocol_path(), source_path) {
+            if file.protocol_path() != source_path {
                 scan.issue(
                     Some(source_path.clone()),
                     "opened file resolved to a different source path",
@@ -127,8 +130,7 @@ fn scan_file(
 }
 
 fn same_root(selection: &SavedSelection, current: &SourceRoot) -> bool {
-    same_path(&selection.source, &current.source)
-        && selection.volume_identity == current.volume_identity
+    selection.source == current.source && selection.volume_identity == current.volume_identity
 }
 
 impl SourceScan {

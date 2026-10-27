@@ -204,6 +204,11 @@ fn root_kind_refresh_stages_new_generation_without_changing_volume() {
     fs::remove_file(&path).unwrap();
     fs::create_dir(&path).unwrap();
 
+    assert!(matches!(
+        crate::source::validate_root(&added.selection),
+        Err(crate::source::SourceError::RootKindChanged)
+    ));
+
     let current = capture_root(&path).unwrap();
     assert_eq!(current.kind, EntryKind::Directory);
     assert!(same_path(&current.source, &added.selection.source));

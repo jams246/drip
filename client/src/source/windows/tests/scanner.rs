@@ -153,6 +153,7 @@ fn stale_root_spelling_is_absent_only_under_the_current_canonical_selection() {
     assert!(!confirm_absent(&saved, &child(&saved.source, "visible.bin"), &app).unwrap());
 
     fs::rename(&root, directory.path.join("CANONICAL")).unwrap();
+    assert!(matches!(scan_root(&saved, &app), Err(SourceError::Changed)));
     assert!(matches!(
         confirm_absent(&saved, &child(&saved.source, "missing.bin"), &app),
         Err(SourceError::Changed)

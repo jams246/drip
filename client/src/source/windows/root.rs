@@ -79,6 +79,12 @@ pub fn validate_root(selection: &SavedSelection) -> Result<(), SourceError> {
     if current.volume_identity != selection.volume_identity {
         return Err(SourceError::VolumeChanged);
     }
+    if current.source != selection.source {
+        return Err(SourceError::Changed);
+    }
+    if current.kind != selection.root_kind {
+        return Err(SourceError::RootKindChanged);
+    }
     Ok(())
 }
 
@@ -98,6 +104,9 @@ pub(super) fn open_directory(path: &Path) -> Result<File, SourceError> {
     }
     let expected = SourcePath::try_from_path(path).map_err(|_| SourceError::InvalidPath)?;
     native::validate_final_path(&directory, &expected)?;
+    if native::final_path(&directory)? != expected {
+        return Err(SourceError::Changed);
+    }
     check_case_sensitive(&directory, path)?;
     Ok(directory)
 }
