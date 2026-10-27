@@ -1,0 +1,106 @@
+use axum::{
+    Json,
+    http::{HeaderValue, StatusCode, header::RETRY_AFTER},
+    response::{IntoResponse, Response},
+};
+use drip_core::protocol::{ApiError, ApiErrorCode};
+
+use crate::StoreError;
+
+/// HTTP failure with the shared JSON response shape.
+#[derive(Debug)]
+pub struct ApiFailure {
+    status: StatusCode,
+    body: ApiError,
+}
+
+impl ApiFailure {
+    pub(crate) fn invalid_input() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            ApiErrorCode::InvalidInput,
+            "invalid request",
+            false,
+        )
+    }
+
+    pub(crate) fn payload_too_large() -> Self {
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            ApiErrorCode::PayloadTooLarge,
+            "control request exceeds 256 KiB",
+            false,
+        )
+    }
+
+    fn new(status: StatusCode, code: ApiErrorCode, message: &str, retryable: bool) -> Self {
+        Self {
+            status,
+            body: ApiError {
+                code,
+                message: message.to_owned(),
+                retryable,
+            },
+        }
+    }
+}
+
+impl From<StoreError> for ApiFailure {
+    fn from(error: StoreError) -> Self {
+        match error {
+            StoreError::InvalidInput => Self::invalid_input(),
+            StoreError::InvalidCredential => Self::new(
+                StatusCode::UNAUTHORIZED,
+                ApiErrorCode::InvalidCredential,
+                "invalid credential",
+                false,
+            ),
+            StoreError::NotFound => Self::new(
+                StatusCode::NOT_FOUND,
+                ApiErrorCode::NotFound,
+                "resource not found",
+                false,
+            ),
+            StoreError::DisallowedNamespace => Self::new(
+                StatusCode::FORBIDDEN,
+                ApiErrorCode::DisallowedNamespace,
+                "selection is not active for this device",
+                false,
+            ),
+            StoreError::Conflict => Self::new(
+                StatusCode::CONFLICT,
+                ApiErrorCode::Conflict,
+                "request conflicts with current state",
+                false,
+            ),
+            StoreError::Busy => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ApiErrorCode::CapacityExhausted,
+                "server is busy; retry shortly",
+                true,
+            ),
+            StoreError::Random
+            | StoreError::Database(_)
+            | StoreError::Filesystem(_)
+            | StoreError::Serialization(_)
+            | StoreError::Clock => Self::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ApiErrorCode::InternalError,
+                "internal server error",
+                false,
+            ),
+        }
+    }
+}
+
+impl IntoResponse for ApiFailure {
+    fn into_response(self) -> Response {
+        let mut response = (self.status, Json(self.body)).into_response();
+        if self.status == StatusCode::SERVICE_UNAVAILABLE {
+            response
+                .headers_mut()
+                .insert(RETRY_AFTER, HeaderValue::from_static("1"));
+        }
+        response
+    }
+}

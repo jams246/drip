@@ -22,6 +22,8 @@ pub enum ApiErrorCode {
     CapacityExhausted,
     /// Protocol version is unsupported.
     UnsupportedVersion,
+    /// Unexpected server failure without additional diagnostic details.
+    InternalError,
 }
 
 /// Secret-free JSON API failure.
