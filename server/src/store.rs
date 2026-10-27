@@ -32,6 +32,9 @@ pub enum StoreError {
     /// Actual mirror contains an entry the protocol cannot represent safely.
     #[error("mirror contains an unsupported entry")]
     UnsupportedEntry,
+    /// Mirror filesystem does not support atomic file/directory exchange.
+    #[error("mirror filesystem does not support safe file/directory exchange")]
+    UnsupportedExchange,
     /// Request conflicts with current generation or retained selection state.
     #[error("state conflict")]
     Conflict,
@@ -85,6 +88,7 @@ pub struct DeviceRecord {
 pub struct Store {
     pub(crate) database_path: Arc<PathBuf>,
     pub(crate) mirror: Arc<Dir>,
+    pub(crate) exchange_supported: bool,
     pub(crate) clock: Arc<dyn Fn() -> StoreResult<i64> + Send + Sync>,
     pub(crate) uploads: Arc<crate::upload_sessions::UploadSessions>,
 }
@@ -101,12 +105,14 @@ impl Store {
         std::fs::create_dir_all(mirror_directory).map_err(database::io_error)?;
         let database_path = state_directory.join("drip.sqlite3");
         let mirror = Arc::new(mirror::open_root(mirror_directory)?);
+        let exchange_supported = crate::upload_exchange::probe(&mirror)?;
         let uploads = Arc::new(crate::upload_sessions::UploadSessions::new(Arc::clone(
             &mirror,
         )));
         let store = Self {
             database_path: Arc::new(database_path),
             mirror,
+            exchange_supported,
             clock: Arc::new(system_unix_seconds),
             uploads,
         };

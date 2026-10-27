@@ -9,24 +9,20 @@ use crate::{
     upload_paths::{open_file, open_parent},
     upload_times::{metadata_timestamp, timestamp_system_time},
 };
+use metadata::{metadata_matches, same_metadata, snapshot_metadata};
+
+mod metadata;
+pub(crate) use metadata::{change_time, check_file_identity, snapshot_published_file};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileSnapshot {
     pub(crate) size: u64,
     pub(crate) digest: Blake3Digest,
     pub(crate) last_write: Timestamp,
+    pub(crate) change_seconds: i64,
+    pub(crate) change_nanos: i64,
     pub(crate) device: u64,
     pub(crate) inode: u64,
-}
-
-pub(crate) fn read_snapshot(root: &Dir, source: &SourcePath) -> StoreResult<Option<FileSnapshot>> {
-    let Some((parent, name)) = open_parent(root, source, false)? else {
-        return Ok(None);
-    };
-    let Some(file) = open_file(&parent, &name)? else {
-        return Ok(None);
-    };
-    hash_file(file).map(Some)
 }
 
 pub(crate) fn check_snapshot(
@@ -79,6 +75,7 @@ pub(crate) fn verify_stage(
         return Err(StoreError::Conflict);
     }
     snapshot.last_write = metadata_timestamp(&metadata)?;
+    (snapshot.change_seconds, snapshot.change_nanos) = change_time(&metadata);
     Ok(snapshot)
 }
 
@@ -133,7 +130,7 @@ pub(crate) struct PublishFailure {
     pub(crate) renamed: bool,
 }
 
-fn open_read(directory: &Dir, name: &str) -> StoreResult<File> {
+pub(super) fn open_read(directory: &Dir, name: &str) -> StoreResult<File> {
     let mut options = OpenOptions::new();
     options.read(true);
     options.follow(FollowSymlinks::No);
@@ -168,28 +165,6 @@ pub(crate) fn hash_file(mut file: File) -> StoreResult<FileSnapshot> {
         digest: Blake3Digest::new(*hasher.finalize().as_bytes()),
         ..initial
     })
-}
-
-fn metadata_matches(file: &File, expected: &FileSnapshot) -> StoreResult<bool> {
-    let metadata = file.metadata().map_err(database::io_error)?;
-    Ok(metadata.is_file() && same_metadata(&snapshot_metadata(&metadata)?, expected))
-}
-
-fn snapshot_metadata(metadata: &cap_std::fs::Metadata) -> StoreResult<FileSnapshot> {
-    Ok(FileSnapshot {
-        size: metadata.len(),
-        digest: Blake3Digest::new([0; 32]),
-        last_write: metadata_timestamp(metadata)?,
-        device: metadata.dev(),
-        inode: metadata.ino(),
-    })
-}
-
-fn same_metadata(left: &FileSnapshot, right: &FileSnapshot) -> bool {
-    left.size == right.size
-        && left.last_write == right.last_write
-        && left.device == right.device
-        && left.inode == right.inode
 }
 
 fn map_io(error: io::Error) -> StoreError {

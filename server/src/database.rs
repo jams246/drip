@@ -58,6 +58,8 @@ pub(crate) fn initialize(connection: &Connection) -> Result<(), StoreError> {
              digest TEXT NOT NULL CHECK(length(digest) = 64),
              last_write_seconds INTEGER NOT NULL,
              last_write_nanos INTEGER NOT NULL CHECK(last_write_nanos >= 0 AND last_write_nanos < 1000000000),
+             change_seconds INTEGER NOT NULL DEFAULT 0,
+             change_nanos INTEGER NOT NULL DEFAULT 0 CHECK(change_nanos >= 0 AND change_nanos < 1000000000),
              device TEXT NOT NULL,
              inode TEXT NOT NULL,
              PRIMARY KEY(pc_id, source_json)
@@ -68,6 +70,10 @@ pub(crate) fn initialize(connection: &Connection) -> Result<(), StoreError> {
              revision INTEGER NOT NULL CHECK(revision > 0),
              device TEXT NOT NULL,
              inode TEXT NOT NULL,
+             modified_seconds INTEGER NOT NULL DEFAULT 0,
+             modified_nanos INTEGER NOT NULL DEFAULT 0 CHECK(modified_nanos >= 0 AND modified_nanos < 1000000000),
+             change_seconds INTEGER NOT NULL DEFAULT 0,
+             change_nanos INTEGER NOT NULL DEFAULT 0 CHECK(change_nanos >= 0 AND change_nanos < 1000000000),
              PRIMARY KEY(pc_id, source_json)
          );
          CREATE TABLE IF NOT EXISTS entry_revisions (
@@ -76,7 +82,7 @@ pub(crate) fn initialize(connection: &Connection) -> Result<(), StoreError> {
              revision INTEGER NOT NULL CHECK(revision > 0),
              PRIMARY KEY(pc_id, source_json)
          );
-         PRAGMA user_version = 2;
+         PRAGMA user_version = 3;
          COMMIT;",
         )
         .map_err(sql_error)?;
@@ -107,6 +113,42 @@ fn migrate_selection_root_kind(connection: &Connection) -> Result<(), StoreError
             )
             .map_err(sql_error)?;
     }
+    ensure_column(
+        connection,
+        "entry_metadata",
+        "change_seconds",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(
+        connection,
+        "entry_metadata",
+        "change_nanos",
+        "INTEGER NOT NULL DEFAULT 0 CHECK(change_nanos >= 0 AND change_nanos < 1000000000)",
+    )?;
+    ensure_column(
+        connection,
+        "directory_metadata",
+        "modified_seconds",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(
+        connection,
+        "directory_metadata",
+        "modified_nanos",
+        "INTEGER NOT NULL DEFAULT 0 CHECK(modified_nanos >= 0 AND modified_nanos < 1000000000)",
+    )?;
+    ensure_column(
+        connection,
+        "directory_metadata",
+        "change_seconds",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(
+        connection,
+        "directory_metadata",
+        "change_nanos",
+        "INTEGER NOT NULL DEFAULT 0 CHECK(change_nanos >= 0 AND change_nanos < 1000000000)",
+    )?;
     connection
         .execute_batch(
             "INSERT INTO entry_revisions(pc_id, source_json, revision) \
@@ -117,9 +159,32 @@ fn migrate_selection_root_kind(connection: &Connection) -> Result<(), StoreError
              SELECT pc_id, source_json, revision FROM directory_metadata WHERE true \
              ON CONFLICT(pc_id, source_json) DO UPDATE SET \
                  revision = max(entry_revisions.revision, excluded.revision); \
-             PRAGMA user_version = 2; COMMIT;",
+             PRAGMA user_version = 3; COMMIT;",
         )
         .map_err(sql_error)
+}
+
+fn ensure_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), StoreError> {
+    let mut statement = connection
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(sql_error)?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(sql_error)?;
+    let columns = rows.collect::<Result<Vec<_>, _>>().map_err(sql_error)?;
+    if !columns.iter().any(|name| name == column) {
+        connection
+            .execute_batch(&format!(
+                "ALTER TABLE {table} ADD COLUMN {column} {definition};"
+            ))
+            .map_err(sql_error)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn sql_error(error: Error) -> StoreError {

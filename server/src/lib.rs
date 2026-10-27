@@ -16,6 +16,7 @@ mod selections;
 mod store;
 mod upload_commit;
 mod upload_data;
+mod upload_exchange;
 mod upload_files;
 mod upload_metadata;
 mod upload_paths;

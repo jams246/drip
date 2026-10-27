@@ -88,6 +88,12 @@ impl From<StoreError> for ApiFailure {
                 "mirror contains an unsupported entry; resolve it before syncing this selection",
                 false,
             ),
+            StoreError::UnsupportedExchange => Self::new(
+                StatusCode::CONFLICT,
+                ApiErrorCode::Conflict,
+                "mirror filesystem cannot safely exchange files and directories; use a filesystem with atomic exchange support",
+                false,
+            ),
             StoreError::Busy => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ApiErrorCode::CapacityExhausted,

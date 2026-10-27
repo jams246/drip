@@ -72,4 +72,25 @@ fn legacy_selection_rows_migrate_to_file_roots() {
         current.selections[0].source,
         SourcePath::new('C', vec!["legacy.txt".to_owned()]).unwrap()
     );
+    let migrated = store.connect().unwrap();
+    assert_eq!(
+        migrated
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        3
+    );
+    for (table, expected) in [
+        ("entry_metadata", "change_nanos"),
+        ("directory_metadata", "modified_nanos"),
+    ] {
+        let mut statement = migrated
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .unwrap();
+        let names = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(names.iter().any(|name| name == expected));
+    }
 }

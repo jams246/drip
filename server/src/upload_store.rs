@@ -4,7 +4,7 @@ use drip_core::protocol::{UploadPrepareRequest, UploadPrepareResponse, UploadSta
 use rusqlite::TransactionBehavior;
 
 use crate::{
-    Store, StoreError, StoreResult, auth, database, selections, upload_files, upload_metadata,
+    Store, StoreError, StoreResult, auth, database, entry_files, selections, upload_metadata,
     upload_sessions::UploadSession,
 };
 
@@ -22,8 +22,27 @@ impl Store {
         {
             return Err(StoreError::DisallowedNamespace);
         }
+        if request
+            .expected_entry
+            .is_some_and(|entry| entry.kind != drip_core::protocol::EntryKind::Directory)
+        {
+            return Err(StoreError::Conflict);
+        }
         let device_directory = self.open_device_directory(&device)?;
-        let base_snapshot = upload_files::read_snapshot(&device_directory, &request.source_path)?;
+        let base_snapshot = entry_files::read_entry(&device_directory, &request.source_path)?;
+        match (&base_snapshot, request.expected_entry) {
+            (Some(entry), None) if entry.kind() == drip_core::protocol::EntryKind::Directory => {
+                return Err(StoreError::Conflict);
+            }
+            (Some(entry), Some(expected)) if entry.kind() != expected.kind => {
+                return Err(StoreError::Conflict);
+            }
+            (None, Some(_)) => return Err(StoreError::Conflict),
+            _ => {}
+        }
+        if request.expected_entry.is_some() && !self.exchange_supported {
+            return Err(StoreError::UnsupportedExchange);
+        }
         let now = self.now()?;
         let upload_id = random_upload_id()?;
         let stage_name = self.uploads.create_stage(&upload_id)?;
@@ -35,17 +54,19 @@ impl Store {
                 if !selections::selection_contains_path(current_selection, &request.source_path) {
                     return Err(StoreError::DisallowedNamespace);
                 }
-                upload_files::check_snapshot(
-                    directory,
-                    &request.source_path,
-                    base_snapshot.as_ref(),
-                )?;
-                let base_revision = upload_metadata::record_snapshot(
+                entry_files::check_entry(directory, &request.source_path, base_snapshot.as_ref())?;
+                let base_revision = upload_metadata::record_entry_snapshot(
                     transaction,
                     &current_device.pc_id,
                     &request.source_path,
                     base_snapshot.as_ref(),
                 )?;
+                if request
+                    .expected_entry
+                    .is_some_and(|expected| base_revision != Some(expected.revision))
+                {
+                    return Err(StoreError::Conflict);
+                }
                 self.uploads.reserve(UploadSession {
                     id: upload_id.clone(),
                     pc_id: current_device.pc_id.clone(),
@@ -55,6 +76,7 @@ impl Store {
                     expected_size: request.expected_size,
                     digest: request.digest,
                     last_write: request.last_write,
+                    expected_entry: request.expected_entry,
                     base_revision,
                     base_snapshot: base_snapshot.clone(),
                     stage_name: stage_name.clone(),
@@ -168,7 +190,7 @@ pub(crate) fn authorized_active_selection(
     Ok((device, selection, generation))
 }
 
-fn random_upload_id() -> StoreResult<String> {
+pub(crate) fn random_upload_id() -> StoreResult<String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| StoreError::Random)?;
     let mut id = String::with_capacity(32);

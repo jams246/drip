@@ -12,6 +12,9 @@ use crate::{
 pub(crate) struct DirectorySnapshot {
     pub(crate) device: u64,
     pub(crate) inode: u64,
+    pub(crate) modified: drip_core::Timestamp,
+    pub(crate) change_seconds: i64,
+    pub(crate) change_nanos: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +53,20 @@ pub(crate) fn read_entry(root: &Dir, source: &SourcePath) -> StoreResult<Option<
         Ok(Some(EntrySnapshot::File(upload_files::hash_file(file)?)))
     } else {
         Err(StoreError::Conflict)
+    }
+}
+
+pub(crate) fn check_entry(
+    root: &Dir,
+    source: &SourcePath,
+    expected: Option<&EntrySnapshot>,
+) -> StoreResult<()> {
+    match expected {
+        None => check_absent(root, source),
+        Some(EntrySnapshot::File(snapshot)) => {
+            upload_files::check_snapshot(root, source, Some(snapshot))
+        }
+        Some(EntrySnapshot::Directory(snapshot)) => check_directory(root, source, *snapshot),
     }
 }
 
@@ -100,10 +117,30 @@ pub(crate) fn snapshot_directory(directory: &Dir) -> StoreResult<DirectorySnapsh
     if !metadata.is_dir() {
         return Err(StoreError::Conflict);
     }
+    let (change_seconds, change_nanos) = upload_files::change_time(&metadata);
     Ok(DirectorySnapshot {
         device: metadata.dev(),
         inode: metadata.ino(),
+        modified: crate::upload_times::metadata_timestamp(&metadata)?,
+        change_seconds,
+        change_nanos,
     })
+}
+
+pub(crate) fn check_directory_after_exchange(
+    parent: &Dir,
+    name: &str,
+    expected: DirectorySnapshot,
+) -> StoreResult<()> {
+    let directory = parent.open_dir_nofollow(name).map_err(database::io_error)?;
+    let current = snapshot_directory(&directory)?;
+    if current.device != expected.device
+        || current.inode != expected.inode
+        || current.modified != expected.modified
+    {
+        return Err(StoreError::Conflict);
+    }
+    Ok(())
 }
 
 pub(crate) fn check_absent(root: &Dir, source: &SourcePath) -> StoreResult<()> {

@@ -4,7 +4,7 @@ use std::{
 };
 
 use cap_std::fs::Dir;
-use drip_core::protocol::UploadState;
+use drip_core::protocol::{EntryKind, EntryPrecondition, UploadState};
 use drip_core::{Blake3Digest, SourcePath, Timestamp};
 
 use crate::{StoreError, StoreResult};
@@ -26,8 +26,9 @@ pub(crate) struct UploadSession {
     pub(crate) expected_size: u64,
     pub(crate) digest: Blake3Digest,
     pub(crate) last_write: Timestamp,
+    pub(crate) expected_entry: Option<EntryPrecondition>,
     pub(crate) base_revision: Option<u64>,
-    pub(crate) base_snapshot: Option<super::upload_files::FileSnapshot>,
+    pub(crate) base_snapshot: Option<super::entry_files::EntrySnapshot>,
     pub(crate) stage_name: String,
     pub(crate) state: UploadState,
     pub(crate) last_progress: i64,
@@ -48,6 +49,10 @@ impl UploadSessions {
         super::upload_staging::create(&self.mirror, id)
     }
 
+    pub(crate) fn create_directory_stage(&self, id: &str) -> StoreResult<String> {
+        super::upload_staging::create_directory_stage(&self.mirror, id)
+    }
+
     pub(crate) fn open_stage_for_write(&self, name: &str) -> StoreResult<cap_std::fs::File> {
         super::upload_staging::open_write(&self.mirror, name)
     }
@@ -58,6 +63,14 @@ impl UploadSessions {
 
     pub(crate) fn remove_stage(&self, name: &str) -> StoreResult<()> {
         super::upload_staging::remove(&self.mirror, name)
+    }
+
+    pub(crate) fn remove_retired_stage(&self, name: &str, kind: EntryKind) -> StoreResult<()> {
+        super::upload_staging::remove_retired(&self.mirror, name, kind)
+    }
+
+    pub(crate) fn remove_directory_stage(&self, name: &str) -> StoreResult<()> {
+        super::upload_staging::remove_directory_stage(&self.mirror, name)
     }
 
     pub(crate) fn reserve(&self, session: UploadSession) -> StoreResult<()> {

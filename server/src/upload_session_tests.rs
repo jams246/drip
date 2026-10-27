@@ -91,6 +91,7 @@ fn session(id: &str, generation: u64, now: i64, stage_name: String) -> UploadSes
         expected_size: 0,
         digest: Blake3Digest::new(*blake3::hash(&[]).as_bytes()),
         last_write: Timestamp::new(0, 0).unwrap(),
+        expected_entry: None,
         base_revision: None,
         base_snapshot: None,
         stage_name,

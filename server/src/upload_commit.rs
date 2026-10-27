@@ -3,9 +3,11 @@ use std::sync::{Mutex, MutexGuard};
 use drip_core::protocol::{Entry, EntryKind, UploadCommitResponse, UploadState};
 
 use crate::{
-    Store, StoreError, StoreResult, upload_files, upload_metadata, upload_paths,
-    upload_store::authenticated_device,
+    Store, StoreError, StoreResult, entry_files, entry_files::EntrySnapshot, upload_exchange,
+    upload_files, upload_metadata, upload_paths, upload_store::authenticated_device,
 };
+
+mod session;
 
 impl Store {
     /// Rechecks staged bytes and publishes under the shared SQLite mutation barrier.
@@ -16,7 +18,16 @@ impl Store {
     ) -> StoreResult<UploadCommitResponse> {
         let device = authenticated_device(self, credential)?;
         let session = self.uploads.get(upload_id, &device.pc_id, self.now()?)?;
-        let (stage_name, source_path, selection_id, generation, expected_size, digest, last_write) = {
+        let (
+            stage_name,
+            source_path,
+            selection_id,
+            generation,
+            expected_size,
+            digest,
+            last_write,
+            expected_entry,
+        ) = {
             let mut session_state = lock(&session);
             if session_state.state != UploadState::Active
                 || session_state.receiving
@@ -34,6 +45,7 @@ impl Store {
                 session_state.expected_size,
                 session_state.digest,
                 session_state.last_write,
+                session_state.expected_entry,
             )
         };
         let staging = match self.uploads.staging_dir() {
@@ -65,7 +77,7 @@ impl Store {
         };
         let base_snapshot = match self
             .open_device_directory(&device)
-            .and_then(|directory| upload_files::read_snapshot(&directory, &source_path))
+            .and_then(|directory| entry_files::read_entry(&directory, &source_path))
         {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -81,6 +93,7 @@ impl Store {
             }
         };
         upload_files::checkpoint("before_writer_lock");
+        let mut retired_kind = None;
         let result = self.with_authorized_selection_mutation(
             credential,
             &selection_id,
@@ -94,6 +107,7 @@ impl Store {
                     || !session.committing
                     || session.pc_id != current_device.pc_id
                     || session.base_snapshot != base_snapshot
+                    || session.expected_entry != expected_entry
                 {
                     return Err(StoreError::Conflict);
                 }
@@ -105,13 +119,13 @@ impl Store {
                     let _ = self.uploads.remove(upload_id);
                     return Err(StoreError::NotFound);
                 }
-                if upload_files::check_snapshot(directory, &source_path, base_snapshot.as_ref())
+                if entry_files::check_entry(directory, &source_path, base_snapshot.as_ref())
                     .is_err()
                 {
                     self.abort_conflicted(&mut session, now)?;
                     return Err(StoreError::Conflict);
                 }
-                let current_revision = upload_metadata::record_snapshot(
+                let current_revision = upload_metadata::record_entry_snapshot(
                     transaction,
                     &current_device.pc_id,
                     &source_path,
@@ -121,38 +135,85 @@ impl Store {
                     self.abort_conflicted(&mut session, now)?;
                     return Err(StoreError::Conflict);
                 }
-                let (parent, filename) = upload_paths::create_parent(directory, &source_path)?;
+                if expected_entry.is_some_and(|expected| {
+                    base_snapshot.as_ref().is_none_or(|snapshot| {
+                        snapshot.kind() != expected.kind
+                            || current_revision != Some(expected.revision)
+                    })
+                }) {
+                    self.abort_conflicted(&mut session, now)?;
+                    return Err(StoreError::Conflict);
+                }
+                let is_directory_exchange =
+                    matches!(base_snapshot.as_ref(), Some(EntrySnapshot::Directory(_)));
+                let (parent, filename) = if is_directory_exchange {
+                    upload_paths::open_parent(directory, &source_path, false)?
+                        .ok_or(StoreError::Conflict)?
+                } else {
+                    upload_paths::create_parent(directory, &source_path)?
+                };
                 if upload_files::check_stage_snapshot(&staging, &stage_name, &staged_snapshot)
                     .is_err()
                 {
                     return Err(StoreError::Conflict);
                 }
-                if let Err(failure) =
-                    upload_files::publish(&staging, &stage_name, &parent, &filename)
+                let publication = if let Some(EntrySnapshot::Directory(expected_directory)) =
+                    base_snapshot.as_ref()
                 {
+                    let paths = upload_exchange::ExchangePaths {
+                        staging: &staging,
+                        stage_name: &stage_name,
+                        parent: &parent,
+                        filename: &filename,
+                    };
+                    let target = upload_exchange::SelectedEntry {
+                        root: directory,
+                        source: &source_path,
+                    };
+                    upload_exchange::replace_directory_with_file(
+                        &paths,
+                        &target,
+                        *expected_directory,
+                        &staged_snapshot,
+                    )
+                } else {
+                    upload_files::publish(&staging, &stage_name, &parent, &filename)
+                };
+                if let Err(failure) = publication {
                     if failure.renamed {
                         mark_committed(&mut session, now);
+                        if is_directory_exchange {
+                            retired_kind = Some(EntryKind::Directory);
+                        }
                     } else {
                         session.committing = false;
                     }
                     return Err(failure.error);
                 }
+                if is_directory_exchange {
+                    retired_kind = Some(EntryKind::Directory);
+                }
                 mark_committed(&mut session, now);
+                let published_snapshot = upload_files::snapshot_published_file(
+                    directory,
+                    &source_path,
+                    &staged_snapshot,
+                )?;
                 let revision = upload_metadata::record_snapshot(
                     transaction,
                     &current_device.pc_id,
                     &source_path,
-                    Some(&staged_snapshot),
+                    Some(&published_snapshot),
                 )?
                 .ok_or(StoreError::Conflict)?;
                 Ok(UploadCommitResponse {
                     entry: Entry {
                         source_path: source_path.clone(),
                         kind: EntryKind::File,
-                        size: staged_snapshot.size,
-                        digest: Some(staged_snapshot.digest),
+                        size: published_snapshot.size,
+                        digest: Some(published_snapshot.digest),
                         revision,
-                        last_write: Some(staged_snapshot.last_write),
+                        last_write: Some(published_snapshot.last_write),
                     },
                 })
             },
@@ -163,20 +224,13 @@ impl Store {
                 session.committing = false;
             }
         }
+        if let Some(kind) = retired_kind {
+            let cleanup = self.uploads.remove_retired_stage(&stage_name, kind);
+            if result.is_ok() {
+                cleanup?;
+            }
+        }
         result
-    }
-
-    fn abort_conflicted(
-        &self,
-        session: &mut crate::upload_sessions::UploadSession,
-        now: i64,
-    ) -> StoreResult<()> {
-        self.uploads.remove_stage(&session.stage_name)?;
-        session.state = UploadState::Aborted;
-        session.committing = false;
-        session.has_data = false;
-        session.last_progress = now;
-        Ok(())
     }
 }
 
