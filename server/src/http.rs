@@ -33,6 +33,7 @@ pub fn router(store: Store) -> Router {
         .route("/v1/enroll", post(enroll))
         .route("/v1/selections", get(get_selections).put(put_selections))
         .route("/v1/uploads", post(uploads::prepare_upload))
+        .route("/v1/uploads/{upload_id}/plan", post(uploads::plan_upload))
         .route(
             "/v1/uploads/{upload_id}",
             get(uploads::get_upload_state).delete(uploads::abort_upload),
@@ -49,6 +50,10 @@ pub fn router(store: Store) -> Router {
         .with_state(state.clone());
     let binary = Router::new()
         .route("/v1/uploads/{upload_id}/data", put(uploads::upload_data))
+        .route(
+            "/v1/uploads/{upload_id}/chunks/{ordinal}",
+            put(uploads::upload_chunk),
+        )
         .layer(DefaultBodyLimit::disable())
         .with_state(state);
     health
@@ -68,7 +73,7 @@ pub async fn serve(listener: TcpListener, store: Store) -> std::io::Result<()> {
         loop {
             interval.tick().await;
             if let Ok(now) = expiry_store.now() {
-                expiry_store.uploads.reap_expired(now);
+                let _ = expiry_store.reap_uploads(now);
             }
         }
     });
@@ -161,6 +166,9 @@ async fn normalize_api_rejections(request: axum::extract::Request, next: Next) -
 }
 
 fn normalize_response(response: Response) -> Response {
+    if ApiFailure::is_marked(&response) {
+        return response;
+    }
     match response.status() {
         StatusCode::BAD_REQUEST => ApiFailure::invalid_input().into_response(),
         StatusCode::NOT_FOUND => ApiFailure::not_found().into_response(),

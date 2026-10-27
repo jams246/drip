@@ -38,6 +38,12 @@ pub enum StoreError {
     /// Request conflicts with current generation or retained selection state.
     #[error("state conflict")]
     Conflict,
+    /// Declared chunk or staged file bytes failed content verification.
+    #[error("uploaded content failed integrity verification")]
+    CorruptContent,
+    /// Temporary filesystem failure can succeed after retry.
+    #[error("temporary filesystem failure")]
+    RetryableIo,
     /// SQLite writer lock could not be acquired within the bounded wait.
     #[error("storage is busy")]
     Busy,
@@ -200,7 +206,42 @@ impl Store {
     }
 
     pub(crate) fn prepare_daemon(&self) -> StoreResult<()> {
+        let mut connection = self.connect()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database::sql_error)?;
+        transaction
+            .execute("DELETE FROM upload_plan_pages", [])
+            .map_err(database::sql_error)?;
+        transaction
+            .execute("DELETE FROM chunk_manifests WHERE complete = 0", [])
+            .map_err(database::sql_error)?;
+        transaction.commit().map_err(database::sql_error)?;
         self.uploads.clean_abandoned_staging()
+    }
+
+    pub(crate) fn reap_uploads(&self, now: i64) -> StoreResult<()> {
+        let expired = self.uploads.reap_expired_ids(now);
+        self.delete_upload_plans(&expired)
+    }
+
+    pub(crate) fn delete_upload_plans(&self, upload_ids: &[String]) -> StoreResult<()> {
+        if upload_ids.is_empty() {
+            return Ok(());
+        }
+        let mut connection = self.connect()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database::sql_error)?;
+        for upload_id in upload_ids {
+            transaction
+                .execute(
+                    "DELETE FROM upload_plan_pages WHERE upload_id = ?1",
+                    [upload_id],
+                )
+                .map_err(database::sql_error)?;
+        }
+        transaction.commit().map_err(database::sql_error)
     }
 }
 

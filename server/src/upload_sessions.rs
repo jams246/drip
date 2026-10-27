@@ -21,6 +21,7 @@ pub(crate) struct UploadSession {
     pub(crate) id: String,
     pub(crate) pc_id: String,
     pub(crate) selection_id: String,
+    pub(crate) selection_root: SourcePath,
     pub(crate) generation: u64,
     pub(crate) source_path: SourcePath,
     pub(crate) expected_size: u64,
@@ -35,6 +36,8 @@ pub(crate) struct UploadSession {
     pub(crate) receiving: bool,
     pub(crate) committing: bool,
     pub(crate) has_data: bool,
+    pub(crate) delta_mode: bool,
+    pub(crate) planning: bool,
 }
 
 impl UploadSessions {
@@ -55,6 +58,10 @@ impl UploadSessions {
 
     pub(crate) fn open_stage_for_write(&self, name: &str) -> StoreResult<cap_std::fs::File> {
         super::upload_staging::open_write(&self.mirror, name)
+    }
+
+    pub(crate) fn open_delta_stage(&self, name: &str) -> StoreResult<cap_std::fs::File> {
+        super::upload_staging::open_delta_write(&self.mirror, name)
     }
 
     pub(crate) fn staging_dir(&self) -> StoreResult<Dir> {
@@ -132,8 +139,9 @@ impl UploadSessions {
         Ok(session)
     }
 
-    pub(crate) fn abort_obsolete(&self, pc_id: &str, generation: u64, now: i64) {
+    pub(crate) fn abort_obsolete_ids(&self, pc_id: &str, generation: u64, now: i64) -> Vec<String> {
         let mut stale = Vec::new();
+        let mut ids = Vec::new();
         for session in lock(&self.sessions).values() {
             let mut session = lock(session);
             if session.pc_id == pc_id
@@ -146,11 +154,13 @@ impl UploadSessions {
                 session.has_data = false;
                 session.last_progress = now;
                 stale.push(session.stage_name.clone());
+                ids.push(session.id.clone());
             }
         }
         for name in stale {
             let _ = self.remove_stage(&name);
         }
+        ids
     }
 
     pub(crate) fn remove(&self, id: &str) -> Option<Arc<Mutex<UploadSession>>> {
@@ -163,14 +173,20 @@ impl UploadSessions {
     }
 
     pub(crate) fn reap_expired(&self, now: i64) {
+        let _ = self.reap_expired_ids(now);
+    }
+
+    pub(crate) fn reap_expired_ids(&self, now: i64) -> Vec<String> {
         let mut expired = Vec::new();
+        let mut expired_ids = Vec::new();
         {
             let mut sessions = lock(&self.sessions);
-            sessions.retain(|_, session| {
+            sessions.retain(|id, session| {
                 let session = lock(session);
                 let keep = now.saturating_sub(session.last_progress) < SESSION_TTL;
                 if !keep && session.state == UploadState::Active {
                     expired.push(session.stage_name.clone());
+                    expired_ids.push(id.clone());
                 }
                 keep
             });
@@ -178,6 +194,7 @@ impl UploadSessions {
         for name in expired {
             let _ = self.remove_stage(&name);
         }
+        expired_ids
     }
 }
 

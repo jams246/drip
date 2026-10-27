@@ -117,6 +117,13 @@ pub(crate) fn record_snapshot(
             (&pc_id, &source_json),
         )
         .map_err(database::sql_error)?;
+    transaction
+        .execute(
+            "DELETE FROM chunk_manifests \
+             WHERE pc_id = ?1 AND source_json = ?2 AND revision != ?3",
+            params![pc_id, source_json, revision_sql],
+        )
+        .map_err(database::sql_error)?;
     Ok(Some(revision))
 }
 
@@ -203,6 +210,12 @@ pub(crate) fn forget_entry(
     source: &SourcePath,
 ) -> StoreResult<()> {
     let source_json = serde_json::to_string(source).map_err(StoreError::Serialization)?;
+    transaction
+        .execute(
+            "DELETE FROM chunk_manifests WHERE pc_id = ?1 AND source_json = ?2",
+            (&pc_id, &source_json),
+        )
+        .map_err(database::sql_error)?;
     for table in ["entry_metadata", "directory_metadata"] {
         transaction
             .execute(

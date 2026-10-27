@@ -14,6 +14,10 @@ pub enum ApiErrorCode {
     NotFound,
     /// Generation, revision, or session state is stale.
     Conflict,
+    /// Uploaded or staged bytes failed their declared content digest.
+    CorruptContent,
+    /// Temporary server filesystem failure may succeed after retry.
+    RetryableIo,
     /// Control body exceeds the configured limit.
     PayloadTooLarge,
     /// Staging filesystem lacks space.

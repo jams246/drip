@@ -49,8 +49,10 @@ impl Store {
                     root_moves,
                 )
             })?;
-        self.uploads
-            .abort_obsolete(&device.pc_id, response.generation, now);
+        let obsolete = self
+            .uploads
+            .abort_obsolete_ids(&device.pc_id, response.generation, now);
+        self.delete_upload_plans(&obsolete)?;
         Ok(response)
     }
 }

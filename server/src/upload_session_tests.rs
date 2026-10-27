@@ -33,7 +33,7 @@ fn delayed_generation_cleanup_cannot_abort_a_newer_session() {
             stage_name,
         ))
         .unwrap();
-    sessions.abort_obsolete("device", 2, 101);
+    let _ = sessions.abort_obsolete_ids("device", 2, 101);
     assert_eq!(
         sessions
             .get("33333333333333333333333333333333", "device", 101)
@@ -43,7 +43,7 @@ fn delayed_generation_cleanup_cannot_abort_a_newer_session() {
             .state,
         UploadState::Active
     );
-    sessions.abort_obsolete("device", 4, 102);
+    let _ = sessions.abort_obsolete_ids("device", 4, 102);
     assert_eq!(
         sessions
             .get("33333333333333333333333333333333", "device", 102)
@@ -86,6 +86,7 @@ fn session(id: &str, generation: u64, now: i64, stage_name: String) -> UploadSes
         id: id.to_owned(),
         pc_id: "device".to_owned(),
         selection_id: "11111111111111111111111111111111".to_owned(),
+        selection_root: SourcePath::new('C', vec!["file.bin".to_owned()]).unwrap(),
         generation,
         source_path: SourcePath::new('C', vec!["file.bin".to_owned()]).unwrap(),
         expected_size: 0,
@@ -100,6 +101,8 @@ fn session(id: &str, generation: u64, now: i64, stage_name: String) -> UploadSes
         receiving: false,
         committing: false,
         has_data: false,
+        delta_mode: false,
+        planning: false,
     }
 }
 

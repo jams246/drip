@@ -45,6 +45,14 @@ pub(crate) fn check_snapshot(
     }
 }
 
+pub(crate) fn check_open_file(file: &File, expected: &FileSnapshot) -> StoreResult<()> {
+    if metadata::metadata_matches(file, expected)? {
+        Ok(())
+    } else {
+        Err(StoreError::Conflict)
+    }
+}
+
 pub(crate) fn verify_stage(
     staging: &Dir,
     name: &str,

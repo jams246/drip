@@ -82,7 +82,56 @@ pub(crate) fn initialize(connection: &Connection) -> Result<(), StoreError> {
              revision INTEGER NOT NULL CHECK(revision > 0),
              PRIMARY KEY(pc_id, source_json)
          );
-         PRAGMA user_version = 3;
+         CREATE TABLE IF NOT EXISTS chunk_manifests (
+             pc_id TEXT NOT NULL REFERENCES devices(pc_id) ON DELETE CASCADE,
+             source_json TEXT NOT NULL,
+             revision INTEGER NOT NULL CHECK(revision > 0),
+             file_size INTEGER NOT NULL CHECK(file_size >= 0),
+             digest TEXT NOT NULL CHECK(length(digest) = 64),
+             config_version INTEGER NOT NULL,
+             complete INTEGER NOT NULL CHECK(complete IN (0, 1)),
+             builder_id TEXT,
+             PRIMARY KEY(pc_id, source_json, revision)
+         );
+         CREATE TABLE IF NOT EXISTS file_chunks (
+             pc_id TEXT NOT NULL,
+             source_json TEXT NOT NULL,
+             revision INTEGER NOT NULL,
+             ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+             offset INTEGER NOT NULL CHECK(offset >= 0),
+             length INTEGER NOT NULL CHECK(length > 0),
+             digest TEXT NOT NULL CHECK(length(digest) = 64),
+             PRIMARY KEY(pc_id, source_json, revision, ordinal),
+             FOREIGN KEY(pc_id, source_json, revision)
+                 REFERENCES chunk_manifests(pc_id, source_json, revision) ON DELETE CASCADE
+         );
+         CREATE INDEX IF NOT EXISTS file_chunks_lookup
+             ON file_chunks(pc_id, source_json, revision, digest, length, offset);
+         CREATE TABLE IF NOT EXISTS upload_plan_pages (
+             upload_id TEXT NOT NULL,
+             first_ordinal INTEGER NOT NULL CHECK(first_ordinal >= 0),
+             descriptor_count INTEGER NOT NULL CHECK(descriptor_count >= 0),
+             end_offset INTEGER NOT NULL CHECK(end_offset >= 0),
+             config_version INTEGER NOT NULL,
+             PRIMARY KEY(upload_id, first_ordinal)
+         );
+         CREATE TABLE IF NOT EXISTS upload_chunks (
+             upload_id TEXT NOT NULL,
+             page_start INTEGER NOT NULL CHECK(page_start >= 0),
+             ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+             offset INTEGER NOT NULL CHECK(offset >= 0),
+             length INTEGER NOT NULL CHECK(length > 0),
+             digest TEXT NOT NULL CHECK(length(digest) = 64),
+             baseline_offset INTEGER CHECK(baseline_offset >= 0),
+             originally_missing INTEGER NOT NULL CHECK(originally_missing IN (0, 1)),
+             accepted INTEGER NOT NULL CHECK(accepted IN (0, 1)),
+             PRIMARY KEY(upload_id, ordinal),
+             FOREIGN KEY(upload_id, page_start)
+                 REFERENCES upload_plan_pages(upload_id, first_ordinal) ON DELETE CASCADE
+         );
+         CREATE INDEX IF NOT EXISTS upload_chunks_page
+             ON upload_chunks(upload_id, page_start, ordinal);
+         PRAGMA user_version = 4;
          COMMIT;",
         )
         .map_err(sql_error)?;
@@ -159,7 +208,7 @@ fn migrate_selection_root_kind(connection: &Connection) -> Result<(), StoreError
              SELECT pc_id, source_json, revision FROM directory_metadata WHERE true \
              ON CONFLICT(pc_id, source_json) DO UPDATE SET \
                  revision = max(entry_revisions.revision, excluded.revision); \
-             PRAGMA user_version = 3; COMMIT;",
+             PRAGMA user_version = 4; COMMIT;",
         )
         .map_err(sql_error)
 }

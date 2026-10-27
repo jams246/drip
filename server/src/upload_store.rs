@@ -44,6 +44,7 @@ impl Store {
             return Err(StoreError::UnsupportedExchange);
         }
         let now = self.now()?;
+        self.reap_uploads(now)?;
         let upload_id = random_upload_id()?;
         let stage_name = self.uploads.create_stage(&upload_id)?;
         let result = self.with_authorized_selection_mutation(
@@ -71,6 +72,7 @@ impl Store {
                     id: upload_id.clone(),
                     pc_id: current_device.pc_id.clone(),
                     selection_id: request.selection_id.clone(),
+                    selection_root: current_selection.source.clone(),
                     generation: request.generation,
                     source_path: request.source_path.clone(),
                     expected_size: request.expected_size,
@@ -85,6 +87,8 @@ impl Store {
                     receiving: false,
                     committing: false,
                     has_data: false,
+                    delta_mode: false,
+                    planning: false,
                 })?;
                 Ok(UploadPrepareResponse {
                     upload_id: upload_id.clone(),
@@ -106,7 +110,9 @@ impl Store {
         upload_id: &str,
     ) -> StoreResult<UploadStateResponse> {
         let device = authenticated_device(self, credential)?;
-        let session = self.uploads.get(upload_id, &device.pc_id, self.now()?)?;
+        let now = self.now()?;
+        self.reap_uploads(now)?;
+        let session = self.uploads.get(upload_id, &device.pc_id, now)?;
         let session = lock(&session);
         Ok(UploadStateResponse {
             upload_id: session.id.clone(),
@@ -129,7 +135,8 @@ impl Store {
                 session.last_progress = now;
             }
             Ok(())
-        })
+        })?;
+        self.delete_upload_plans(&[upload_id.to_owned()])
     }
 }
 

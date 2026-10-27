@@ -26,10 +26,17 @@ impl Store {
         mut body: Body,
     ) -> StoreResult<()> {
         let device = authenticated_device(self, credential)?;
-        let session = self.uploads.get(upload_id, &device.pc_id, self.now()?)?;
+        let now = self.now()?;
+        self.reap_uploads(now)?;
+        let session = self.uploads.get(upload_id, &device.pc_id, now)?;
         let (stage_name, expected_size, expected_digest) = {
             let mut session = lock(&session);
-            if session.state != UploadState::Active || session.receiving || session.committing {
+            if session.state != UploadState::Active
+                || session.receiving
+                || session.committing
+                || session.planning
+                || session.delta_mode
+            {
                 return Err(StoreError::Conflict);
             }
             session.receiving = true;

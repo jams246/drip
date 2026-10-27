@@ -15,3 +15,11 @@ impl Store {
         Ok(())
     }
 }
+
+pub(super) fn mark_committed(session: &mut crate::upload_sessions::UploadSession, now: i64) {
+    session.state = UploadState::Committed;
+    session.receiving = false;
+    session.committing = false;
+    session.has_data = false;
+    session.last_progress = now;
+}

@@ -14,6 +14,9 @@ pub struct ApiFailure {
     body: ApiError,
 }
 
+#[derive(Clone, Copy)]
+struct ApiFailureMarker;
+
 impl ApiFailure {
     pub(crate) fn invalid_input() -> Self {
         Self::new(
@@ -40,6 +43,10 @@ impl ApiFailure {
             "resource not found",
             false,
         )
+    }
+
+    pub(crate) fn is_marked(response: &Response) -> bool {
+        response.extensions().get::<ApiFailureMarker>().is_some()
     }
 
     fn new(status: StatusCode, code: ApiErrorCode, message: &str, retryable: bool) -> Self {
@@ -81,6 +88,18 @@ impl From<StoreError> for ApiFailure {
                 ApiErrorCode::Conflict,
                 "request conflicts with current state",
                 false,
+            ),
+            StoreError::CorruptContent => Self::new(
+                StatusCode::BAD_REQUEST,
+                ApiErrorCode::CorruptContent,
+                "uploaded content failed integrity verification",
+                false,
+            ),
+            StoreError::RetryableIo => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ApiErrorCode::RetryableIo,
+                "temporary storage failure; retry shortly",
+                true,
             ),
             StoreError::UnsupportedEntry => Self::new(
                 StatusCode::CONFLICT,
@@ -129,6 +148,7 @@ impl From<StoreError> for ApiFailure {
 impl IntoResponse for ApiFailure {
     fn into_response(self) -> Response {
         let mut response = (self.status, Json(self.body)).into_response();
+        response.extensions_mut().insert(ApiFailureMarker);
         if self.status == StatusCode::SERVICE_UNAVAILABLE {
             response
                 .headers_mut()

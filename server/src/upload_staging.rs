@@ -53,6 +53,16 @@ pub(crate) fn open_write(root: &Dir, name: &str) -> StoreResult<File> {
     directory.open_with(name, &options).map_err(map_error)
 }
 
+pub(crate) fn open_delta_write(root: &Dir, name: &str) -> StoreResult<File> {
+    let directory = ensure(root)?;
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    options.follow(FollowSymlinks::No);
+    directory
+        .open_with(name, &options)
+        .map_err(crate::upload_delta::io_error)
+}
+
 pub(crate) fn open_dir(root: &Dir) -> StoreResult<Dir> {
     ensure(root)
 }

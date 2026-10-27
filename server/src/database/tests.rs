@@ -77,7 +77,7 @@ fn legacy_selection_rows_migrate_to_file_roots() {
         migrated
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     for (table, expected) in [
         ("entry_metadata", "change_nanos"),
