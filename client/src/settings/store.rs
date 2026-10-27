@@ -1,5 +1,6 @@
 mod refresh;
 mod startup;
+mod ui;
 
 use std::{
     fs::{self, File, OpenOptions},
@@ -70,7 +71,7 @@ impl SettingsStore {
             fs::read(&self.path).map_err(|source| path_error("read", &self.path, source))?;
         let settings: ClientSettings =
             serde_json::from_slice(&bytes).map_err(SettingsError::Decode)?;
-        selection::validate(&settings)?;
+        super::validation::validate(&settings)?;
         Ok(settings)
     }
 
@@ -81,7 +82,7 @@ impl SettingsStore {
     }
 
     fn save_unlocked(&self, settings: &ClientSettings) -> Result<(), SettingsError> {
-        selection::validate(settings)?;
+        super::validation::validate(settings)?;
         let bytes = serde_json::to_vec_pretty(settings).map_err(SettingsError::Encode)?;
         storage::replace_with(&self.path, &bytes)
     }

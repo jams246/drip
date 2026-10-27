@@ -28,7 +28,7 @@ impl Input {
         Self {
             label: label.into(),
             secret,
-            focus_handle: cx.focus_handle(),
+            focus_handle: cx.focus_handle().tab_stop(true),
             content: String::new(),
             selected_range: 0..0,
             selection_reversed: false,

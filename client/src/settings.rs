@@ -1,6 +1,7 @@
 mod selection;
 mod storage;
 mod store;
+mod validation;
 
 use drip_core::{
     SourcePath,
@@ -21,6 +22,7 @@ pub struct ClientSettings {
     pub pending_update: Option<PendingSelectionUpdate>,
     pub start_at_sign_in: bool,
     pub startup_executable: Option<String>,
+    pub pc_display_name: Option<String>,
 }
 
 impl Default for ClientSettings {
@@ -32,6 +34,7 @@ impl Default for ClientSettings {
             pending_update: None,
             start_at_sign_in: false,
             startup_executable: None,
+            pc_display_name: None,
         }
     }
 }

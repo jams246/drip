@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(test)), windows_subsystem = "windows")]
+
 #[cfg(windows)]
 use std::{error::Error, path::PathBuf};
 
@@ -12,6 +14,10 @@ use tokio::sync::mpsc;
 
 #[cfg(windows)]
 mod cli_run;
+#[cfg(windows)]
+mod console;
+#[cfg(windows)]
+mod gui;
 
 #[cfg(windows)]
 #[derive(Parser)]
@@ -20,8 +26,10 @@ mod cli_run;
     about = "Continuously mirror selected local paths to a Drip server"
 )]
 struct Cli {
+    #[arg(long)]
+    background: bool,
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[cfg(windows)]
@@ -49,6 +57,7 @@ enum Command {
 #[cfg(windows)]
 #[tokio::main]
 async fn main() {
+    console::prepare();
     if let Err(error) = run().await {
         eprintln!("error: {error}");
         std::process::exit(1);
@@ -63,7 +72,35 @@ fn main() {
 
 #[cfg(windows)]
 async fn run() -> Result<(), Box<dyn Error>> {
-    match Cli::parse().command {
+    let cli = Cli::parse();
+    let executable = std::env::current_exe()?;
+    let directory = executable
+        .parent()
+        .ok_or("Executable has no data directory")?;
+    let mut instance = if !matches!(cli.command, Some(Command::Status)) {
+        use drip_client::windows_integration::{InstanceAcquire, InstanceMode, acquire};
+        let mode = if cli.command.is_none() {
+            InstanceMode::Gui
+        } else {
+            InstanceMode::Diagnostic
+        };
+        match acquire(directory, mode).await? {
+            InstanceAcquire::Acquired(guard) => Some(guard),
+            InstanceAcquire::AlreadyRunning if cli.command.is_none() => return Ok(()),
+            InstanceAcquire::AlreadyRunning => return Err("Another Drip engine already owns this app directory. Use the running app or quit it before starting a diagnostic engine.".into()),
+        }
+    } else {
+        None
+    };
+    let Some(command) = cli.command else {
+        return gui::run(
+            cli.background,
+            instance
+                .as_mut()
+                .and_then(|instance| instance.take_open_listener()),
+        );
+    };
+    match command {
         Command::Pair { server, label } => {
             let server = ServerUrl::parse(&server)?;
             let token = rpassword::prompt_password("Enrollment token: ")?;

@@ -160,7 +160,9 @@ fn string_value(value: &str) -> RegistryValue {
 fn decode_string(value: RegistryValue) -> String {
     let words = value
         .data
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|word| u16::from_le_bytes([word[0], word[1]]))
         .take_while(|word| *word != 0)
         .collect::<Vec<_>>();
