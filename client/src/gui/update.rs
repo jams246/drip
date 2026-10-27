@@ -110,15 +110,27 @@ impl Shell {
                 self.opened = true;
                 self.show(window, cx);
             }
-            Event::WorkerEnded { generation, error }
-                if generation == self.state.worker_generation =>
-            {
+            Event::WorkerEnded {
+                generation,
+                error,
+                registration_required,
+            } if generation == self.state.worker_generation => {
                 self.state.progress = None;
                 if let Some(error) = error {
-                    self.state.diagnostic = format!(
-                        "Sync stopped: {error}. Repair registration or local settings, then restart Drip."
-                    );
                     self.state.status = SyncSnapshot::default();
+                    if registration_required {
+                        self.state.settings_message = format!(
+                            "Registration was rejected: {error}. Verify the server URL, then pair again with a valid registration token."
+                        );
+                        self.tab = Tab::Settings;
+                        self.opened = true;
+                        self.show(window, cx);
+                        window.focus(&self.server.focus_handle(cx), cx);
+                    } else {
+                        self.state.diagnostic = format!(
+                            "Sync stopped: {error}. Resolve the reported error, then retry."
+                        );
+                    }
                 }
             }
             Event::WorkerEnded { .. } => {}

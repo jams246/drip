@@ -58,6 +58,19 @@ pub enum EngineError {
 }
 
 impl EngineError {
+    /// Returns whether the saved registration must be repaired.
+    pub fn registration_required(&self) -> bool {
+        match self {
+            Self::Api { status, .. } | Self::UnexpectedStatus(status) => {
+                *status == StatusCode::UNAUTHORIZED
+            }
+            Self::AbortFailed { transfer, abort } => {
+                transfer.registration_required() || abort.registration_required()
+            }
+            _ => false,
+        }
+    }
+
     pub(crate) fn should_retry_request(&self) -> bool {
         match self {
             Self::Transport(TransportError::Request(_)) => true,
@@ -81,6 +94,48 @@ impl EngineError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unauthorized_api_response_requires_registration_repair() {
+        let error = EngineError::Api {
+            status: StatusCode::UNAUTHORIZED,
+            code: ApiErrorCode::InvalidCredential,
+            message: "registration rejected".into(),
+            retryable: false,
+        };
+
+        assert!(error.registration_required());
+    }
+
+    #[test]
+    fn unexpected_unauthorized_inside_abort_failure_requires_registration_repair() {
+        let error = EngineError::AbortFailed {
+            transfer: Box::new(EngineError::UploadAborted),
+            abort: Box::new(EngineError::AbortFailed {
+                transfer: Box::new(EngineError::UnexpectedStatus(StatusCode::UNAUTHORIZED)),
+                abort: Box::new(EngineError::UploadAborted),
+            }),
+        };
+
+        assert!(error.registration_required());
+    }
+
+    #[test]
+    fn non_unauthorized_transport_and_io_errors_do_not_require_registration_repair() {
+        for error in [
+            EngineError::Api {
+                status: StatusCode::FORBIDDEN,
+                code: ApiErrorCode::InvalidCredential,
+                message: "forbidden".into(),
+                retryable: false,
+            },
+            EngineError::UnexpectedStatus(StatusCode::BAD_GATEWAY),
+            EngineError::Transport(TransportError::WrongOrigin),
+            EngineError::Io(io::Error::other("disk unavailable")),
+        ] {
+            assert!(!error.registration_required());
+        }
+    }
 
     #[test]
     fn structured_retryable_server_errors_retry_but_integrity_errors_do_not() {

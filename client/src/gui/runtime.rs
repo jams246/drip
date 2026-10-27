@@ -54,6 +54,7 @@ pub(super) enum Event {
     WorkerEnded {
         generation: u64,
         error: Option<String>,
+        registration_required: bool,
     },
     ShutdownReady,
 }

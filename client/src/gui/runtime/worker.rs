@@ -66,8 +66,18 @@ impl Worker {
         let engine_sink = sink.clone();
         let task = tokio::spawn(async move {
             let result = engine.run(control, engine_sink).await;
+            let registration_required = result
+                .as_ref()
+                .err()
+                .is_some_and(|error| error.registration_required());
             let error = result.as_ref().err().map(ToString::to_string);
-            let _ = events.send(Event::WorkerEnded { generation, error }).await;
+            let _ = events
+                .send(Event::WorkerEnded {
+                    generation,
+                    error,
+                    registration_required,
+                })
+                .await;
             result
         });
         Self {

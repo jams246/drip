@@ -227,13 +227,7 @@ fn fingerprint(
 }
 
 pub(super) fn auth_failure(error: &EngineError) -> bool {
-    match error {
-        EngineError::Api { status, .. } => *status == reqwest::StatusCode::UNAUTHORIZED,
-        EngineError::AbortFailed { transfer, abort } => {
-            auth_failure(transfer) || auth_failure(abort)
-        }
-        _ => false,
-    }
+    error.registration_required()
 }
 
 fn entry_error_kind(error: &EngineError) -> EventKind {
