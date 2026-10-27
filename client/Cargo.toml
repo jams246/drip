@@ -5,12 +5,30 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[lib]
+name = "drip_client"
+path = "src/lib.rs"
+
 [[bin]]
 name = "drip"
 path = "src/main.rs"
 
 [dependencies]
 drip_core = { package = "core", path = "../core" }
+reqwest = { workspace = true, features = ["native-tls"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+] }
 
 [lints]
 workspace = true
