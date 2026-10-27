@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use drip_core::{SourcePath, Timestamp};
@@ -64,6 +65,7 @@ pub struct EventSink {
     events: mpsc::Sender<LifecycleEvent>,
     progress: watch::Sender<Option<SelectionProgress>>,
     log: Option<std::sync::Arc<super::logging::ActivityLog>>,
+    log_failure_reported: std::sync::Arc<AtomicBool>,
     status: watch::Sender<super::status::SyncSnapshot>,
 }
 
@@ -77,6 +79,7 @@ impl EventSink {
             events,
             progress,
             log: None,
+            log_failure_reported: std::sync::Arc::new(AtomicBool::new(false)),
             status,
         }
     }
@@ -108,20 +111,37 @@ impl EventSink {
             .map_err(|_| std::io::Error::other("system clock exceeds supported range"))?;
         let timestamp =
             Timestamp::new(seconds, elapsed.subsec_nanos()).map_err(std::io::Error::other)?;
+        let mut message = message.into();
+        super::logging::truncate_text(&mut message);
         let event = LifecycleEvent {
             timestamp,
             kind,
             selection_id: selection_id.map(str::to_owned),
             source_path: source_path.cloned(),
             operation_id: operation_id.to_owned(),
-            message: message.into(),
+            message,
             progress: None,
         };
-        if let Some(log) = &self.log {
-            log.append(&event)?;
-        }
+        let log_error = self.log.as_ref().and_then(|log| match log.append(&event) {
+            Ok(()) => {
+                self.log_failure_reported.store(false, Ordering::Relaxed);
+                None
+            }
+            Err(error) => Some(error.to_string()),
+        });
+        let diagnostic = log_error.and_then(|error| {
+            (!self.log_failure_reported.swap(true, Ordering::Relaxed)).then(|| {
+                super::logging::diagnostic_event(
+                    timestamp,
+                    format!("Activity log write failed: {error}"),
+                )
+            })
+        });
         super::status::update(&self.status, &event);
         let _ = self.events.send(event).await;
+        if let Some(diagnostic) = diagnostic {
+            let _ = self.events.send(diagnostic).await;
+        }
         Ok(())
     }
 

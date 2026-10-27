@@ -1,74 +1,129 @@
 use std::{
+    collections::VecDeque,
     fs::{self, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use super::lifecycle::LifecycleEvent;
+use drip_core::Timestamp;
+
+use super::lifecycle::{EventKind, LifecycleEvent};
 
 const MAX_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_EVENT_TEXT_BYTES: usize = 4096;
+const MAX_RECENT_EVENTS: usize = 1000;
+const TRUNCATION_MARKER: &str = "... [truncated]";
 
 /// Bounded JSON Lines activity log beside the executable.
 pub struct ActivityLog {
     path: PathBuf,
+    writer: Mutex<()>,
 }
 
 impl ActivityLog {
     pub fn new(directory: &Path) -> Self {
         Self {
             path: directory.join("drip.log"),
+            writer: Mutex::new(()),
         }
     }
 
     pub fn append(&self, event: &LifecycleEvent) -> io::Result<()> {
-        let mut line = serde_json::to_vec(event).map_err(io::Error::other)?;
+        let _guard = self
+            .writer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut event = event.clone();
+        truncate_text(&mut event.message);
+        let mut line = serde_json::to_vec(&event).map_err(io::Error::other)?;
         line.push(b'\n');
         if line.len() as u64 > MAX_BYTES {
             return Err(io::Error::other(
                 "activity record exceeds the log size limit",
             ));
         }
-        let size = match fs::metadata(&self.path) {
-            Ok(metadata) if metadata.is_file() => metadata.len(),
-            Ok(_) => return Err(io::Error::other("activity log is not a regular file")),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
-            Err(error) => return Err(error),
-        };
-        if size.saturating_add(line.len() as u64) > MAX_BYTES {
-            let rotated = self.path.with_file_name("drip.log.1");
-            match fs::remove_file(&rotated) {
-                Ok(()) => {}
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
-            }
-            fs::rename(&self.path, rotated)?;
+
+        let size = file_size(&self.path)?;
+        if size > MAX_BYTES {
+            return Err(io::Error::other("activity log exceeds its size limit"));
+        }
+        let incomplete = has_incomplete_tail(&self.path, size)?;
+        let rotated = self.path.with_file_name("drip.log.1");
+        let extra = line.len() as u64 + u64::from(incomplete);
+        let should_rotate = size.saturating_add(extra) > MAX_BYTES;
+        if should_rotate {
+            rotate(&self.path, &rotated)?;
         }
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)?;
+        if incomplete && !should_rotate {
+            file.write_all(b"\n")?;
+        }
         file.write_all(&line)?;
         file.flush()
     }
 
+    /// Loads the newest 1,000 valid records and reports skipped records as transient error rows.
+    pub fn load_recent(&self) -> io::Result<Vec<LifecycleEvent>> {
+        let mut events = VecDeque::with_capacity(MAX_RECENT_EVENTS);
+        let paths = [self.path.with_file_name("drip.log.1"), self.path.clone()];
+        let mut skipped = Vec::new();
+        for path in paths {
+            let Some(bytes) = read_log(&path)? else {
+                continue;
+            };
+            let (complete, incomplete) = complete_records(&bytes);
+            let mut malformed = 0;
+            if !complete.is_empty() {
+                let records = complete.strip_suffix(b"\n").unwrap_or(complete);
+                for line in records.split(|byte| *byte == b'\n') {
+                    match serde_json::from_slice::<LifecycleEvent>(line) {
+                        Ok(mut event) => {
+                            truncate_text(&mut event.message);
+                            push_recent(&mut events, event);
+                        }
+                        Err(_) => malformed += 1,
+                    }
+                }
+            }
+            if malformed > 0 || incomplete {
+                let name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("log");
+                skipped.push(format!(
+                    "Skipped {malformed} malformed records and {} incomplete final record in {name}",
+                    u8::from(incomplete)
+                ));
+            }
+        }
+        if !skipped.is_empty() {
+            let timestamp = current_timestamp()?;
+            for message in skipped {
+                push_recent(&mut events, diagnostic_event(timestamp, message));
+            }
+        }
+        Ok(events.into_iter().collect())
+    }
+
     /// Rebuilds last reported status from the two bounded activity logs.
     pub fn snapshot(&self) -> io::Result<super::status::SyncSnapshot> {
-        use std::io::Read;
         let mut snapshot = super::status::SyncSnapshot::default();
         for path in [self.path.with_file_name("drip.log.1"), self.path.clone()] {
-            let file = match fs::File::open(path) {
-                Ok(file) => file,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error),
+            let Some(bytes) = read_log(&path)? else {
+                continue;
             };
-            let mut bytes = Vec::new();
-            file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
-            if bytes.len() as u64 > MAX_BYTES {
-                return Err(io::Error::other("activity log exceeds its size limit"));
-            }
-            for line in bytes.split(|byte| *byte == b'\n') {
-                if let Ok(event) = serde_json::from_slice::<LifecycleEvent>(line) {
-                    super::status::apply(&mut snapshot, &event);
+            let (complete, _) = complete_records(&bytes);
+            if !complete.is_empty() {
+                let records = complete.strip_suffix(b"\n").unwrap_or(complete);
+                for line in records.split(|byte| *byte == b'\n') {
+                    if let Ok(event) = serde_json::from_slice::<LifecycleEvent>(line) {
+                        super::status::apply(&mut snapshot, &event);
+                    }
                 }
             }
         }
@@ -76,36 +131,105 @@ impl ActivityLog {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::engine::lifecycle::EventKind;
+pub(super) fn truncate_text(text: &mut String) {
+    if text.len() <= MAX_EVENT_TEXT_BYTES {
+        return;
+    }
+    let mut boundary = MAX_EVENT_TEXT_BYTES - TRUNCATION_MARKER.len();
+    while !text.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    text.truncate(boundary);
+    text.push_str(TRUNCATION_MARKER);
+}
 
-    #[test]
-    fn rotation_keeps_both_logs_bounded_and_valid_json_lines() {
-        let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../.verification/phase-03/log-tests")
-            .join(crate::source::random_id().unwrap());
-        fs::create_dir_all(&directory).unwrap();
-        let log = ActivityLog::new(&directory);
-        let event = LifecycleEvent {
-            timestamp: drip_core::Timestamp::new(1, 0).unwrap(),
-            kind: EventKind::Error,
-            selection_id: Some("selection".into()),
-            source_path: None,
-            operation_id: "operation".into(),
-            message: "synthetic".repeat(1024),
-            progress: None,
-        };
-        for _ in 0..700 {
-            log.append(&event).unwrap();
-        }
-        for name in ["drip.log", "drip.log.1"] {
-            let path = directory.join(name);
-            assert!(fs::metadata(&path).unwrap().len() <= MAX_BYTES);
-            for line in fs::read_to_string(path).unwrap().lines() {
-                serde_json::from_str::<serde_json::Value>(line).unwrap();
-            }
-        }
+pub(super) fn diagnostic_event(timestamp: Timestamp, message: impl Into<String>) -> LifecycleEvent {
+    let mut message = message.into();
+    truncate_text(&mut message);
+    LifecycleEvent {
+        timestamp,
+        kind: EventKind::Error,
+        selection_id: None,
+        source_path: None,
+        operation_id: "logging".into(),
+        message,
+        progress: None,
     }
 }
+
+fn push_recent(events: &mut VecDeque<LifecycleEvent>, event: LifecycleEvent) {
+    if events.len() == MAX_RECENT_EVENTS {
+        events.pop_front();
+    }
+    events.push_back(event);
+}
+
+fn current_timestamp() -> io::Result<Timestamp> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(io::Error::other)?;
+    let seconds = i64::try_from(elapsed.as_secs()).map_err(io::Error::other)?;
+    Timestamp::new(seconds, elapsed.subsec_nanos()).map_err(io::Error::other)
+}
+
+fn file_size(path: &Path) -> io::Result<u64> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(metadata.len()),
+        Ok(_) => Err(io::Error::other("activity log is not a regular file")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(0),
+        Err(error) => Err(error),
+    }
+}
+
+fn has_incomplete_tail(path: &Path, size: u64) -> io::Result<bool> {
+    if size == 0 {
+        return Ok(false);
+    }
+    let mut file = fs::File::open(path)?;
+    file.seek(SeekFrom::End(-1))?;
+    let mut last = [0];
+    file.read_exact(&mut last)?;
+    Ok(last[0] != b'\n')
+}
+
+fn rotate(current: &Path, rotated: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(rotated) {
+        Ok(metadata) if metadata.file_type().is_file() => fs::remove_file(rotated)?,
+        Ok(_) => {
+            return Err(io::Error::other(
+                "rotated activity log is not a regular file",
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    fs::rename(current, rotated)
+}
+
+fn read_log(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let mut bytes = Vec::new();
+    file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(io::Error::other("activity log exceeds its size limit"));
+    }
+    Ok(Some(bytes))
+}
+
+fn complete_records(bytes: &[u8]) -> (&[u8], bool) {
+    if bytes.last() == Some(&b'\n') || bytes.is_empty() {
+        (bytes, false)
+    } else if let Some(index) = bytes.iter().rposition(|byte| *byte == b'\n') {
+        (&bytes[..=index], true)
+    } else {
+        (&[], true)
+    }
+}
+
+#[cfg(test)]
+#[path = "logging/tests.rs"]
+mod tests;

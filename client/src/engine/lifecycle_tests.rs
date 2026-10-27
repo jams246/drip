@@ -140,3 +140,64 @@ async fn closed_subscriber_does_not_block_engine() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn log_failure_is_visible_once_and_preserves_engine_status() {
+    let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../.verification/phase-04/log-tests")
+        .join(crate::source::random_id().unwrap());
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::create_dir(directory.join("drip.log")).unwrap();
+    let (sender, mut receiver) = mpsc::channel(8);
+    let (progress, _) = watch::channel(None);
+    let sink = EventSink::new(sender, progress).with_log(&directory);
+    let path = SourcePath::new('C', vec!["file.bin".into()]).unwrap();
+
+    sink.emit(
+        EventKind::UploadStarted,
+        Some("selection"),
+        Some(&path),
+        "operation",
+        "started",
+    )
+    .await
+    .unwrap();
+    sink.emit(
+        EventKind::UploadCompleted,
+        Some("selection"),
+        Some(&path),
+        "operation",
+        "verified publication",
+    )
+    .await
+    .unwrap();
+    sink.emit(
+        EventKind::Synced,
+        Some("selection"),
+        Some(&path),
+        "operation",
+        "synced",
+    )
+    .await
+    .unwrap();
+
+    let events = (0..4)
+        .map(|_| receiver.try_recv().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        events.iter().map(|event| event.kind).collect::<Vec<_>>(),
+        [
+            EventKind::UploadStarted,
+            EventKind::Error,
+            EventKind::UploadCompleted,
+            EventKind::Synced,
+        ]
+    );
+    assert!(events[1].selection_id.is_none());
+    assert!(events[1].source_path.is_none());
+    assert_eq!(events[1].operation_id, "logging");
+    assert_eq!(
+        sink.subscribe_status().borrow().roots[0].state,
+        crate::engine::SelectionState::Synced
+    );
+}
