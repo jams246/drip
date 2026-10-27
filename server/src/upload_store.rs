@@ -17,7 +17,9 @@ impl Store {
     ) -> StoreResult<UploadPrepareResponse> {
         let (device, selection) =
             authorized_selection(self, credential, &request.selection_id, request.generation)?;
-        if selection.source != request.source_path || request.source_path.components().is_empty() {
+        if request.source_path.components().is_empty()
+            || !selections::selection_contains_path(&selection, &request.source_path)
+        {
             return Err(StoreError::DisallowedNamespace);
         }
         let device_directory = self.open_device_directory(&device)?;
@@ -30,7 +32,7 @@ impl Store {
             &request.selection_id,
             request.generation,
             |transaction, current_device, current_selection, directory| {
-                if current_selection.source != request.source_path {
+                if !selections::selection_contains_path(current_selection, &request.source_path) {
                     return Err(StoreError::DisallowedNamespace);
                 }
                 upload_files::check_snapshot(
@@ -143,7 +145,7 @@ pub(crate) fn authorized_active_selection(
     store: &Store,
     credential: &str,
     selection_id: &str,
-) -> StoreResult<(crate::DeviceIdentity, drip_core::protocol::Selection)> {
+) -> StoreResult<(crate::DeviceIdentity, drip_core::protocol::Selection, u64)> {
     if !auth::is_lower_hex(selection_id, 32) {
         return Err(StoreError::NotFound);
     }
@@ -153,6 +155,7 @@ pub(crate) fn authorized_active_selection(
         .map_err(database::sql_error)?;
     let device = auth::authenticate_transaction(&transaction, credential)?;
     let selections = selections::load_selections(&transaction, &device.pc_id)?;
+    let generation = selections.generation;
     let selection = selections
         .selections
         .into_iter()
@@ -162,7 +165,7 @@ pub(crate) fn authorized_active_selection(
         return Err(StoreError::DisallowedNamespace);
     }
     transaction.commit().map_err(database::sql_error)?;
-    Ok((device, selection))
+    Ok((device, selection, generation))
 }
 
 fn random_upload_id() -> StoreResult<String> {

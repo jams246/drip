@@ -8,7 +8,8 @@ use std::{
 use crate::{Store, StoreResult};
 use axum::body::Body;
 use drip_core::protocol::{
-    EnrollmentRequest, Selection, SelectionUpdate, UploadCommitResponse, UploadPrepareRequest,
+    EnrollmentRequest, EntryKind, Selection, SelectionUpdate, UploadCommitResponse,
+    UploadPrepareRequest,
 };
 use drip_core::{Blake3Digest, SensitiveString, SourcePath, Timestamp};
 
@@ -38,7 +39,7 @@ impl Fixture {
     pub(super) async fn new() -> Self {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
-            .join(".verification/phase-01/server-tests");
+            .join(".verification/phase-02/server-tests");
         std::fs::create_dir_all(&parent).unwrap();
         let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let root = parent.join(format!("{}-upload-race-{suffix}", std::process::id()));
@@ -64,6 +65,7 @@ impl Fixture {
                     selections: vec![Selection {
                         id: selection_id.clone(),
                         source: source.clone(),
+                        root_kind: EntryKind::File,
                         active: true,
                     }],
                 },
@@ -189,6 +191,7 @@ fn prepare(
                 expected_size: bytes.len() as u64,
                 digest: Blake3Digest::new(*blake3::hash(bytes).as_bytes()),
                 last_write: Timestamp::new(1_700_000_000, 123_456_789).unwrap(),
+                expected_entry: None,
             },
         )
         .unwrap()

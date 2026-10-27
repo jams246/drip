@@ -3,7 +3,7 @@ mod common;
 use common::Fixture;
 use drip_core::{
     SourcePath,
-    protocol::{Selection, SelectionUpdate},
+    protocol::{EntryKind, Selection, SelectionUpdate},
 };
 use drip_server::StoreError;
 
@@ -113,6 +113,7 @@ fn selection(id: &str, name: &str, active: bool) -> Selection {
     Selection {
         id: format!("{}{}", "a".repeat(32 - id.len()), id),
         source: SourcePath::new('C', vec![name.to_owned()]).unwrap(),
+        root_kind: EntryKind::File,
         active,
     }
 }

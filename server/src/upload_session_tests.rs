@@ -105,7 +105,7 @@ fn session(id: &str, generation: u64, now: i64, stage_name: String) -> UploadSes
 fn test_root(name: &str) -> PathBuf {
     let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join(".verification/phase-01/server-tests");
+        .join(".verification/phase-02/server-tests");
     std::fs::create_dir_all(&parent).unwrap();
     let suffix = NEXT_ROOT.fetch_add(1, Ordering::Relaxed);
     let root = parent.join(format!("{}-{name}-{suffix}", std::process::id()));

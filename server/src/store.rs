@@ -29,6 +29,9 @@ pub enum StoreError {
     /// Authenticated device cannot mutate an inactive or unassigned selection.
     #[error("selection is outside the active device namespace")]
     DisallowedNamespace,
+    /// Actual mirror contains an entry the protocol cannot represent safely.
+    #[error("mirror contains an unsupported entry")]
+    UnsupportedEntry,
     /// Request conflicts with current generation or retained selection state.
     #[error("state conflict")]
     Conflict,

@@ -1,7 +1,8 @@
 use drip_core::SourcePath;
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use crate::{StoreError, StoreResult, database, upload_files::FileSnapshot};
+use crate::entry_files::DirectorySnapshot;
+use crate::{StoreError, StoreResult, database, metadata_revisions, upload_files::FileSnapshot};
 
 struct StoredEntry {
     revision: i64,
@@ -50,13 +51,12 @@ pub(crate) fn record_snapshot(
             && stored.device == snapshot.device.to_string()
             && stored.inode == snapshot.inode.to_string()
     });
-    let revision = match stored {
+    let revision = match stored.as_ref() {
         Some(stored) if matches => {
-            u64::try_from(stored.revision).map_err(|_| StoreError::Conflict)?
+            metadata_revisions::retain(transaction, pc_id, source, stored.revision)?
         }
-        Some(stored) => u64::try_from(stored.revision.checked_add(1).ok_or(StoreError::Conflict)?)
-            .map_err(|_| StoreError::Conflict)?,
-        None => 1,
+        Some(stored) => metadata_revisions::next(transaction, pc_id, source, stored.revision)?,
+        None => metadata_revisions::next(transaction, pc_id, source, 0)?,
     };
     let revision_sql = i64::try_from(revision).map_err(|_| StoreError::Conflict)?;
     transaction
@@ -83,5 +83,84 @@ pub(crate) fn record_snapshot(
             ],
         )
         .map_err(database::sql_error)?;
+    transaction
+        .execute(
+            "DELETE FROM directory_metadata WHERE pc_id = ?1 AND source_json = ?2",
+            (&pc_id, &source_json),
+        )
+        .map_err(database::sql_error)?;
     Ok(Some(revision))
+}
+
+pub(crate) fn record_directory_snapshot(
+    transaction: &Transaction<'_>,
+    pc_id: &str,
+    source: &SourcePath,
+    snapshot: DirectorySnapshot,
+) -> StoreResult<u64> {
+    let source_json = serde_json::to_string(source).map_err(StoreError::Serialization)?;
+    let stored = transaction
+        .query_row(
+            "SELECT revision, device, inode FROM directory_metadata \
+             WHERE pc_id = ?1 AND source_json = ?2",
+            (&pc_id, &source_json),
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(database::sql_error)?;
+    let minimum = stored.as_ref().map_or(0, |stored| stored.0);
+    let matches = stored.as_ref().is_some_and(|(_, device, inode)| {
+        device == &snapshot.device.to_string() && inode == &snapshot.inode.to_string()
+    });
+    let revision = if matches {
+        metadata_revisions::retain(transaction, pc_id, source, minimum)?
+    } else {
+        metadata_revisions::next(transaction, pc_id, source, minimum)?
+    };
+    let revision_sql = i64::try_from(revision).map_err(|_| StoreError::Conflict)?;
+    transaction
+        .execute(
+            "INSERT INTO directory_metadata(pc_id, source_json, revision, device, inode) \
+             VALUES (?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT(pc_id, source_json) DO UPDATE SET \
+                 revision = excluded.revision, device = excluded.device, inode = excluded.inode",
+            params![
+                pc_id,
+                source_json,
+                revision_sql,
+                snapshot.device.to_string(),
+                snapshot.inode.to_string(),
+            ],
+        )
+        .map_err(database::sql_error)?;
+    transaction
+        .execute(
+            "DELETE FROM entry_metadata WHERE pc_id = ?1 AND source_json = ?2",
+            (&pc_id, &source_json),
+        )
+        .map_err(database::sql_error)?;
+    Ok(revision)
+}
+
+pub(crate) fn forget_entry(
+    transaction: &Transaction<'_>,
+    pc_id: &str,
+    source: &SourcePath,
+) -> StoreResult<()> {
+    let source_json = serde_json::to_string(source).map_err(StoreError::Serialization)?;
+    for table in ["entry_metadata", "directory_metadata"] {
+        transaction
+            .execute(
+                &format!("DELETE FROM {table} WHERE pc_id = ?1 AND source_json = ?2"),
+                (&pc_id, &source_json),
+            )
+            .map_err(database::sql_error)?;
+    }
+    Ok(())
 }

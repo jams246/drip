@@ -13,7 +13,7 @@ use std::{
 use common::Fixture;
 use drip_core::{
     SourcePath,
-    protocol::{Selection, SelectionUpdate},
+    protocol::{EntryKind, Selection, SelectionUpdate},
 };
 use drip_server::StoreResult;
 
@@ -32,6 +32,7 @@ fn revocation_waits_for_older_authorized_mutation() {
                 selections: vec![Selection {
                     id: selection_id.clone(),
                     source: SourcePath::new('C', vec!["file.txt".to_owned()]).unwrap(),
+                    root_kind: EntryKind::File,
                     active: true,
                 }],
             },
@@ -86,6 +87,7 @@ fn device_root_symlink_cannot_cross_namespace() {
                 selections: vec![Selection {
                     id: selection_id.clone(),
                     source: SourcePath::new('C', vec!["file.txt".to_owned()]).unwrap(),
+                    root_kind: EntryKind::File,
                     active: true,
                 }],
             },

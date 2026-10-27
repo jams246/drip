@@ -37,6 +37,7 @@ pub(super) async fn upload(
         expected_size: size,
         digest,
         last_write: source.last_write(),
+        expected_entry: None,
     };
     let prepared: UploadPrepareResponse = api::json(
         transport,

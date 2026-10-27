@@ -29,6 +29,7 @@ pub(super) async fn activate(
             id: new_id(&current)?,
             source: source.clone(),
             active: true,
+            root_kind: drip_core::protocol::EntryKind::File,
         },
     };
     let mut selections = current.selections;

@@ -5,7 +5,7 @@ use std::{
 
 use drip_core::{
     SensitiveString, SourcePath,
-    protocol::{EnrollmentRequest, Selection, SelectionUpdate},
+    protocol::{EnrollmentRequest, EntryKind, Selection, SelectionUpdate},
 };
 
 use crate::{DeviceIdentity, Store, StoreError, StoreResult};
@@ -23,7 +23,7 @@ impl Fixture {
     fn new() -> Self {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
-            .join(".verification/phase-01/server-tests");
+            .join(".verification/phase-02/server-tests");
         std::fs::create_dir_all(&parent).unwrap();
         let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let root = parent.join(format!("{}-mutation-{suffix}", std::process::id()));
@@ -45,6 +45,7 @@ impl Fixture {
                     selections: vec![Selection {
                         id: selection_id.clone(),
                         source: SourcePath::new('C', vec!["file.txt".to_owned()]).unwrap(),
+                        root_kind: EntryKind::File,
                         active: true,
                     }],
                 },

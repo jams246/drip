@@ -10,8 +10,8 @@ use std::{
 
 use axum::body::Body;
 use drip_core::protocol::{
-    EnrollmentRequest, EnrollmentResponse, Selection, SelectionUpdate, UploadCommitResponse,
-    UploadPrepareRequest, UploadPrepareResponse,
+    EnrollmentRequest, EnrollmentResponse, EntryKind, Selection, SelectionUpdate,
+    UploadCommitResponse, UploadPrepareRequest, UploadPrepareResponse,
 };
 use drip_core::{Blake3Digest, SensitiveString, SourcePath, Timestamp};
 use drip_server::Store;
@@ -28,7 +28,7 @@ impl Fixture {
     pub fn new() -> Self {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
-            .join(".verification/phase-01/server-tests");
+            .join(".verification/phase-02/server-tests");
         std::fs::create_dir_all(&parent).unwrap();
         let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let root = parent.join(format!("{}-{suffix}", std::process::id()));
@@ -40,7 +40,7 @@ impl Fixture {
     pub fn with_clock(clock: std::sync::Arc<AtomicI64>) -> Self {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
-            .join(".verification/phase-01/server-tests");
+            .join(".verification/phase-02/server-tests");
         std::fs::create_dir_all(&parent).unwrap();
         let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let root = parent.join(format!("{}-clock-{suffix}", std::process::id()));
@@ -65,10 +65,23 @@ pub fn enroll(store: &Store, label: &str) -> EnrollmentResponse {
 }
 
 pub fn select(store: &Store, credential: &str, id: &str, source: SourcePath) -> u64 {
+    select_kind(store, credential, id, source, EntryKind::File)
+}
+
+pub fn select_kind(
+    store: &Store,
+    credential: &str,
+    id: &str,
+    source: SourcePath,
+    root_kind: EntryKind,
+) -> u64 {
     let current = store.get_selections(credential).unwrap();
     let mut selections = current.selections;
     for selection in &mut selections {
         selection.active = selection.id == id;
+        if selection.id == id {
+            selection.root_kind = root_kind;
+        }
     }
     if let Some(existing) = selections.iter().find(|selection| selection.id == id) {
         assert_eq!(existing.source, source);
@@ -76,6 +89,7 @@ pub fn select(store: &Store, credential: &str, id: &str, source: SourcePath) -> 
         selections.push(Selection {
             id: id.to_owned(),
             source,
+            root_kind,
             active: true,
         });
     }
@@ -105,6 +119,7 @@ pub fn request(
         expected_size: bytes.len() as u64,
         digest: Blake3Digest::new(*blake3::hash(bytes).as_bytes()),
         last_write,
+        expected_entry: None,
     }
 }
 

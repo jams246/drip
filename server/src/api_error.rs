@@ -82,6 +82,12 @@ impl From<StoreError> for ApiFailure {
                 "request conflicts with current state",
                 false,
             ),
+            StoreError::UnsupportedEntry => Self::new(
+                StatusCode::CONFLICT,
+                ApiErrorCode::Conflict,
+                "mirror contains an unsupported entry; resolve it before syncing this selection",
+                false,
+            ),
             StoreError::Busy => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ApiErrorCode::CapacityExhausted,

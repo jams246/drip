@@ -67,6 +67,17 @@ impl SourcePath {
         &self.components
     }
 
+    /// Returns whether this path has `prefix` under single-character Unicode uppercase matching.
+    pub fn has_windows_prefix(&self, prefix: &Self) -> bool {
+        self.drive == prefix.drive
+            && self.components.len() >= prefix.components.len()
+            && self
+                .components
+                .iter()
+                .zip(&prefix.components)
+                .all(|(component, prefix)| components_equal_ordinal_ignore_case(component, prefix))
+    }
+
     /// Returns the canonical Windows path form with backslash separators.
     pub fn to_windows_path(&self) -> String {
         let mut path = String::new();
@@ -75,6 +86,25 @@ impl SourcePath {
         path.push('\\');
         path.push_str(&self.components.join("\\"));
         path
+    }
+}
+
+fn components_equal_ordinal_ignore_case(left: &str, right: &str) -> bool {
+    let mut left = left.chars();
+    let mut right = right.chars();
+    loop {
+        match (left.next(), right.next()) {
+            (Some(left), Some(right)) if left == right => {}
+            (Some(left), Some(right)) => {
+                let mut left = left.to_uppercase();
+                let mut right = right.to_uppercase();
+                if left.next() != right.next() || left.next().is_some() || right.next().is_some() {
+                    return false;
+                }
+            }
+            (None, None) => return true,
+            _ => return false,
+        }
     }
 }
 

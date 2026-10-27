@@ -102,7 +102,7 @@ impl ClockFixture {
     fn new() -> Self {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
-            .join(".verification/phase-01/server-tests");
+            .join(".verification/phase-02/server-tests");
         std::fs::create_dir_all(&parent).unwrap();
         let suffix = NEXT_CLOCK_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let root = parent.join(format!("{}-clock-{suffix}", std::process::id()));

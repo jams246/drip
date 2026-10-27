@@ -30,6 +30,23 @@ fn parse_absolute_path_rejects_unc_and_device_paths() {
 }
 
 #[test]
+fn windows_prefix_matches_accented_case_without_losing_original_spelling() {
+    let prefix = SourcePath::new('C', vec!["Café".to_owned()]).unwrap();
+    let child = SourcePath::new('c', vec!["café".to_owned(), "photo.jpg".to_owned()]).unwrap();
+
+    assert!(child.has_windows_prefix(&prefix));
+    assert_eq!(child.components()[0], "café");
+}
+
+#[test]
+fn windows_prefix_does_not_expand_sharp_s_to_two_characters() {
+    let sharp_s = SourcePath::new('C', vec!["ß".to_owned()]).unwrap();
+    let double_s = SourcePath::new('C', vec!["SS".to_owned()]).unwrap();
+
+    assert!(!sharp_s.has_windows_prefix(&double_s));
+}
+
+#[test]
 fn parse_absolute_path_rejects_drive_relative_paths() {
     assert_eq!(
         SourcePath::parse_absolute("C:relative\\file"),

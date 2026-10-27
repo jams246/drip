@@ -17,6 +17,9 @@ pub struct UploadPrepareRequest {
     pub digest: Blake3Digest,
     /// Source last-write time.
     pub last_write: Timestamp,
+    /// Existing entry required for an atomic file/directory exchange.
+    #[serde(default)]
+    pub expected_entry: Option<EntryPrecondition>,
 }
 
 /// Opaque session and destination base returned by upload preparation.
@@ -50,13 +53,23 @@ pub struct UploadStateResponse {
 }
 
 /// Kind of actual mirror entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EntryKind {
     /// Regular file.
+    #[default]
     File,
     /// Directory, including an empty directory.
     Directory,
+}
+
+/// Current mirror entry identity required for a destructive replacement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntryPrecondition {
+    /// Entry kind observed during inventory.
+    pub kind: EntryKind,
+    /// Entry revision observed during inventory.
+    pub revision: u64,
 }
 
 /// Actual mirror entry metadata.

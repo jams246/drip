@@ -86,7 +86,7 @@ impl Store {
             &selection_id,
             generation,
             |transaction, current_device, selection, directory| {
-                if selection.source != source_path {
+                if !crate::selections::selection_contains_path(selection, &source_path) {
                     return Err(StoreError::DisallowedNamespace);
                 }
                 let mut session = lock(&session);

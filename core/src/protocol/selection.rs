@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::EntryKind;
 use crate::SourcePath;
 
 /// One source path and its active or retained state.
@@ -9,6 +10,9 @@ pub struct Selection {
     pub id: String,
     /// Validated absolute source path.
     pub source: SourcePath,
+    /// Selected root type and descendant mutation authority.
+    #[serde(default)]
+    pub root_kind: EntryKind,
     /// Whether this selection currently accepts mutations.
     pub active: bool,
 }

@@ -142,7 +142,7 @@ fn open_read(directory: &Dir, name: &str) -> StoreResult<File> {
         .map_err(database::io_error)
 }
 
-fn hash_file(mut file: File) -> StoreResult<FileSnapshot> {
+pub(crate) fn hash_file(mut file: File) -> StoreResult<FileSnapshot> {
     let before = file.metadata().map_err(database::io_error)?;
     if !before.is_file() {
         return Err(StoreError::Conflict);

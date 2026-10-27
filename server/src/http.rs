@@ -12,6 +12,7 @@ use tokio::net::TcpListener;
 
 use crate::{ApiFailure, Store};
 
+mod entries;
 mod uploads;
 
 const CONTROL_LIMIT: usize = 256 * 1024;
@@ -40,7 +41,9 @@ pub fn router(store: Store) -> Router {
             "/v1/uploads/{upload_id}/commit",
             post(uploads::commit_upload),
         )
-        .route("/v1/entries", get(uploads::list_entries))
+        .route("/v1/entries", get(entries::list_entries))
+        .route("/v1/directories", post(entries::create_directory))
+        .route("/v1/entries/delete", post(entries::delete_entry))
         .layer(middleware::from_fn(require_control_body_limit))
         .layer(DefaultBodyLimit::max(CONTROL_LIMIT))
         .with_state(state.clone());

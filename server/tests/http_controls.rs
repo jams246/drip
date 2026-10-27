@@ -8,8 +8,8 @@ use common::Fixture;
 use drip_core::{
     SensitiveString, SourcePath,
     protocol::{
-        ApiError, ApiErrorCode, EnrollmentRequest, EnrollmentResponse, Selection, SelectionSet,
-        SelectionUpdate, SelectionUpdateResponse,
+        ApiError, ApiErrorCode, EnrollmentRequest, EnrollmentResponse, EntryKind, Selection,
+        SelectionSet, SelectionUpdate, SelectionUpdateResponse,
     },
 };
 use http_body_util::BodyExt;
@@ -64,6 +64,7 @@ async fn enrollment_and_selection_routes_exchange_core_dtos() {
                 selections: vec![Selection {
                     id: "a".repeat(32),
                     source: SourcePath::new('C', vec!["file.txt".to_owned()]).unwrap(),
+                    root_kind: EntryKind::File,
                     active: true,
                 }],
             })

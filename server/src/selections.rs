@@ -1,4 +1,6 @@
-use drip_core::protocol::{Selection, SelectionSet, SelectionUpdate, SelectionUpdateResponse};
+use drip_core::protocol::{
+    EntryKind, Selection, SelectionSet, SelectionUpdate, SelectionUpdateResponse,
+};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior};
 
 use crate::{DeviceIdentity, Store, StoreError, StoreResult, auth, database};
@@ -49,7 +51,7 @@ pub(crate) fn load_selections(
         .ok_or(StoreError::NotFound)?;
     let mut statement = transaction
         .prepare(
-            "SELECT selection_id, source_json, active FROM selections \
+            "SELECT selection_id, source_json, root_kind, active FROM selections \
          WHERE pc_id = ?1 ORDER BY selection_id",
         )
         .map_err(database::sql_error)?;
@@ -63,10 +65,19 @@ pub(crate) fn load_selections(
                     Box::new(error),
                 )
             })?;
+            let root_kind = row.get::<_, String>(2)?;
+            let root_kind = serde_json::from_str(&format!("\"{root_kind}\"")).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    root_kind.len(),
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?;
             Ok(Selection {
                 id: row.get(0)?,
                 source,
-                active: row.get(2)?,
+                root_kind,
+                active: row.get(3)?,
             })
         })
         .map_err(database::sql_error)?;
@@ -144,9 +155,15 @@ fn apply_selection_update(
             serde_json::to_string(&selection.source).map_err(StoreError::Serialization)?;
         transaction
             .execute(
-                "INSERT INTO selections(pc_id, selection_id, source_json, active) \
-             VALUES (?1, ?2, ?3, ?4)",
-                (&pc_id, &selection.id, source_json, &selection.active),
+                "INSERT INTO selections(pc_id, selection_id, source_json, root_kind, active) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+                (
+                    &pc_id,
+                    &selection.id,
+                    source_json,
+                    entry_kind_name(selection.root_kind),
+                    &selection.active,
+                ),
             )
             .map_err(database::sql_error)?;
     }
@@ -166,6 +183,12 @@ fn validate_selections(selections: &[Selection]) -> StoreResult<()> {
             return Err(StoreError::InvalidInput);
         }
         active_count += usize::from(selection.active);
+        if selection.active
+            && selection.root_kind == EntryKind::File
+            && selection.source.components().is_empty()
+        {
+            return Err(StoreError::InvalidInput);
+        }
         if selections[..index]
             .iter()
             .any(|previous| previous.id == selection.id || previous.source == selection.source)
@@ -173,35 +196,45 @@ fn validate_selections(selections: &[Selection]) -> StoreResult<()> {
             return Err(StoreError::InvalidInput);
         }
     }
-    if active_count > 1 {
+    if active_count > 1 && has_overlapping_active_roots(selections) {
         return Err(StoreError::InvalidInput);
     }
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::validate_selections;
-    use drip_core::SourcePath;
-    use drip_core::protocol::Selection;
-    fn selection(id: &str, active: bool) -> Selection {
-        Selection {
-            id: id.to_owned(),
-            source: SourcePath::new('C', vec!["file.txt".to_owned()]).unwrap(),
-            active,
-        }
-    }
+fn has_overlapping_active_roots(selections: &[Selection]) -> bool {
+    let active = selections.iter().filter(|selection| selection.active);
+    let active = active.collect::<Vec<_>>();
+    active.iter().enumerate().any(|(index, left)| {
+        active[index + 1..].iter().any(|right| {
+            left.source.has_windows_prefix(&right.source)
+                || right.source.has_windows_prefix(&left.source)
+        })
+    })
+}
 
-    #[test]
-    fn selection_ids_must_be_lower_hex() {
-        assert!(validate_selections(&[selection("A".repeat(32).as_str(), true)]).is_err());
-    }
+pub(crate) fn selection_contains_path(
+    selection: &Selection,
+    source: &drip_core::SourcePath,
+) -> bool {
+    selection.source.drive() == source.drive()
+        && source.components().len() >= selection.source.components().len()
+        && (selection.root_kind == EntryKind::Directory
+            || source.components().len() == selection.source.components().len())
+        && selection
+            .source
+            .components()
+            .iter()
+            .zip(source.components())
+            .all(|(left, right)| left == right)
+}
 
-    #[test]
-    fn selection_set_allows_at_most_one_active_file() {
-        let first = selection(&"a".repeat(32), true);
-        let mut second = selection(&"b".repeat(32), true);
-        second.source = SourcePath::new('D', vec!["other.txt".to_owned()]).unwrap();
-        assert!(validate_selections(&[first, second]).is_err());
+fn entry_kind_name(kind: EntryKind) -> &'static str {
+    match kind {
+        EntryKind::File => "file",
+        EntryKind::Directory => "directory",
     }
 }
+
+#[cfg(test)]
+mod tests;
