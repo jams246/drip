@@ -1,7 +1,7 @@
 use drip_client::{SelectionProgress, UploadPhase};
 use gpui::{div, prelude::*, rgb};
 
-pub(super) fn render(progress: &SelectionProgress) -> impl IntoElement {
+fn labels(progress: &SelectionProgress) -> (&'static str, String, String, String, String) {
     let file = &progress.file;
     let phase = match file.phase {
         UploadPhase::Hashing => "Hashing with BLAKE3",
@@ -22,6 +22,11 @@ pub(super) fn render(progress: &SelectionProgress) -> impl IntoElement {
         "Payload planned: {} bytes; sent: {} bytes",
         file.planned_payload_bytes, progress.uploaded_file_bytes
     );
+    (phase, stage_count, hash_count, chunk_count, payload_count)
+}
+
+pub(super) fn render(progress: &SelectionProgress) -> impl IntoElement {
+    let (phase, stage_count, hash_count, chunk_count, payload_count) = labels(progress);
     div()
         .id(format!("home-progress-{}", progress.operation_id))
         .flex()

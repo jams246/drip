@@ -4,15 +4,16 @@ use super::super::model::Shell;
 
 pub(super) fn button(
     cx: &mut Context<Shell>,
-    id: impl Into<gpui::ElementId>,
+    id: impl Into<gpui::SharedString>,
     label: impl Into<gpui::SharedString>,
     enabled: bool,
     on_click: impl Fn(&mut Shell, &ClickEvent, &mut Window, &mut Context<Shell>) + 'static,
 ) -> impl IntoElement {
+    let id = id.into();
     let label = label.into();
 
     let button = div()
-        .id(id)
+        .id(id.clone())
         .tab_index(0)
         .tab_stop(enabled)
         .px_3()
@@ -99,6 +100,8 @@ pub(super) fn startup_checkbox(
 pub(super) fn footer(connection: &str) -> impl IntoElement {
     div()
         .id("drip-footer")
+        .tab_index(0)
+        .focus(|style| style.border_color(rgb(0x8be0d3)))
         .w_full()
         .flex()
         .justify_between()
@@ -113,6 +116,10 @@ pub(super) fn footer(connection: &str) -> impl IntoElement {
 pub(super) fn diagnostic(message: &str) -> impl IntoElement {
     div()
         .id("drip-diagnostic")
+        .tab_index(0)
+        .border_1()
+        .border_color(rgb(0x354452))
+        .focus(|style| style.border_color(rgb(0xffc07a)))
         .text_color(rgb(0xffc07a))
         .child(message.to_owned())
 }

@@ -165,8 +165,13 @@ fn root_state(
             None => ("Inactive", ""),
         }
     };
+
     let mut view = div()
         .id(format!("home-state-{}", selection.id))
+        .tab_index(0)
+        .border_1()
+        .border_color(rgb(0x354452))
+        .focus(|style| style.border_color(rgb(0x8be0d3)))
         .text_color(state_color(label))
         .child(label);
     if !message.is_empty() {
