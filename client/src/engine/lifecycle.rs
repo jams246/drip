@@ -46,6 +46,10 @@ pub struct SelectionProgress {
     pub selection_id: String,
     pub operation_id: String,
     pub file: ProgressSnapshot,
+    /// Source bytes hashed for this operation, independent of bytes sent.
+    pub source_bytes_processed: u64,
+    /// Whole-file bytes sent for this operation, excluding local hashing.
+    pub uploaded_file_bytes: u64,
 }
 
 /// Bounded lifecycle delivery with independent replaceable progress.
@@ -115,17 +119,75 @@ impl EventSink {
     }
 
     pub fn progress(&self, selection_id: &str, operation_id: &str, file: ProgressSnapshot) {
-        self.progress.send_replace(Some(SelectionProgress {
-            selection_id: selection_id.to_owned(),
-            operation_id: operation_id.to_owned(),
-            file,
-        }));
+        self.progress.send_modify(|current| {
+            let previous = current.as_ref().filter(|previous| {
+                previous.selection_id == selection_id && previous.operation_id == operation_id
+            });
+            let mut source_bytes_processed =
+                previous.map_or(0, |previous| previous.source_bytes_processed);
+            let mut uploaded_file_bytes =
+                previous.map_or(0, |previous| previous.uploaded_file_bytes);
+            match file.phase {
+                super::UploadPhase::Hashing => source_bytes_processed = file.processed_bytes,
+                super::UploadPhase::Uploading => uploaded_file_bytes = file.processed_bytes,
+            }
+            *current = Some(SelectionProgress {
+                selection_id: selection_id.to_owned(),
+                operation_id: operation_id.to_owned(),
+                file,
+                source_bytes_processed,
+                uploaded_file_bytes,
+            });
+        });
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_processing_and_uploaded_bytes_remain_separate() {
+        let (sender, _) = mpsc::channel(1);
+        let (progress, current) = watch::channel(None);
+        let sink = EventSink::new(sender, progress);
+        let path = SourcePath::new('C', vec!["file.bin".into()]).unwrap();
+        let file = |phase, processed_bytes| ProgressSnapshot {
+            phase,
+            source_path: path.clone(),
+            processed_bytes,
+            total_bytes: 10,
+        };
+        sink.progress(
+            "selection",
+            "first",
+            file(super::super::UploadPhase::Hashing, 10),
+        );
+        sink.progress(
+            "selection",
+            "first",
+            file(super::super::UploadPhase::Uploading, 3),
+        );
+        assert_eq!(
+            current
+                .borrow()
+                .as_ref()
+                .map(|value| (value.source_bytes_processed, value.uploaded_file_bytes)),
+            Some((10, 3))
+        );
+        sink.progress(
+            "selection",
+            "next",
+            file(super::super::UploadPhase::Hashing, 2),
+        );
+        assert_eq!(
+            current
+                .borrow()
+                .as_ref()
+                .map(|value| (value.source_bytes_processed, value.uploaded_file_bytes)),
+            Some((2, 0))
+        );
+    }
 
     #[tokio::test]
     async fn saturated_queue_waits_and_preserves_terminal_order() {

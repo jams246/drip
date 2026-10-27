@@ -95,6 +95,16 @@ impl PassContext<'_> {
             active.selection.id.clone(),
             operation.to_owned(),
         );
+        self.events.progress(
+            &active.selection.id,
+            operation,
+            crate::engine::ProgressSnapshot {
+                phase: crate::engine::UploadPhase::Hashing,
+                source_path: entry.source_path.clone(),
+                processed_bytes: 0,
+                total_bytes: source.size(),
+            },
+        );
         let digest = source.hash(&sender).await;
         let result = match digest {
             Ok(digest)

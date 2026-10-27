@@ -18,6 +18,16 @@ pub(super) fn start(
                     events.progress(&selection, &operation, progress)
                 }
                 ActivityEvent::UploadStarted { source_path, size } => {
+                    events.progress(
+                        &selection,
+                        &operation,
+                        crate::engine::ProgressSnapshot {
+                            phase: crate::engine::UploadPhase::Uploading,
+                            source_path: source_path.clone(),
+                            processed_bytes: 0,
+                            total_bytes: size,
+                        },
+                    );
                     events
                         .emit(
                             EventKind::UploadStarted,
