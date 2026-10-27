@@ -1,4 +1,4 @@
-use reqwest::{Client, Request, Response, StatusCode, redirect::Policy};
+use reqwest::{Client, Method, Request, RequestBuilder, Response, StatusCode, redirect::Policy};
 use thiserror::Error;
 use url::Url;
 
@@ -70,6 +70,26 @@ impl HttpTransport {
         &self.server
     }
 
+    /// Builds a request against a validated relative API endpoint.
+    pub fn request(&self, method: Method, path: &str) -> Result<RequestBuilder, TransportError> {
+        let endpoint = self.server.endpoint(path)?;
+        Ok(self.client.request(method, endpoint))
+    }
+
+    /// Builds a request using safely encoded query pairs.
+    pub fn request_with_query(
+        &self,
+        method: Method,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<RequestBuilder, TransportError> {
+        let mut endpoint = self.server.endpoint(path)?;
+        endpoint
+            .query_pairs_mut()
+            .extend_pairs(query.iter().copied());
+        Ok(self.client.request(method, endpoint))
+    }
+
     /// Sends a request only to the paired origin and rejects redirect responses.
     pub async fn send(&self, request: Request) -> Result<Response, TransportError> {
         if request.url().origin() != self.server.0.origin() {
@@ -111,6 +131,8 @@ pub enum TransportError {
     ServerUrl(#[from] ServerUrlError),
     #[error("could not build HTTPS client: {0}")]
     Client(#[source] reqwest::Error),
+    #[error("could not build HTTPS request: {0}")]
+    Build(#[source] reqwest::Error),
     #[error("request failed: {0}")]
     Request(#[source] reqwest::Error),
     #[error("server returned redirect status {0}")]
