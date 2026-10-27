@@ -27,6 +27,17 @@ async fn pathname_replacement_while_original_handle_is_open_is_rejected() {
     assert!(matches!(source.verify().await, Err(SourceError::Replaced)));
 }
 
+#[test]
+fn hash_future_does_not_embed_a_chunk_buffer() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("empty.bin");
+    fs::write(&path, []).unwrap();
+    let source = SourceFile::open(&path).unwrap();
+    let (events, _receiver) = mpsc::channel(1);
+
+    assert!(std::mem::size_of_val(&source.hash(&events)) < 64 * 1024);
+}
+
 #[tokio::test]
 async fn changed_open_source_is_rejected() {
     let directory = TestDirectory::new();

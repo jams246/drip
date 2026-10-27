@@ -79,7 +79,7 @@ impl SourceFile {
         let mut file = self.file.lock().await;
         file.seek(SeekFrom::Start(0)).await?;
         let mut hasher = blake3::Hasher::new();
-        let mut buffer = [0; CHUNK_BYTES];
+        let mut buffer = vec![0; CHUNK_BYTES];
         let mut processed = 0u64;
         let mut next_report = 0;
         while processed < self.initial.size {
