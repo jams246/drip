@@ -1,5 +1,8 @@
 mod passes;
 
+#[cfg(test)]
+mod tests;
+
 use std::{
     fs::{File, OpenOptions},
     os::windows::fs::OpenOptionsExt,
@@ -64,6 +67,9 @@ impl Engine {
                 reconciled_request = desired.reconcile;
                 schedule.force(Instant::now());
             }
+            if pristine_stop(&self.settings, &control, closed) {
+                return Ok(());
+            }
             if desired.paused || desired.stop || closed {
                 if paused && reachability.failure_epoch() != acknowledged_failure_epoch {
                     paused = false;
@@ -81,6 +87,9 @@ impl Engine {
                         )
                         .await?;
                     loop {
+                        if pristine_stop(&self.settings, &control, closed) {
+                            return Ok(());
+                        }
                         let epoch = reachability.failure_epoch();
                         match saved::synchronize(&self.settings, &transport, &pairing, true).await {
                             Ok(_) if reachability.failure_epoch() == epoch => {
@@ -220,17 +229,11 @@ fn worker_lock(directory: &std::path::Path) -> Result<File, EngineError> {
         .map_err(EngineError::Io)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn worker_future_keeps_large_buffers_off_the_main_stack() {
-        let engine = Engine::beside_executable().unwrap();
-        let (_control, receiver) = watch::channel(RunControl::default());
-        let (events, _receiver) = tokio::sync::mpsc::channel(1);
-        let (progress, _) = watch::channel(None);
-        let future = engine.run(receiver, EventSink::new(events, progress));
-        assert!(std::mem::size_of_val(&future) < 64 * 1024);
-    }
+fn pristine_stop(
+    store: &crate::settings::SettingsStore,
+    control: &watch::Receiver<RunControl>,
+    closed: bool,
+) -> bool {
+    let stopping = control.borrow().stop || closed;
+    stopping && store.pristine_shutdown_state().unwrap_or(false)
 }

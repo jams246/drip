@@ -1,9 +1,10 @@
 mod refresh;
+mod shutdown;
 mod startup;
 mod ui;
 
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{File, OpenOptions},
     io,
     os::windows::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
@@ -52,27 +53,6 @@ impl SettingsStore {
     pub fn load(&self) -> Result<ClientSettings, SettingsError> {
         let _lock = self.lock()?;
         self.load_unlocked()
-    }
-
-    fn load_unlocked(&self) -> Result<ClientSettings, SettingsError> {
-        let metadata = match fs::symlink_metadata(&self.path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(ClientSettings::default());
-            }
-            Err(source) => return Err(path_error("inspect", &self.path, source)),
-        };
-        if !metadata.file_type().is_file()
-            || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
-        {
-            return Err(SettingsError::InvalidTarget(self.path.clone()));
-        }
-        let bytes =
-            fs::read(&self.path).map_err(|source| path_error("read", &self.path, source))?;
-        let settings: ClientSettings =
-            serde_json::from_slice(&bytes).map_err(SettingsError::Decode)?;
-        super::validation::validate(&settings)?;
-        Ok(settings)
     }
 
     /// Validates and atomically replaces `drip.json` with a protected file.
