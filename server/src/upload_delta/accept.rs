@@ -8,7 +8,7 @@ use crate::{
     upload_store::authorized_selection,
 };
 
-use super::{lock, manifest, ranges, state};
+use super::{lock, manifest, pages, ranges, state};
 
 pub(super) fn plan_page(
     store: &Store,
@@ -39,10 +39,10 @@ pub(super) fn plan_page(
         .config
         .validate()
         .map_err(|_| StoreError::InvalidInput)?;
-    if let Some(response) = state::find_page(store, upload_id, &request)? {
+    if let Some(response) = pages::find_page(store, upload_id, &request)? {
         return Ok(response);
     }
-    let (next_ordinal, next_offset, pending) = state::cursor(store, upload_id)?;
+    let (next_ordinal, next_offset, pending) = pages::cursor(store, upload_id)?;
     if pending {
         return Err(StoreError::Conflict);
     }

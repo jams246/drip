@@ -164,11 +164,8 @@ impl Store {
                 } else {
                     upload_paths::create_parent(directory, &source_path)?
                 };
-                if upload_files::check_stage_snapshot(&staging, &stage_name, &staged_snapshot)
-                    .is_err()
-                {
-                    return Err(StoreError::Conflict);
-                }
+                upload_files::check_stage_snapshot(&staging, &stage_name, &staged_snapshot)
+                    .map_err(|_| StoreError::Conflict)?;
                 let publication = if let Some(EntrySnapshot::Directory(expected_directory)) =
                     base_snapshot.as_ref()
                 {
