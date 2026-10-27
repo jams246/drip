@@ -1,4 +1,5 @@
 mod refresh;
+mod startup;
 
 use std::{
     fs::{self, File, OpenOptions},
@@ -223,6 +224,23 @@ pub enum SettingsError {
     NoPendingUpdate,
     #[error("server acknowledged an unexpected selection generation")]
     UnexpectedGeneration,
+    #[error("Windows sign-in startup registration belongs to another executable")]
+    StartupConflict,
+    #[error("could not update Windows sign-in startup: {0}")]
+    Startup(#[source] io::Error),
+    #[error("could not encode the executable path for Windows sign-in startup")]
+    StartupPath,
+    #[error(
+        "Windows sign-in command exceeds the 260-character Run-key limit; move Drip to a shorter path"
+    )]
+    StartupPathTooLong,
+    #[error(
+        "startup change failed: {operation}; restoring the prior registration failed: {rollback}"
+    )]
+    StartupRollback {
+        operation: Box<SettingsError>,
+        rollback: io::Error,
+    },
     #[error("settings operation failed: {0}")]
     Selection(#[from] selection::SelectionError),
 }

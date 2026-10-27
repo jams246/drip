@@ -15,6 +15,9 @@ pub mod source;
 pub mod settings;
 
 #[cfg(windows)]
+pub mod windows_integration;
+
+#[cfg(windows)]
 pub use engine::{
     ActivityEvent, ActivityLog, ConnectionState, Engine, EngineError, EventKind, EventSink,
     LifecycleEvent, ProgressSnapshot, RootStatus, RunControl, SelectionProgress, SelectionState,

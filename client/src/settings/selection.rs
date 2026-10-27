@@ -32,6 +32,11 @@ pub(super) fn validate(settings: &ClientSettings) -> Result<(), StoreError> {
     if settings.schema_version != 1 {
         return Err(StoreError::UnsupportedVersion);
     }
+    if settings.start_at_sign_in != settings.startup_executable.is_some() {
+        return Err(StoreError::InvalidState(
+            "startup preference and registered executable must agree",
+        ));
+    }
     let mut ids = HashSet::with_capacity(settings.selections.len());
     for selection in &settings.selections {
         if selection.id.is_empty()

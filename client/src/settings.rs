@@ -19,6 +19,8 @@ pub struct ClientSettings {
     pub selections: Vec<SavedSelection>,
     pub acknowledged_generation: u64,
     pub pending_update: Option<PendingSelectionUpdate>,
+    pub start_at_sign_in: bool,
+    pub startup_executable: Option<String>,
 }
 
 impl Default for ClientSettings {
@@ -28,6 +30,8 @@ impl Default for ClientSettings {
             selections: Vec::new(),
             acknowledged_generation: 0,
             pending_update: None,
+            start_at_sign_in: false,
+            startup_executable: None,
         }
     }
 }
