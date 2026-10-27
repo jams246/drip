@@ -53,9 +53,11 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let captured = Arc::clone(&seen);
         let _guard = CheckpointHookGuard::new(Arc::new(move |name| {
-            captured.lock().unwrap().push(name);
+            if name == "hook_self_test" {
+                captured.lock().unwrap().push(name);
+            }
         }));
-        checkpoint("before_rename");
-        assert_eq!(*seen.lock().unwrap(), ["before_rename"]);
+        checkpoint("hook_self_test");
+        assert_eq!(*seen.lock().unwrap(), ["hook_self_test"]);
     }
 }

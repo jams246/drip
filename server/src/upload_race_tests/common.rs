@@ -2,7 +2,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output},
     sync::atomic::{AtomicU64, Ordering},
-    thread::{self, JoinHandle},
+    thread::JoinHandle,
 };
 
 use crate::{Store, StoreResult};
@@ -149,7 +149,7 @@ impl Fixture {
         let store = self.store.clone();
         let credential = self.credential.clone();
         let upload_id = self.upload_id.clone();
-        let commit = thread::spawn(move || store.commit_upload(&credential, &upload_id));
+        let commit = gate.spawn(move || store.commit_upload(&credential, &upload_id));
         gate.wait_until_entered();
         (gate, commit)
     }
