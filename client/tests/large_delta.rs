@@ -1,9 +1,11 @@
 #![cfg(windows)]
 
+#[path = "large_delta/report.rs"]
+mod report;
 #[path = "large_delta/support.rs"]
 mod support;
 
-use drip_client::{ActivityEvent, Engine, UploadPhase};
+use drip_client::Engine;
 use tokio::sync::mpsc;
 
 #[tokio::test]
@@ -67,34 +69,8 @@ async fn upload(
     u64,
     std::collections::BTreeSet<String>,
 ) {
-    let (sender, mut receiver) = mpsc::channel(16);
-    let reporting = tokio::spawn(async move {
-        let mut sent = 0;
-        let mut phases = std::collections::BTreeSet::new();
-        let mut latest: Option<drip_client::ProgressSnapshot> = None;
-        let mut completed = 0;
-        while let Some(event) = receiver.recv().await {
-            match event {
-                ActivityEvent::Progress(snapshot) => {
-                    if let Some(previous) = &latest {
-                        assert!(snapshot.source_hashed_bytes >= previous.source_hashed_bytes);
-                        assert!(snapshot.source_chunked_bytes >= previous.source_chunked_bytes);
-                        assert!(snapshot.chunk_count >= previous.chunk_count);
-                        assert!(snapshot.planned_payload_bytes >= previous.planned_payload_bytes);
-                        assert!(snapshot.file_payload_sent >= previous.file_payload_sent);
-                    }
-                    phases.insert(format!("{:?}", snapshot.phase));
-                    if snapshot.phase == UploadPhase::Uploading {
-                        sent = sent.max(snapshot.processed_bytes);
-                    }
-                    latest = Some(snapshot);
-                }
-                ActivityEvent::UploadCompleted { .. } => completed += 1,
-                _ => {}
-            }
-        }
-        (sent, phases, latest.unwrap(), completed)
-    });
+    let (sender, receiver) = mpsc::channel(16);
+    let reporting = tokio::spawn(report::collect(receiver));
     let result = engine.upload(&fixture.source, &sender).await.unwrap();
     drop(sender);
     let (sent, phases, latest, completed) = reporting.await.unwrap();
