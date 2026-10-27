@@ -73,6 +73,7 @@ pub struct ChunkStream<R: Read> {
     next_ordinal: u64,
     next_offset: u64,
     exhausted: bool,
+    failed: bool,
 }
 
 impl<R: Read> ChunkStream<R> {
@@ -92,27 +93,59 @@ impl<R: Read> ChunkStream<R> {
             next_ordinal: 0,
             next_offset: 0,
             exhausted: false,
+            failed: false,
         }
     }
 
     /// Reads and hashes the next bounded chunk, or returns `None` at EOF.
     pub fn next_chunk(&mut self) -> Result<Option<ChunkData>, ChunkStreamError> {
+        if self.failed {
+            return Err(ChunkStreamError::Failed);
+        }
         let Some(chunk) = self.chunks.next() else {
             self.exhausted = true;
             return Ok(None);
         };
-        let chunk = chunk.map_err(ChunkStreamError::FastCdc)?;
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                self.failed = true;
+                return Err(ChunkStreamError::FastCdc(error));
+            }
+        };
 
         if chunk.offset != self.next_offset || chunk.length != chunk.data.len() || chunk.length == 0
         {
+            self.failed = true;
             return Err(ChunkStreamError::InvalidChunk);
         }
 
-        let length = u32::try_from(chunk.length).map_err(|_| ChunkStreamError::InvalidChunk)?;
+        let length = match u32::try_from(chunk.length) {
+            Ok(length) => length,
+            Err(_) => {
+                self.failed = true;
+                return Err(ChunkStreamError::InvalidChunk);
+            }
+        };
         if length > CHUNK_MAX_SIZE {
+            self.failed = true;
             return Err(ChunkStreamError::InvalidChunk);
         }
 
+        let next_ordinal = match self.next_ordinal.checked_add(1) {
+            Some(ordinal) => ordinal,
+            None => {
+                self.failed = true;
+                return Err(ChunkStreamError::Overflow);
+            }
+        };
+        let next_offset = match self.next_offset.checked_add(u64::from(length)) {
+            Some(offset) => offset,
+            None => {
+                self.failed = true;
+                return Err(ChunkStreamError::Overflow);
+            }
+        };
         let descriptor = ChunkDescriptor {
             ordinal: self.next_ordinal,
             offset: self.next_offset,
@@ -120,14 +153,8 @@ impl<R: Read> ChunkStream<R> {
             digest: Blake3Digest::new(*blake3::hash(&chunk.data).as_bytes()),
         };
         self.file_hasher.update(&chunk.data);
-        self.next_ordinal = self
-            .next_ordinal
-            .checked_add(1)
-            .ok_or(ChunkStreamError::Overflow)?;
-        self.next_offset = self
-            .next_offset
-            .checked_add(u64::from(length))
-            .ok_or(ChunkStreamError::Overflow)?;
+        self.next_ordinal = next_ordinal;
+        self.next_offset = next_offset;
 
         Ok(Some(ChunkData {
             descriptor,
@@ -137,6 +164,9 @@ impl<R: Read> ChunkStream<R> {
 
     /// Returns the complete-file digest after the stream reaches EOF.
     pub fn finish(self) -> Result<Blake3Digest, ChunkStreamError> {
+        if self.failed {
+            return Err(ChunkStreamError::Failed);
+        }
         if !self.exhausted {
             return Err(ChunkStreamError::NotExhausted);
         }
@@ -153,6 +183,9 @@ pub enum ChunkStreamError {
     /// A chunk's byte length, offset, or bounded size was invalid.
     #[error("FastCDC returned an invalid chunk")]
     InvalidChunk,
+    /// Stream cannot continue after an earlier read or validation failure.
+    #[error("chunk stream already failed")]
+    Failed,
     /// Chunk ordinal or file offset exceeded its integer range.
     #[error("chunk ordinal or file offset overflowed")]
     Overflow,

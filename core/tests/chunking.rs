@@ -1,9 +1,9 @@
-use std::io::Cursor;
+use std::io::{self, Cursor, Read};
 
 use drip_core::protocol::UploadPlanRequest;
 use drip_core::{
     Blake3Digest, CHUNK_MAX_SIZE, CHUNK_MIN_SIZE, ChunkConfig, ChunkData, ChunkDescriptor,
-    ChunkStream,
+    ChunkStream, ChunkStreamError,
 };
 
 #[test]
@@ -40,6 +40,23 @@ fn empty_stream_has_no_chunks_and_hashes_empty_input() {
         stream.finish().unwrap(),
         Blake3Digest::new(*blake3::hash(&[]).as_bytes())
     );
+}
+
+#[test]
+fn stream_error_cannot_finalize_partial_file_digest() {
+    let mut stream = ChunkStream::new(FailingReader);
+
+    assert!(matches!(
+        stream.next_chunk(),
+        Err(ChunkStreamError::FastCdc(_))
+    ));
+    assert!(matches!(stream.next_chunk(), Err(ChunkStreamError::Failed)));
+    assert!(matches!(stream.finish(), Err(ChunkStreamError::Failed)));
+}
+
+#[test]
+fn empty_file_plan_has_no_descriptors() {
+    assert!(plan(Vec::new()).validate(0, 0, 0).is_ok());
 }
 
 #[test]
@@ -100,5 +117,13 @@ fn descriptor(ordinal: u64, offset: u64, length: u32) -> ChunkDescriptor {
         offset,
         length,
         digest: Blake3Digest::new([0; 32]),
+    }
+}
+
+struct FailingReader;
+
+impl Read for FailingReader {
+    fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+        Err(io::Error::other("synthetic read failure"))
     }
 }
