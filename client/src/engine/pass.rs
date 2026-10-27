@@ -90,7 +90,7 @@ impl PassContext<'_> {
                 ) || auth_failure(&error)
                 {
                     self.emit(
-                        EventKind::Error,
+                        entry_error_kind(&error),
                         active,
                         &entry.source_path,
                         &entry_operation,
@@ -235,3 +235,13 @@ pub(super) fn auth_failure(error: &EngineError) -> bool {
         _ => false,
     }
 }
+
+fn entry_error_kind(error: &EngineError) -> EventKind {
+    match error {
+        EngineError::Cancelled | EngineError::SelectionChanged => EventKind::Cancelled,
+        _ => EventKind::Error,
+    }
+}
+
+#[cfg(test)]
+mod tests;

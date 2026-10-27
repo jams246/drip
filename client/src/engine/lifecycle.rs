@@ -24,6 +24,7 @@ pub enum EventKind {
     Deleted,
     Retry,
     Error,
+    Cancelled,
     SelectionChanged,
     Pausing,
     Paused,

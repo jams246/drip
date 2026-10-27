@@ -83,6 +83,7 @@ fn event_label(kind: drip_client::EventKind) -> &'static str {
         Deleted => "Deleted",
         Retry => "Retry",
         Error => "Error",
+        Cancelled => "Cancelled",
         SelectionChanged => "Selection changed",
         Pausing => "Pausing",
         Paused => "Paused",

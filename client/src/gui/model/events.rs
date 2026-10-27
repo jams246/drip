@@ -30,7 +30,7 @@ impl UiState {
         let event = &row.event;
         if matches!(
             event.kind,
-            EventKind::UploadCompleted | EventKind::Error | EventKind::Retry
+            EventKind::UploadCompleted | EventKind::Cancelled | EventKind::Error | EventKind::Retry
         ) {
             if self
                 .progress
@@ -111,6 +111,22 @@ mod tests {
         assert!(state.progress.is_none());
         assert_eq!(state.last_file["root"].kind, EventKind::UploadCompleted);
         assert_eq!(state.logs.len(), 1);
+    }
+
+    #[test]
+    fn late_progress_cannot_resurrect_a_cancelled_upload() {
+        let mut state = UiState {
+            worker_generation: 1,
+            ..UiState::default()
+        };
+        state.progress(1, Some(progress()));
+        let mut cancelled = completed();
+        cancelled.event.kind = EventKind::Cancelled;
+        cancelled.event.message = "sync operation cancelled by a control request".into();
+        state.activity(cancelled);
+        state.progress(1, Some(progress()));
+        assert!(state.progress.is_none());
+        assert_eq!(state.last_file["root"].kind, EventKind::Cancelled);
     }
 
     #[test]

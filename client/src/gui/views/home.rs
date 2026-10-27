@@ -154,6 +154,9 @@ fn root_state(
                 "Unavailable source",
                 status.map_or("", |root| root.message.as_str()),
             ),
+            Some(SelectionState::Cancelled) => {
+                ("Cancelled", status.map_or("", |root| root.message.as_str()))
+            }
             Some(SelectionState::Error) => {
                 ("Error", status.map_or("", |root| root.message.as_str()))
             }
@@ -188,6 +191,7 @@ fn state_color(label: &str) -> impl Into<gpui::Hsla> {
 fn last_file_line(event: &drip_client::LifecycleEvent) -> impl IntoElement {
     let label = match event.kind {
         EventKind::UploadCompleted => "Last file verified",
+        EventKind::Cancelled => "Last file cancelled",
         EventKind::Retry => "Last file retry",
         EventKind::Error => "Last file error",
         _ => "File outcome",

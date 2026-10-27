@@ -24,6 +24,7 @@ pub enum SelectionState {
     Paused,
     Offline,
     UnavailableRoot,
+    Cancelled,
     Error,
 }
 
@@ -111,6 +112,7 @@ pub(super) fn apply(snapshot: &mut SyncSnapshot, event: &LifecycleEvent) {
         EventKind::UploadStarted => SelectionState::Uploading,
         EventKind::Synced => SelectionState::Synced,
         EventKind::UnavailableRoot => SelectionState::UnavailableRoot,
+        EventKind::Cancelled => SelectionState::Cancelled,
         EventKind::Error | EventKind::Retry => SelectionState::Error,
         _ => return,
     };
