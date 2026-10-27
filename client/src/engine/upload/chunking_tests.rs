@@ -73,11 +73,13 @@ async fn mutation_after_chunk_scanning_starts_changes_digest_and_source_observat
     use std::io::{Seek, SeekFrom, Write};
     use std::sync::mpsc as blocking;
     use std::time::Duration;
+    #[cfg(windows)]
+    use std::time::{Instant, UNIX_EPOCH};
 
     let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join(".verification/phase-03/source-tests");
+        .join(".verification/phase-04/mutation-calibration");
     std::fs::create_dir_all(&directory).unwrap();
     let path = directory.join(format!(
         "chunk-scan-{}.bin",
@@ -99,13 +101,47 @@ async fn mutation_after_chunk_scanning_starts_changes_digest_and_source_observat
         reads: 0,
     };
     let size = source.size();
+    #[cfg(windows)]
+    let initial_change_time = native_change_time(&path);
+    #[cfg(windows)]
+    let original_time = source.last_write();
+    #[cfg(windows)]
+    let restored_time = UNIX_EPOCH
+        + Duration::new(
+            u64::try_from(original_time.unix_seconds()).unwrap(),
+            original_time.nanos(),
+        );
     let worker = std::thread::spawn(move || page(reader, size));
     observed.recv_timeout(Duration::from_secs(5)).unwrap();
     let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
-    writer.seek(SeekFrom::Start(2 * 1024 * 1024)).unwrap();
-    writer.write_all(&[bytes[2 * 1024 * 1024] ^ 0xff]).unwrap();
+    let changed_offset = 2 * 1024 * 1024;
+    let changed_byte = bytes[changed_offset] ^ 0xff;
+    writer.seek(SeekFrom::Start(changed_offset as u64)).unwrap();
+    writer.write_all(&[changed_byte]).unwrap();
+    #[cfg(windows)]
+    writer
+        .set_times(std::fs::FileTimes::new().set_modified(restored_time))
+        .unwrap();
     writer.sync_all().unwrap();
     drop(writer);
+    #[cfg(windows)]
+    {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while native_change_time(&path) == initial_change_time {
+            assert!(
+                Instant::now() < deadline,
+                "filesystem did not advance native ChangeTime during the chunk scan mutation fixture"
+            );
+            let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+            writer.seek(SeekFrom::Start(changed_offset as u64)).unwrap();
+            writer.write_all(&[changed_byte]).unwrap();
+            writer
+                .set_times(std::fs::FileTimes::new().set_modified(restored_time))
+                .unwrap();
+            writer.sync_all().unwrap();
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
     release.send(()).unwrap();
     let scanned = worker.join().unwrap().unwrap();
     assert_ne!(scanned.digest, Some(expected));
@@ -114,6 +150,33 @@ async fn mutation_after_chunk_scanning_starts_changes_digest_and_source_observat
         Err(crate::source::SourceError::Changed)
     ));
     std::fs::remove_file(path).unwrap();
+}
+
+#[cfg(windows)]
+#[expect(
+    unsafe_code,
+    reason = "Windows native ChangeTime is needed to calibrate this fixture"
+)]
+fn native_change_time(path: &std::path::Path) -> i64 {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::{
+        Foundation::HANDLE,
+        Storage::FileSystem::{FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx},
+    };
+
+    let file = std::fs::File::open(path).unwrap();
+    let mut basic = FILE_BASIC_INFO::default();
+    // SAFETY: The file handle stays open and basic is a correctly sized, writable buffer.
+    unsafe {
+        GetFileInformationByHandleEx(
+            HANDLE(file.as_raw_handle()),
+            FileBasicInfo,
+            (&mut basic as *mut FILE_BASIC_INFO).cast(),
+            u32::try_from(std::mem::size_of::<FILE_BASIC_INFO>()).unwrap(),
+        )
+        .unwrap();
+    }
+    basic.ChangeTime
 }
 
 struct GatedReader {
