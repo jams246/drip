@@ -3,6 +3,8 @@ mod chunks;
 mod manifest;
 mod pages;
 mod ranges;
+#[cfg(test)]
+mod recovery_tests;
 mod state;
 
 use std::sync::{Mutex, MutexGuard};
