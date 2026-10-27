@@ -110,39 +110,86 @@ impl PassContext<'_> {
                 },
             ))
             .await;
-        let digest = source.hash(&sender).await;
-        let result = match digest {
-            Ok(digest)
-                if remote.is_some_and(|remote| {
-                    remote.kind == EntryKind::File
-                        && remote.size == source.size()
-                        && remote.digest == Some(digest)
-                        && remote.last_write == Some(source.last_write())
-                }) =>
-            {
-                Ok(())
+        let work = async {
+            let digest = source.hash(&sender).await;
+            match digest {
+                Ok(digest)
+                    if remote.is_some_and(|remote| {
+                        remote.kind == EntryKind::File
+                            && remote.size == source.size()
+                            && remote.digest == Some(digest)
+                            && remote.last_write == Some(source.last_write())
+                    }) =>
+                {
+                    Ok(())
+                }
+                Ok(digest) => {
+                    self.check(active, saved)?;
+                    self.fresh_kind(saved, entry)?;
+                    upload::upload_selected(
+                        self.transport,
+                        self.pairing,
+                        source,
+                        active,
+                        expected_entry,
+                        Some(digest),
+                        &sender,
+                    )
+                    .await
+                    .map(|_| ())
+                }
+                Err(error) => Err(error.into()),
             }
-            Ok(digest) => {
-                self.check(active, saved)?;
-                self.fresh_kind(saved, entry)?;
-                upload::upload_selected(
-                    self.transport,
-                    self.pairing,
-                    source,
-                    active,
-                    expected_entry,
-                    Some(digest),
-                    &sender,
-                )
-                .await
-                .map(|_| ())
-            }
-            Err(error) => Err(error.into()),
+        };
+        let result = tokio::select! {
+            result = work => result,
+            () = cancelled(self.control.clone()) => Err(EngineError::Cancelled),
         };
         drop(sender);
         report
             .await
             .map_err(|error| std::io::Error::other(error.to_string()))??;
         result
+    }
+}
+
+async fn cancelled(mut control: tokio::sync::watch::Receiver<crate::engine::RunControl>) {
+    loop {
+        let current = *control.borrow_and_update();
+        if current.paused || current.stop || control.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cancelled;
+    use crate::engine::RunControl;
+    use tokio::sync::watch;
+
+    #[tokio::test]
+    async fn rescan_does_not_cancel_inflight_work_but_pause_does() {
+        let (commands, control) = watch::channel(RunControl::default());
+        let pending = tokio::spawn(cancelled(control));
+        commands.send_modify(|current| current.reconcile += 1);
+        tokio::task::yield_now().await;
+        assert!(!pending.is_finished());
+        commands.send_modify(|current| current.paused = true);
+        tokio::time::timeout(std::time::Duration::from_secs(1), pending)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn stop_cancels_inflight_work() {
+        let (commands, control) = watch::channel(RunControl::default());
+        let pending = tokio::spawn(cancelled(control));
+        commands.send_modify(|current| current.stop = true);
+        tokio::time::timeout(std::time::Duration::from_secs(1), pending)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }
