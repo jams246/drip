@@ -10,13 +10,6 @@ use crate::{
     upload_times::{metadata_timestamp, timestamp_system_time},
 };
 
-#[cfg(test)]
-pub(crate) type CheckpointHook = std::sync::Arc<dyn Fn(&'static str) + Send + Sync>;
-
-#[cfg(test)]
-static CHECKPOINT_HOOK: std::sync::OnceLock<std::sync::Mutex<Option<CheckpointHook>>> =
-    std::sync::OnceLock::new();
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileSnapshot {
     pub(crate) size: u64,
@@ -208,46 +201,9 @@ fn map_io(error: io::Error) -> StoreError {
 }
 
 #[cfg(test)]
-fn checkpoint(name: &'static str) {
-    if let Some(hook) = CHECKPOINT_HOOK
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone()
-    {
-        hook(name);
-    }
+pub(crate) fn checkpoint(name: &'static str) {
+    crate::upload_test_support::checkpoint(name);
 }
 
 #[cfg(not(test))]
-fn checkpoint(_: &'static str) {}
-
-#[cfg(test)]
-pub(crate) fn set_checkpoint_hook(hook: Option<CheckpointHook>) {
-    *CHECKPOINT_HOOK
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = hook;
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-
-    use super::{checkpoint, set_checkpoint_hook};
-
-    #[test]
-    fn publication_checkpoint_hook_can_gate_test_races() {
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let captured = Arc::clone(&seen);
-        let test_thread = std::thread::current().id();
-        set_checkpoint_hook(Some(Arc::new(move |name| {
-            if std::thread::current().id() == test_thread {
-                captured.lock().unwrap().push(name);
-            }
-        })));
-        checkpoint("before_rename");
-        set_checkpoint_hook(None);
-        assert_eq!(*seen.lock().unwrap(), ["before_rename"]);
-    }
-}
+pub(crate) fn checkpoint(_: &'static str) {}

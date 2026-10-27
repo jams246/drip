@@ -80,6 +80,7 @@ impl Store {
                 return Err(error);
             }
         };
+        upload_files::checkpoint("before_writer_lock");
         let result = self.with_authorized_selection_mutation(
             credential,
             &selection_id,

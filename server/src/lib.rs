@@ -23,7 +23,11 @@ mod upload_times;
 #[cfg(test)]
 mod selection_mutation_tests;
 #[cfg(test)]
+mod upload_race_tests;
+#[cfg(test)]
 mod upload_session_tests;
+#[cfg(test)]
+mod upload_test_support;
 
 pub use api_error::ApiFailure;
 pub use http::{router, serve};
