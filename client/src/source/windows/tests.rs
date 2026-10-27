@@ -1,4 +1,5 @@
 mod client_settings;
+mod delta_reads;
 mod native;
 mod ordinal;
 mod paths;

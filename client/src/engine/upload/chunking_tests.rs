@@ -67,3 +67,73 @@ fn source_ending_before_expected_size_is_rejected() {
         Err(crate::source::SourceError::Changed)
     ));
 }
+
+#[tokio::test]
+async fn mutation_after_chunk_scanning_starts_changes_digest_and_source_observation() {
+    use std::io::{Seek, SeekFrom, Write};
+    use std::sync::mpsc as blocking;
+    use std::time::Duration;
+
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join(".verification/phase-03/source-tests");
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join(format!(
+        "chunk-scan-{}.bin",
+        crate::source::random_id().unwrap()
+    ));
+    let mut bytes = vec![0; 8 * 1024 * 1024];
+    blake3::Hasher::new_derive_key("Drip chunk scan mutation fixture v1")
+        .finalize_xof()
+        .fill(&mut bytes);
+    std::fs::write(&path, &bytes).unwrap();
+    let expected = drip_core::Blake3Digest::new(*blake3::hash(&bytes).as_bytes());
+    let source = crate::source::SourceFile::open(&path).unwrap();
+    let (entered, observed) = blocking::sync_channel(1);
+    let (release, resume) = blocking::sync_channel(1);
+    let reader = GatedReader {
+        file: source.chunk_reader().unwrap(),
+        entered: Some(entered),
+        resume,
+        reads: 0,
+    };
+    let size = source.size();
+    let worker = std::thread::spawn(move || page(reader, size));
+    observed.recv_timeout(Duration::from_secs(5)).unwrap();
+    let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    writer.seek(SeekFrom::Start(2 * 1024 * 1024)).unwrap();
+    writer.write_all(&[bytes[2 * 1024 * 1024] ^ 0xff]).unwrap();
+    writer.sync_all().unwrap();
+    drop(writer);
+    release.send(()).unwrap();
+    let scanned = worker.join().unwrap().unwrap();
+    assert_ne!(scanned.digest, Some(expected));
+    assert!(matches!(
+        source.verify().await,
+        Err(crate::source::SourceError::Changed)
+    ));
+    std::fs::remove_file(path).unwrap();
+}
+
+struct GatedReader {
+    file: std::fs::File,
+    entered: Option<std::sync::mpsc::SyncSender<()>>,
+    resume: std::sync::mpsc::Receiver<()>,
+    reads: usize,
+}
+
+impl Read for GatedReader {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        if self.reads == 1
+            && let Some(entered) = self.entered.take()
+        {
+            entered.send(()).map_err(std::io::Error::other)?;
+            self.resume
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .map_err(std::io::Error::other)?;
+        }
+        self.reads += 1;
+        self.file.read(bytes)
+    }
+}

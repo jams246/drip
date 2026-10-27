@@ -19,6 +19,25 @@ impl SourceFile {
         offset: u64,
         length: u32,
     ) -> Result<Vec<u8>, SourceError> {
+        self.read_range_inner(offset, length, || {}).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn read_range_with_checkpoint(
+        &self,
+        offset: u64,
+        length: u32,
+        checkpoint: impl FnOnce() + Send + 'static,
+    ) -> Result<Vec<u8>, SourceError> {
+        self.read_range_inner(offset, length, checkpoint).await
+    }
+
+    async fn read_range_inner(
+        &self,
+        offset: u64,
+        length: u32,
+        checkpoint: impl FnOnce() + Send + 'static,
+    ) -> Result<Vec<u8>, SourceError> {
         let end = offset
             .checked_add(u64::from(length))
             .ok_or(SourceError::Changed)?;
@@ -33,6 +52,7 @@ impl SourceFile {
             file.seek(SeekFrom::Start(offset))?;
             let mut bytes = vec![0; length];
             file.read_exact(&mut bytes)?;
+            checkpoint();
             if file_info(&file)?.observation()? != expected {
                 return Err(SourceError::Changed);
             }
