@@ -191,6 +191,7 @@ fn state_color(label: &str) -> impl Into<gpui::Hsla> {
 fn last_file_line(event: &drip_client::LifecycleEvent) -> impl IntoElement {
     let label = match event.kind {
         EventKind::UploadCompleted => "Last file verified",
+        EventKind::FileChecked => "Last file checked",
         EventKind::Cancelled => "Last file cancelled",
         EventKind::Retry => "Last file retry",
         EventKind::Error => "Last file error",

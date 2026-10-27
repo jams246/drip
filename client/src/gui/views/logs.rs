@@ -75,6 +75,7 @@ fn event_label(kind: drip_client::EventKind) -> &'static str {
         Scanning => "Scanning",
         UploadStarted => "Upload started",
         UploadCompleted => "Upload completed",
+        FileChecked => "File checked",
         Hashing => "Hashing",
         Chunking => "Chunking / hashing",
         Uploading => "Uploading",

@@ -30,7 +30,11 @@ impl UiState {
         let event = &row.event;
         if matches!(
             event.kind,
-            EventKind::UploadCompleted | EventKind::Cancelled | EventKind::Error | EventKind::Retry
+            EventKind::UploadCompleted
+                | EventKind::FileChecked
+                | EventKind::Cancelled
+                | EventKind::Error
+                | EventKind::Retry
         ) {
             if self
                 .progress
@@ -111,6 +115,24 @@ mod tests {
         assert!(state.progress.is_none());
         assert_eq!(state.last_file["root"].kind, EventKind::UploadCompleted);
         assert_eq!(state.logs.len(), 1);
+    }
+
+    #[test]
+    fn checked_file_rejects_late_hash_ticks_without_clearing_another_root() {
+        let mut state = UiState {
+            worker_generation: 1,
+            ..UiState::default()
+        };
+        let mut next = progress();
+        next.selection_id = "other-root".into();
+        next.operation_id = "next-file".into();
+        state.progress(1, Some(next));
+        let mut checked = completed();
+        checked.event.kind = EventKind::FileChecked;
+        state.activity(checked);
+        state.progress(1, Some(progress()));
+        assert_eq!(state.progress.as_ref().unwrap().operation_id, "next-file");
+        assert_eq!(state.last_file["root"].kind, EventKind::FileChecked);
     }
 
     #[test]

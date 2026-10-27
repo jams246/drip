@@ -16,6 +16,7 @@ pub enum EventKind {
     Scanning,
     UploadStarted,
     UploadCompleted,
+    FileChecked,
     Hashing,
     Chunking,
     Uploading,

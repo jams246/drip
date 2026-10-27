@@ -121,7 +121,7 @@ impl PassContext<'_> {
                             && remote.last_write == Some(source.last_write())
                     }) =>
                 {
-                    Ok(())
+                    Ok(true)
                 }
                 Ok(digest) => {
                     self.check(active, saved)?;
@@ -136,7 +136,7 @@ impl PassContext<'_> {
                         &sender,
                     )
                     .await
-                    .map(|_| ())
+                    .map(|_| false)
                 }
                 Err(error) => Err(error.into()),
             }
@@ -149,7 +149,20 @@ impl PassContext<'_> {
         report
             .await
             .map_err(|error| std::io::Error::other(error.to_string()))??;
-        result
+        match result {
+            Ok(true) => {
+                self.emit(
+                    EventKind::FileChecked,
+                    active,
+                    &entry.source_path,
+                    operation,
+                    "source hash and metadata match the actual mirror",
+                )
+                .await
+            }
+            Ok(false) => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 }
 
