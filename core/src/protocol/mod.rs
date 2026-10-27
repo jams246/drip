@@ -5,6 +5,7 @@ mod entry_mutation;
 mod error;
 mod selection;
 mod upload;
+mod upload_plan;
 
 pub use enrollment::{EnrollmentRequest, EnrollmentResponse};
 pub use entry_mutation::{
@@ -19,3 +20,4 @@ pub use upload::{
     Entry, EntryKind, EntryPage, EntryPrecondition, UploadCommitResponse, UploadPrepareRequest,
     UploadPrepareResponse, UploadState, UploadStateResponse,
 };
+pub use upload_plan::{UploadPlanRequest, UploadPlanResponse, UploadPlanValidationError};

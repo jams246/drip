@@ -9,6 +9,8 @@ license.workspace = true
 name = "drip_core"
 
 [dependencies]
+blake3.workspace = true
+fastcdc.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
