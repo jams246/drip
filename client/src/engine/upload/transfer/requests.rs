@@ -1,4 +1,5 @@
 use std::{
+    future::Future,
     io,
     sync::{
         Arc,
@@ -91,10 +92,16 @@ pub(super) async fn chunk(
             .body(reqwest::Body::wrap_stream(body))
             .build()
             .map_err(TransportError::Build)?;
-        let result = match transport.send(request).await {
-            Ok(response) => api::ensure_success(response).await,
-            Err(error) => Err(error.into()),
-        };
+        let result = report_while_waiting(
+            async {
+                match transport.send(request).await {
+                    Ok(response) => api::ensure_success(response).await,
+                    Err(error) => Err(error.into()),
+                }
+            },
+            &progress,
+        )
+        .await;
         match result {
             Err(error) if error.should_retry_request() && attempt < MAX_ATTEMPTS => {
                 tokio::time::sleep(Duration::from_millis(100 * attempt as u64)).await;
@@ -120,32 +127,86 @@ pub(super) fn body_stream(
             let end = (offset + BODY_CHUNK_BYTES).min(bytes.len());
             let chunk = bytes[offset..end].to_vec();
             let chunk_len = chunk.len() as u64;
-            let previous = progress
+            progress
                 .sent
                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |total| {
                     total.checked_add(chunk_len)
                 })
                 .map_err(|_| io::Error::other("sent payload counter overflowed"))?;
-            let total_sent = previous + chunk_len;
-            let mut last_report = progress.report_clock.lock().await;
-            if last_report.elapsed() >= REPORT_INTERVAL {
-                *last_report = std::time::Instant::now();
-                drop(last_report);
-                let _ = progress
-                    .events
-                    .try_send(ActivityEvent::Progress(ProgressSnapshot {
-                        phase: UploadPhase::Uploading,
-                        source_path: progress.source_path.clone(),
-                        processed_bytes: total_sent,
-                        total_bytes: progress.total_bytes,
-                        source_hashed_bytes: progress.source_hashed_bytes,
-                        source_chunked_bytes: progress.source_chunked_bytes,
-                        chunk_count: progress.chunk_count,
-                        planned_payload_bytes: progress.planned_payload_bytes,
-                        file_payload_sent: total_sent,
-                    }));
-            }
+            progress.report().await;
             Ok(Some((chunk, (bytes, end))))
         }
     })
+}
+
+impl ChunkProgress {
+    async fn report(&self) {
+        let mut last_report = self.report_clock.lock().await;
+        if last_report.elapsed() < REPORT_INTERVAL {
+            return;
+        }
+        *last_report = std::time::Instant::now();
+        drop(last_report);
+        let sent = self.sent.load(Ordering::Relaxed);
+        let _ = self
+            .events
+            .try_send(ActivityEvent::Progress(ProgressSnapshot {
+                phase: UploadPhase::Uploading,
+                source_path: self.source_path.clone(),
+                processed_bytes: sent,
+                total_bytes: self.total_bytes,
+                source_hashed_bytes: self.source_hashed_bytes,
+                source_chunked_bytes: self.source_chunked_bytes,
+                chunk_count: self.chunk_count,
+                planned_payload_bytes: self.planned_payload_bytes,
+                file_payload_sent: sent,
+            }));
+    }
+}
+
+async fn report_while_waiting<F: Future>(pending: F, progress: &ChunkProgress) -> F::Output {
+    tokio::pin!(pending);
+    let mut ticks = tokio::time::interval_at(
+        tokio::time::Instant::now() + REPORT_INTERVAL,
+        REPORT_INTERVAL,
+    );
+    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            result = &mut pending => return result,
+            _ = ticks.tick() => progress.report().await,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn pending_response_reports_the_latest_sent_bytes() {
+        let (events, mut received) = mpsc::channel(2);
+        let progress = ChunkProgress {
+            sent: Arc::new(AtomicU64::new(42)),
+            report_clock: Arc::new(Mutex::new(std::time::Instant::now())),
+            events,
+            source_path: SourcePath::new('C', vec!["file.bin".into()]).unwrap(),
+            source_hashed_bytes: 42,
+            source_chunked_bytes: 42,
+            chunk_count: 1,
+            planned_payload_bytes: 42,
+            total_bytes: None,
+        };
+        let waiting = tokio::spawn(async move {
+            report_while_waiting(std::future::pending::<()>(), &progress).await;
+        });
+        let event = tokio::time::timeout(Duration::from_secs(1), received.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(event, ActivityEvent::Progress(snapshot) if snapshot.file_payload_sent == 42)
+        );
+        waiting.abort();
+    }
 }
