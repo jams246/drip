@@ -1,4 +1,5 @@
 mod common;
+#[path = "mirror_mutations/helpers.rs"]
 mod mutation_helpers;
 
 use std::fs;
