@@ -200,7 +200,11 @@ pub(crate) fn sql_error(error: Error) -> StoreError {
 }
 
 pub(crate) fn io_error(error: std::io::Error) -> StoreError {
-    StoreError::Filesystem(error)
+    if error.kind() == std::io::ErrorKind::StorageFull {
+        StoreError::InsufficientStagingSpace
+    } else {
+        StoreError::Filesystem(error)
+    }
 }
 
 #[cfg(test)]

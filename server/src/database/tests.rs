@@ -94,3 +94,10 @@ fn legacy_selection_rows_migrate_to_file_roots() {
         assert!(names.iter().any(|name| name == expected));
     }
 }
+#[test]
+fn full_mirror_storage_uses_the_retryable_capacity_error() {
+    assert!(matches!(
+        super::io_error(std::io::ErrorKind::StorageFull.into()),
+        crate::StoreError::InsufficientStagingSpace
+    ));
+}
