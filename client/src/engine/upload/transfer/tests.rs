@@ -12,7 +12,7 @@ use drip_core::SourcePath;
 use futures_util::TryStreamExt;
 use tokio::sync::{Mutex, mpsc};
 
-use super::body_stream;
+use super::{body_stream, finish};
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
@@ -54,6 +54,38 @@ async fn body_stream_fails_when_open_file_ends_before_declared_size() {
     let error = stream.try_collect::<Vec<_>>().await.unwrap_err();
 
     assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
+}
+
+#[tokio::test]
+async fn replaced_source_after_server_response_cannot_report_upload_completed() {
+    use crate::{
+        engine::{EngineError, UploadResult},
+        source::{SourceError, SourceFile},
+    };
+
+    let directory = TestDirectory::new();
+    let path = directory.path.join("source.bin");
+    fs::write(&path, b"old bytes").unwrap();
+    let source = SourceFile::open(&path).unwrap();
+    let published = UploadResult {
+        source_path: source.protocol_path().clone(),
+        size: source.size(),
+        digest: drip_core::Blake3Digest::new(*blake3::hash(b"old bytes").as_bytes()),
+    };
+    fs::rename(&path, directory.path.join("original.bin")).unwrap();
+    fs::write(&path, b"new bytes").unwrap();
+    let (events, mut receiver) = mpsc::channel(2);
+
+    let outcome = finish(&source, published, &events).await;
+
+    assert!(matches!(
+        outcome,
+        Err(EngineError::Source(SourceError::Replaced))
+    ));
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
 }
 
 struct TestDirectory {

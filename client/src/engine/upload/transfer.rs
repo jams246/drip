@@ -74,10 +74,19 @@ pub(super) async fn run(
         }
         Err(error) => return Err(error),
     };
+    finish(source, result, events).await
+}
+
+async fn finish(
+    source: &SourceFile,
+    result: UploadResult,
+    events: &mpsc::Sender<ActivityEvent>,
+) -> Result<UploadResult, EngineError> {
+    source.verify().await?;
     let _ = events.try_send(ActivityEvent::UploadCompleted {
         source_path: result.source_path.clone(),
-        size,
-        digest,
+        size: result.size,
+        digest: result.digest,
     });
     Ok(result)
 }
