@@ -22,9 +22,9 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+http-body-util = "=0.1.5"
 
 [dev-dependencies]
-http-body-util = "=0.1.5"
 tower = { version = "=0.5.3", features = ["util"] }
 
 [lints]

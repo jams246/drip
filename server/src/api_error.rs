@@ -33,6 +33,15 @@ impl ApiFailure {
         )
     }
 
+    pub(crate) fn not_found() -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            ApiErrorCode::NotFound,
+            "resource not found",
+            false,
+        )
+    }
+
     fn new(status: StatusCode, code: ApiErrorCode, message: &str, retryable: bool) -> Self {
         Self {
             status,
@@ -78,6 +87,18 @@ impl From<StoreError> for ApiFailure {
                 ApiErrorCode::CapacityExhausted,
                 "server is busy; retry shortly",
                 true,
+            ),
+            StoreError::CapacityExhausted => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ApiErrorCode::CapacityExhausted,
+                "upload capacity is exhausted; retry shortly",
+                true,
+            ),
+            StoreError::InsufficientStagingSpace => Self::new(
+                StatusCode::INSUFFICIENT_STORAGE,
+                ApiErrorCode::InsufficientStagingSpace,
+                "upload staging has insufficient space",
+                false,
             ),
             StoreError::Random
             | StoreError::Database(_)

@@ -49,6 +49,18 @@ pub(crate) fn initialize(connection: &Connection) -> Result<(), StoreError> {
              active INTEGER NOT NULL CHECK(active IN (0, 1)),
              PRIMARY KEY(pc_id, selection_id)
          );
+         CREATE TABLE IF NOT EXISTS entry_metadata (
+             pc_id TEXT NOT NULL REFERENCES devices(pc_id) ON DELETE CASCADE,
+             source_json TEXT NOT NULL,
+             revision INTEGER NOT NULL CHECK(revision > 0),
+             file_size TEXT NOT NULL CHECK(length(file_size) > 0),
+             digest TEXT NOT NULL CHECK(length(digest) = 64),
+             last_write_seconds INTEGER NOT NULL,
+             last_write_nanos INTEGER NOT NULL CHECK(last_write_nanos >= 0 AND last_write_nanos < 1000000000),
+             device TEXT NOT NULL,
+             inode TEXT NOT NULL,
+             PRIMARY KEY(pc_id, source_json)
+         );
          PRAGMA user_version = 1;
          COMMIT;",
         )

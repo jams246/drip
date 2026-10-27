@@ -47,6 +47,12 @@ pub enum StoreError {
     /// Stored protocol value could not be serialized or decoded.
     #[error("stored protocol value is invalid: {0}")]
     Serialization(#[source] serde_json::Error),
+    /// Upload staging has no available space.
+    #[error("upload staging has insufficient space")]
+    InsufficientStagingSpace,
+    /// Upload session capacity is temporarily exhausted.
+    #[error("upload capacity is exhausted")]
+    CapacityExhausted,
     /// System clock could not be represented as Unix seconds.
     #[error("system clock is outside supported range")]
     Clock,
@@ -77,6 +83,7 @@ pub struct Store {
     pub(crate) database_path: Arc<PathBuf>,
     pub(crate) mirror: Arc<Dir>,
     pub(crate) clock: Arc<dyn Fn() -> StoreResult<i64> + Send + Sync>,
+    pub(crate) uploads: Arc<crate::upload_sessions::UploadSessions>,
 }
 
 impl Store {
@@ -90,11 +97,15 @@ impl Store {
         std::fs::create_dir_all(state_directory).map_err(database::io_error)?;
         std::fs::create_dir_all(mirror_directory).map_err(database::io_error)?;
         let database_path = state_directory.join("drip.sqlite3");
-        let mirror = mirror::open_root(mirror_directory)?;
+        let mirror = Arc::new(mirror::open_root(mirror_directory)?);
+        let uploads = Arc::new(crate::upload_sessions::UploadSessions::new(Arc::clone(
+            &mirror,
+        )));
         let store = Self {
             database_path: Arc::new(database_path),
-            mirror: Arc::new(mirror),
+            mirror,
             clock: Arc::new(system_unix_seconds),
+            uploads,
         };
         let connection = store.connect()?;
         database::initialize(&connection)?;
@@ -177,6 +188,10 @@ impl Store {
         self.mirror
             .open_dir_nofollow(&device.mirror_directory)
             .map_err(database::io_error)
+    }
+
+    pub(crate) fn prepare_daemon(&self) -> StoreResult<()> {
+        self.uploads.clean_abandoned_staging()
     }
 }
 

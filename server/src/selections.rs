@@ -23,9 +23,14 @@ impl Store {
         update: SelectionUpdate,
     ) -> StoreResult<SelectionUpdateResponse> {
         validate_selections(&update.selections)?;
-        self.with_authorized_mutation(credential, |transaction, device| {
+        let now = self.now()?;
+        let device = crate::upload_store::authenticated_device(self, credential)?;
+        let response = self.with_authorized_mutation(credential, |transaction, device| {
             apply_selection_update(transaction, device.pc_id.as_str(), update)
-        })
+        })?;
+        self.uploads
+            .abort_obsolete(&device.pc_id, response.generation, now);
+        Ok(response)
     }
 }
 

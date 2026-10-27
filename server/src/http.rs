@@ -1,16 +1,18 @@
 use axum::{
     Router,
-    body::Bytes,
+    body::{Body, Bytes, to_bytes},
     extract::{DefaultBodyLimit, State, rejection::BytesRejection},
     http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post, put},
 };
 use drip_core::protocol::{EnrollmentRequest, SelectionUpdate};
 use tokio::net::TcpListener;
 
 use crate::{ApiFailure, Store};
+
+mod uploads;
 
 const CONTROL_LIMIT: usize = 256 * 1024;
 
@@ -27,16 +29,46 @@ pub fn router(store: Store) -> Router {
         .layer(DefaultBodyLimit::max(CONTROL_LIMIT))
         .with_state(state.clone());
     let control = Router::new()
-        .route("/v1/enroll", axum::routing::post(enroll))
+        .route("/v1/enroll", post(enroll))
         .route("/v1/selections", get(get_selections).put(put_selections))
+        .route("/v1/uploads", post(uploads::prepare_upload))
+        .route(
+            "/v1/uploads/{upload_id}",
+            get(uploads::get_upload_state).delete(uploads::abort_upload),
+        )
+        .route(
+            "/v1/uploads/{upload_id}/commit",
+            post(uploads::commit_upload),
+        )
+        .route("/v1/entries", get(uploads::list_entries))
         .layer(middleware::from_fn(require_control_body_limit))
         .layer(DefaultBodyLimit::max(CONTROL_LIMIT))
+        .with_state(state.clone());
+    let binary = Router::new()
+        .route("/v1/uploads/{upload_id}/data", put(uploads::upload_data))
+        .layer(DefaultBodyLimit::disable())
         .with_state(state);
-    health.merge(control)
+    health
+        .merge(control)
+        .merge(binary)
+        .layer(middleware::from_fn(normalize_api_rejections))
 }
 
 /// Serves the router and stops on process termination signals.
 pub async fn serve(listener: TcpListener, store: Store) -> std::io::Result<()> {
+    store
+        .prepare_daemon()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let expiry_store = store.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            if let Ok(now) = expiry_store.now() {
+                expiry_store.uploads.reap_expired(now);
+            }
+        }
+    });
     axum::serve(listener, router(store))
         .with_graceful_shutdown(shutdown_signal())
         .await
@@ -105,11 +137,33 @@ fn read_control_body(body: Result<Bytes, BytesRejection>) -> Result<Bytes, ApiFa
 }
 
 async fn require_control_body_limit(request: axum::extract::Request, next: Next) -> Response {
-    let response = next.run(request).await;
-    if response.status() == StatusCode::PAYLOAD_TOO_LARGE {
-        return ApiFailure::payload_too_large().into_response();
+    let (parts, body) = request.into_parts();
+    match to_bytes(body, CONTROL_LIMIT).await {
+        Ok(body) => normalize_response(
+            next.run(axum::extract::Request::from_parts(parts, Body::from(body)))
+                .await,
+        ),
+        Err(error)
+            if std::error::Error::source(&error)
+                .is_some_and(|source| source.is::<http_body_util::LengthLimitError>()) =>
+        {
+            ApiFailure::payload_too_large().into_response()
+        }
+        Err(_) => ApiFailure::invalid_input().into_response(),
     }
-    response
+}
+
+async fn normalize_api_rejections(request: axum::extract::Request, next: Next) -> Response {
+    normalize_response(next.run(request).await)
+}
+
+fn normalize_response(response: Response) -> Response {
+    match response.status() {
+        StatusCode::BAD_REQUEST => ApiFailure::invalid_input().into_response(),
+        StatusCode::NOT_FOUND => ApiFailure::not_found().into_response(),
+        StatusCode::PAYLOAD_TOO_LARGE => ApiFailure::payload_too_large().into_response(),
+        _ => response,
+    }
 }
 
 async fn shutdown_signal() {

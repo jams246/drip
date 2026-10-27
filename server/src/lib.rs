@@ -6,12 +6,24 @@ mod auth;
 mod database;
 mod enrollment;
 mod http;
+mod inventory;
 mod mirror;
 mod selections;
 mod store;
+mod upload_commit;
+mod upload_data;
+mod upload_files;
+mod upload_metadata;
+mod upload_paths;
+mod upload_sessions;
+mod upload_staging;
+mod upload_store;
+mod upload_times;
 
 #[cfg(test)]
 mod selection_mutation_tests;
+#[cfg(test)]
+mod upload_session_tests;
 
 pub use api_error::ApiFailure;
 pub use http::{router, serve};
