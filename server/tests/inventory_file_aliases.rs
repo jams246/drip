@@ -1,12 +1,15 @@
 mod common;
 
-use std::{collections::HashSet, fs};
+#[cfg(not(windows))]
+use std::collections::HashSet;
+use std::fs;
 
 use common::{Fixture, enroll, mirror_path, select_kind};
 use drip_core::SourcePath;
 use drip_core::protocol::EntryKind;
 
 #[test]
+#[cfg(not(windows))]
 fn file_selection_inventory_pages_directory_and_file_case_aliases() {
     let fixture = Fixture::new();
     let device = enroll(&fixture.store, "File root aliases");
@@ -59,6 +62,34 @@ fn file_selection_inventory_pages_directory_and_file_case_aliases() {
     assert_eq!(seen, expected);
 }
 
+#[test]
+#[cfg(windows)]
+fn file_selection_resolves_case_variant_to_existing_windows_entry() {
+    let fixture = Fixture::new();
+    let device = enroll(&fixture.store, "Windows file alias");
+    let credential = device.device_credential.expose_secret();
+    let selected = source(&["scope", "selected.bin"]);
+    let alias = source(&["SCOPE", "Selected.bin"]);
+    let selection_id = "f".repeat(32);
+    let generation = select_kind(
+        &fixture.store,
+        credential,
+        &selection_id,
+        selected,
+        EntryKind::File,
+    );
+    let alias_path = mirror_path(&fixture, &device, &alias);
+    fs::create_dir_all(alias_path.parent().unwrap()).unwrap();
+    fs::write(alias_path, b"retained alias").unwrap();
+
+    let page = fixture
+        .store
+        .list_entries_at_generation(credential, &selection_id, Some(generation), None)
+        .unwrap();
+    assert_eq!(page.entries.len(), 1);
+    assert_eq!(page.entries[0].source_path, alias);
+}
+
 fn source(components: &[&str]) -> SourcePath {
     SourcePath::new(
         'C',
@@ -70,6 +101,7 @@ fn source(components: &[&str]) -> SourcePath {
     .unwrap()
 }
 
+#[cfg(not(windows))]
 fn child(parent: &SourcePath, name: &str) -> SourcePath {
     let mut components = parent.components().to_vec();
     components.push(name.to_owned());
