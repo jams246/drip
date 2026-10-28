@@ -52,7 +52,7 @@ impl Tray {
                 let _ = quit_signal.send(true);
             }
         }));
-        let icon = Icon::from_rgba([0x47, 0xa9, 0xff, 0xff].repeat(16 * 16), 16, 16)?;
+        let icon = Icon::from_resource(1, Some((32, 32)))?;
         let icon = TrayIconBuilder::new()
             .with_tooltip("DRIP - Disconnected")
             .with_menu_on_left_click(false)
@@ -72,5 +72,20 @@ impl Tray {
         self.pause.set_enabled(enabled);
         self.icon.set_tooltip(Some(format!("DRIP - {status}")))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Icon;
+
+    #[test]
+    fn embedded_brand_icon_loads_at_windows_sizes() {
+        for size in [16, 20, 24, 32, 40, 48, 64, 128, 256] {
+            assert!(
+                Icon::from_resource(1, Some((size, size))).is_ok(),
+                "Could not load the embedded {size}px icon"
+            );
+        }
     }
 }

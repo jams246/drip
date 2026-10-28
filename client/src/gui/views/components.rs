@@ -18,20 +18,8 @@ pub(super) fn footer(connection: &str) -> impl IntoElement {
         "Paused" => theme::WARNING,
         _ => theme::ERROR,
     };
-    let marker = match connection {
-        "Connected" => div()
-            .w(px(8.))
-            .h(px(8.))
-            .rounded_full()
-            .bg(rgb(color))
-            .into_any_element(),
-        "Paused" => div().text_color(rgb(color)).child("Ⅱ").into_any_element(),
-        _ => div().text_color(rgb(color)).child("×").into_any_element(),
-    };
     div()
         .id("drip-footer")
-        .tab_index(0)
-        .focus(|style| style.border_color(rgb(theme::ACCENT)))
         .w_full()
         .flex()
         .flex_shrink_0()
@@ -46,15 +34,29 @@ pub(super) fn footer(connection: &str) -> impl IntoElement {
             div()
                 .flex()
                 .items_center()
-                .gap_2()
-                .px_3()
-                .py_2()
-                .rounded(px(6.))
-                .border_1()
-                .border_color(rgb(color))
-                .text_color(rgb(color))
-                .child(marker)
-                .child(connection.to_owned()),
+                .gap_3()
+                .h(px(44.))
+                .px_4()
+                .rounded_full()
+                .bg(rgb(color))
+                .text_color(rgb(theme::PAGE))
+                .text_size(px(16.))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .w(px(10.))
+                        .h(px(10.))
+                        .rounded_full()
+                        .bg(rgb(theme::PAGE)),
+                )
+                .child(
+                    div()
+                        .relative()
+                        .top(px(-2.))
+                        .line_height(px(20.))
+                        .child(connection.to_owned()),
+                ),
         )
         .child(
             div()

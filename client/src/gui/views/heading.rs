@@ -3,7 +3,9 @@ use gpui::{HighlightStyle, StyledText, UnderlineStyle, div, prelude::*, px, rgb}
 use super::{components, theme};
 
 pub(super) fn render() -> impl IntoElement {
-    let underline = HighlightStyle {
+    let initial = HighlightStyle {
+        color: Some(rgb(theme::ACCENT).into()),
+        font_weight: Some(gpui::FontWeight::BOLD),
         underline: Some(UnderlineStyle {
             color: Some(rgb(theme::ACCENT).into()),
             thickness: px(1.),
@@ -12,10 +14,10 @@ pub(super) fn render() -> impl IntoElement {
         ..Default::default()
     };
     let subtitle = StyledText::new("Directed Remote Incremental Push").with_highlights([
-        (0..1, underline),
-        (9..10, underline),
-        (16..17, underline),
-        (28..29, underline),
+        (0..1, initial),
+        (9..10, initial),
+        (16..17, initial),
+        (28..29, initial),
     ]);
     div()
         .id("drip-heading")
@@ -44,7 +46,7 @@ pub(super) fn render() -> impl IntoElement {
                 .child(
                     div()
                         .text_size(px(14.))
-                        .text_color(rgb(theme::MUTED))
+                        .text_color(rgb(theme::TEXT))
                         .child(subtitle),
                 ),
         )

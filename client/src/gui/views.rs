@@ -75,9 +75,6 @@ impl Render for Shell {
             .min_h_0()
             .overflow_y_scroll()
             .track_scroll(&panel_scroll)
-            .border_1()
-            .border_color(rgb(theme::PAGE))
-            .focus(|style| style.border_color(rgb(theme::ACCENT)))
             .bg(rgb(theme::PAGE))
             .px_8()
             .py_8()
@@ -109,7 +106,7 @@ fn navigation(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoElement {
         let index = tab.index();
         let id = tab.id();
         shell.tab_focus[index] = shell.tab_focus[index].clone().tab_stop(selected);
-        div()
+        let button = div()
             .id(format!("drip-tab-{id}"))
             .track_focus(&shell.tab_focus[index])
             .tab_index(0)
@@ -119,13 +116,15 @@ fn navigation(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoElement {
             .min_h(px(44.))
             .px_5()
             .rounded_t(px(8.))
-            .border_1()
-            .when(selected, |tab| tab.border_b_0().mb(px(-1.)))
-            .border_color(rgb(if selected {
-                theme::BORDER
-            } else {
-                theme::PANEL
-            }))
+            .border_b_1()
+            .border_color(rgb(theme::BORDER))
+            .when(selected, |tab| {
+                tab.border_t_1()
+                    .border_l_1()
+                    .border_r_1()
+                    .border_b_0()
+                    .px(px(19.))
+            })
             .bg(rgb(if selected { theme::PAGE } else { theme::PANEL }))
             .text_color(rgb(if selected { theme::TEXT } else { theme::MUTED }))
             .font_weight(if selected {
@@ -133,11 +132,15 @@ fn navigation(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoElement {
             } else {
                 gpui::FontWeight::NORMAL
             })
-            .focus(|style| style.border_color(rgb(theme::ACCENT)))
+            .focus_visible(|style| style.border_color(rgb(theme::ACCENT)))
+            .cursor_pointer()
             .hover(|style| style.bg(rgb(if selected { theme::PAGE } else { 0x282c34 })))
-            .on_click(cx.listener(move |shell, _, window, cx| {
-                shell.select_tab(tab, window, cx);
-            }))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |shell, _, window, cx| {
+                    shell.select_tab(tab, window, cx);
+                }),
+            )
             .on_key_down(
                 cx.listener(move |shell, event: &gpui::KeyDownEvent, window, cx| {
                     let next = match event.keystroke.key.as_str() {
@@ -153,25 +156,26 @@ fn navigation(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoElement {
                     }
                 }),
             )
-            .child(tab.label())
+            .child(tab.label());
+        div()
+            .flex()
+            .items_end()
+            .child(button)
+            .child(div().w(px(4.)).h(px(1.)).bg(rgb(theme::BORDER)))
     });
     div()
         .id("drip-tabs")
-        .relative()
         .flex()
         .flex_shrink_0()
         .items_end()
-        .gap_1()
-        .px_8()
         .bg(rgb(theme::PANEL))
+        .child(div().w(px(32.)).h(px(1.)).bg(rgb(theme::BORDER)))
+        .children(tabs)
         .child(
             div()
-                .absolute()
-                .bottom_0()
-                .left_0()
-                .right_0()
+                .flex_1()
+                .min_w(px(32.))
                 .h(px(1.))
                 .bg(rgb(theme::BORDER)),
         )
-        .children(tabs)
 }

@@ -13,6 +13,9 @@ path = "src/lib.rs"
 name = "drip"
 path = "src/main.rs"
 
+[build-dependencies]
+embed-resource = "=3.0.12"
+
 [dependencies]
 blake3 = { workspace = true }
 clap = { workspace = true }

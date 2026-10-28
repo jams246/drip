@@ -42,20 +42,23 @@ fn paths(glyph: Glyph, bounds: Bounds<Pixels>) -> Vec<(Path<Pixels>, Hsla)> {
     match glyph {
         Glyph::Brand => {
             let mut drop = PathBuilder::fill();
-            drop.move_to(at(12., 1.));
-            drop.cubic_bezier_to(at(3., 13.), at(9., 6.), at(4., 9.));
-            drop.cubic_bezier_to(at(12., 23.), at(3., 20.), at(6., 23.));
-            drop.cubic_bezier_to(at(21., 13.), at(18., 23.), at(21., 20.));
-            drop.cubic_bezier_to(at(12., 1.), at(20., 9.), at(15., 6.));
+            drop.move_to(at(12., 2.));
+            drop.cubic_bezier_to(at(20.5, 14.5), at(13.5, 6.), at(20.5, 10.));
+            drop.cubic_bezier_to(at(12., 23.), at(20.5, 19.2), at(16.7, 23.));
+            drop.cubic_bezier_to(at(3.5, 14.5), at(7.3, 23.), at(3.5, 19.2));
+            drop.cubic_bezier_to(at(12., 2.), at(3.5, 10.), at(10.5, 6.));
             drop.close();
             push(&mut paths, drop, rgb(theme::ACCENT).into());
 
-            let mut arrow = PathBuilder::stroke(px(2.));
-            arrow.move_to(at(12., 18.));
-            arrow.line_to(at(12., 8.));
-            arrow.move_to(at(8.5, 11.5));
-            arrow.line_to(at(12., 8.));
-            arrow.line_to(at(15.5, 11.5));
+            let mut arrow = PathBuilder::fill();
+            arrow.move_to(at(11., 19.));
+            arrow.line_to(at(13., 19.));
+            arrow.line_to(at(13., 12.5));
+            arrow.line_to(at(16., 12.5));
+            arrow.line_to(at(12., 8.5));
+            arrow.line_to(at(8., 12.5));
+            arrow.line_to(at(11., 12.5));
+            arrow.close();
             push(&mut paths, arrow, rgb(theme::PAGE).into());
         }
         Glyph::Folder | Glyph::FolderFilled => {
