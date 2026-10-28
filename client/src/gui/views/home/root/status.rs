@@ -1,6 +1,4 @@
-use drip_client::{
-    ConnectionState, EventKind, RootStatus, SelectionProgress, SelectionState, UploadPhase,
-};
+use drip_client::{ConnectionState, EventKind, RootStatus, SelectionProgress, SelectionState};
 
 use super::super::progress;
 use crate::gui::{theme, views::components::Glyph};
@@ -97,13 +95,10 @@ pub(super) fn last_file_label(kind: EventKind) -> Option<&'static str> {
     }
 }
 
-pub(in crate::gui::views::home) fn is_indeterminate(progress: &SelectionProgress) -> bool {
-    progress.file.phase == UploadPhase::Verifying || progress.file.total_bytes.unwrap_or(0) == 0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use drip_client::UploadPhase;
 
     fn progress() -> SelectionProgress {
         SelectionProgress {

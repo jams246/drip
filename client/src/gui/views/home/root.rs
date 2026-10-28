@@ -3,14 +3,13 @@ mod status;
 use drip_client::{RootStatus, SelectionProgress};
 use gpui::{Context, IntoElement, div, prelude::*, px, rgb};
 
-use super::progress;
 use crate::gui::{
     model::Shell,
     theme,
     views::components::{self, Glyph},
 };
 
-pub(super) use status::{is_indeterminate, visible_progress};
+pub(super) use status::visible_progress;
 
 pub(super) fn card(
     shell: &Shell,
@@ -18,7 +17,7 @@ pub(super) fn card(
     root_status: Option<&RootStatus>,
     current: Option<&SelectionProgress>,
     last_file: Option<&drip_client::LifecycleEvent>,
-    animation_offset: Option<f32>,
+    progress_view: impl IntoElement,
     cx: &mut Context<Shell>,
 ) -> impl IntoElement {
     let path = selection.source.to_windows_path();
@@ -97,7 +96,7 @@ pub(super) fn card(
                     components::breakable_path(&current_path)
                 )),
         );
-        card = card.child(progress::render(current, animation_offset));
+        card = card.child(progress_view);
     } else if let Some(message) = last_file.and_then(|event| status::last_file_label(event.kind)) {
         card = card.child(
             div()

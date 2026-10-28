@@ -4,6 +4,8 @@ mod logs;
 mod settings;
 mod watch;
 
+pub(super) use home::progress::ProgressView;
+
 use std::time::Instant;
 
 use gpui::{
@@ -42,7 +44,10 @@ impl Render for Shell {
             .id("drip-tab-panel")
             .track_focus(&self.focus)
             .tab_index(0)
+            .flex()
+            .flex_col()
             .flex_1()
+            .h(px(0.))
             .min_h_0()
             .overflow_y_scroll()
             .bg(rgb(theme::PAGE))
@@ -86,6 +91,7 @@ fn heading() -> impl IntoElement {
     div()
         .id("drip-heading")
         .flex()
+        .flex_shrink_0()
         .items_center()
         .gap_4()
         .px_8()
@@ -167,6 +173,7 @@ fn navigation(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoElement {
         .id("drip-tabs")
         .relative()
         .flex()
+        .flex_shrink_0()
         .items_end()
         .gap_1()
         .px_8()

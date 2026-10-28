@@ -34,6 +34,7 @@ pub(super) fn footer(connection: &str) -> impl IntoElement {
         .focus(|style| style.border_color(rgb(theme::ACCENT)))
         .w_full()
         .flex()
+        .flex_shrink_0()
         .items_center()
         .justify_between()
         .border_t_1()

@@ -1,10 +1,43 @@
-use std::time::Duration;
+use std::sync::OnceLock;
+use std::time::Instant;
 
 use drip_client::{SelectionProgress, UploadPhase};
-use gpui::{IntoElement, div, prelude::*, px, relative, rgb};
+use gpui::{
+    Bounds, Context, IntoElement, Pixels, Render, Window, div, prelude::*, px, relative, rgb,
+};
 
 use crate::gui::theme;
 
+static ANIMATION_ORIGIN: OnceLock<Instant> = OnceLock::new();
+
+#[derive(Default)]
+pub(in crate::gui) struct ProgressView {
+    progress: Option<SelectionProgress>,
+}
+
+impl ProgressView {
+    pub(super) fn set_progress(
+        &mut self,
+        progress: Option<SelectionProgress>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.progress != progress {
+            self.progress = progress;
+            cx.notify();
+        }
+    }
+}
+
+impl Render for ProgressView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        match self.progress.as_ref() {
+            Some(progress) => render(progress).into_any_element(),
+            None => div().into_any_element(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(super) struct Stage {
     pub label: &'static str,
     pub percent: Option<u8>,
@@ -30,10 +63,42 @@ pub(super) fn measurement(progress: &SelectionProgress) -> Option<u8> {
     Some(((u128::from(progress.file.processed_bytes) * 100) / u128::from(total)).min(100) as u8)
 }
 
-pub(super) fn render(
-    progress: &SelectionProgress,
-    animation_offset: Option<f32>,
-) -> impl IntoElement {
+fn animation_visible(bounds: Bounds<Pixels>, mask: Bounds<Pixels>) -> bool {
+    bounds.intersects(&mask)
+}
+
+fn indeterminate_segment() -> impl IntoElement {
+    let origin = *ANIMATION_ORIGIN.get_or_init(Instant::now);
+    gpui::canvas(
+        |bounds, window, _| {
+            let visible = animation_visible(bounds, window.content_mask().bounds);
+            if visible {
+                window.request_animation_frame();
+            }
+            visible
+        },
+        move |bounds, visible, window, _| {
+            if !visible {
+                return;
+            }
+            let phase = origin.elapsed().as_secs_f32() / 1.2 % 1.0;
+            let width = bounds.size.width * 0.25;
+            let travel = bounds.size.width - width;
+            let segment = Bounds::new(
+                gpui::point(bounds.origin.x + travel * phase, bounds.origin.y),
+                gpui::size(width, bounds.size.height),
+            );
+            window.paint_quad(gpui::fill(segment, rgb(theme::ACCENT)).corner_radii(px(4.)));
+        },
+    )
+    .absolute()
+    .top_0()
+    .bottom_0()
+    .left_0()
+    .right_0()
+}
+
+pub(super) fn render(progress: &SelectionProgress) -> impl IntoElement {
     let mut stage = stage(progress.file.phase);
     stage.percent = measurement(progress);
     let indicator = div()
@@ -42,9 +107,6 @@ pub(super) fn render(
         .flex_col()
         .gap_2()
         .pt_2();
-    if let Some(percent) = stage.percent {
-        indicator = indicator;
-    }
     let mut labels = div()
         .flex()
         .justify_between()
@@ -63,15 +125,9 @@ pub(super) fn render(
             .rounded_full()
             .w(relative(f32::from(percent) / 100.))
             .bg(rgb(theme::ACCENT))
+            .into_any_element()
     } else {
-        div()
-            .absolute()
-            .top_0()
-            .bottom_0()
-            .left(relative(animation_offset.unwrap_or(0.)))
-            .rounded_full()
-            .w(relative(0.25))
-            .bg(rgb(theme::ACCENT))
+        indeterminate_segment().into_any_element()
     };
     indicator
         .child(labels)
@@ -93,79 +149,6 @@ pub(super) fn render(
         )
 }
 
-pub(super) fn animation_offset(elapsed: Duration) -> f32 {
-    (elapsed.as_millis() % 1200) as f32 / 1200. * 0.75
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use drip_core::SourcePath;
-
-    fn progress(phase: UploadPhase, processed: u64, total: Option<u64>) -> SelectionProgress {
-        SelectionProgress {
-            selection_id: "root".into(),
-            operation_id: "upload".into(),
-            source_bytes_processed: processed,
-            uploaded_file_bytes: 0,
-            file: drip_client::ProgressSnapshot {
-                phase,
-                source_path: SourcePath::new('C', vec!["file.bin".into()]).unwrap(),
-                processed_bytes: processed,
-                total_bytes: total,
-                source_hashed_bytes: processed,
-                source_chunked_bytes: processed,
-                chunk_count: 1,
-                planned_payload_bytes: processed,
-                file_payload_sent: 0,
-            },
-        }
-    }
-
-    #[test]
-    fn stage_measurement_clamps_zero_partial_complete_and_over_total() {
-        let phase = UploadPhase::Hashing;
-        assert_eq!(measurement(&progress(phase, 0, Some(10))), Some(0));
-        assert_eq!(measurement(&progress(phase, 5, Some(10))), Some(50));
-        assert_eq!(measurement(&progress(phase, 10, Some(10))), Some(100));
-        assert_eq!(measurement(&progress(phase, 15, Some(10))), Some(100));
-    }
-
-    #[test]
-    fn unknown_or_zero_total_has_no_measurement() {
-        assert_eq!(measurement(&progress(UploadPhase::Chunking, 3, None)), None);
-        assert_eq!(
-            measurement(&progress(UploadPhase::Uploading, 3, Some(0))),
-            None
-        );
-    }
-
-    #[test]
-    fn large_counters_use_overflow_safe_ratio() {
-        assert_eq!(
-            measurement(&progress(
-                UploadPhase::Hashing,
-                u64::MAX / 2,
-                Some(u64::MAX)
-            )),
-            Some(49)
-        );
-    }
-
-    #[test]
-    fn verifying_never_exposes_numeric_progress() {
-        let progress = progress(UploadPhase::Verifying, 10, Some(10));
-        assert_eq!(measurement(&progress), None);
-        assert_eq!(stage(UploadPhase::Verifying).label, "Checking upload");
-    }
-
-    #[test]
-    fn phase_change_uses_new_stage_and_its_measurement() {
-        let hashing = progress(UploadPhase::Hashing, 10, Some(10));
-        let chunking = progress(UploadPhase::Chunking, 0, Some(10));
-        assert_eq!(stage(hashing.file.phase).label, "Preparing file");
-        assert_eq!(measurement(&hashing), Some(100));
-        assert_eq!(stage(chunking.file.phase).label, "Preparing changes");
-        assert_eq!(measurement(&chunking), Some(0));
-    }
-}
+#[path = "progress_tests.rs"]
+mod tests;

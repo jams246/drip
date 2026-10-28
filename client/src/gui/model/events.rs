@@ -112,6 +112,18 @@ mod tests {
     }
 
     #[test]
+    fn current_hash_progress_is_accepted_before_upload_started() {
+        let mut state = UiState {
+            worker_generation: 1,
+            ..UiState::default()
+        };
+        let mut hashing = progress();
+        hashing.file.phase = UploadPhase::Hashing;
+        state.progress(1, Some(hashing.clone()));
+        assert_eq!(state.progress, Some(hashing));
+    }
+
+    #[test]
     fn late_progress_cannot_resurrect_a_verified_upload() {
         let mut state = UiState {
             worker_generation: 1,

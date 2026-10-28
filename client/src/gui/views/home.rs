@@ -1,7 +1,5 @@
-mod progress;
+pub(super) mod progress;
 mod root;
-
-use std::time::{Duration, Instant};
 
 use gpui::{Context, div, prelude::*, rgb};
 
@@ -12,6 +10,22 @@ use super::super::{
 use super::components;
 
 pub(super) fn render(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoElement {
+    let active: Vec<_> = shell
+        .state
+        .settings
+        .selections
+        .iter()
+        .filter(|item| item.active)
+        .collect();
+    shell
+        .progress_views
+        .retain(|id, _| active.iter().any(|selection| selection.id == *id));
+    for selection in &active {
+        shell
+            .progress_views
+            .entry(selection.id.clone())
+            .or_insert_with(|| cx.new(|_| progress::ProgressView::default()));
+    }
     let mut page = div()
         .id("drip-home")
         .w_full()
@@ -30,12 +44,6 @@ pub(super) fn render(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoEle
     if shell.state.quitting {
         page = page.child(components::message("home-stopping", "Stopped"));
     }
-    let active = shell
-        .state
-        .settings
-        .selections
-        .iter()
-        .filter(|item| item.active);
     let mut has_rows = false;
     for selection in active {
         has_rows = true;
@@ -56,12 +64,17 @@ pub(super) fn render(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoEle
                 status,
             )
         });
+        let progress_view = shell.progress_views.get(&selection.id).unwrap().clone();
+        progress_view.update(cx, |view, cx| view.set_progress(current.cloned(), cx));
         let last_file = shell.state.last_file.get(&selection.id);
-        let offset = shell
-            .progress_animation_started
-            .map(|start| progress::animation_offset(start.elapsed()));
         page = page.child(root::card(
-            shell, selection, status, current, last_file, offset, cx,
+            shell,
+            selection,
+            status,
+            current,
+            last_file,
+            progress_view,
+            cx,
         ));
     }
     if !has_rows {
@@ -82,65 +95,5 @@ pub(super) fn render(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoEle
                 )),
         );
     }
-    if should_animate(shell) {
-        start_animation(shell, cx);
-    }
     page
-}
-
-fn should_animate(shell: &Shell) -> bool {
-    if shell.tab != Tab::Home || shell.state.quitting {
-        return false;
-    }
-    let Some(progress) = shell.state.progress.as_ref() else {
-        return false;
-    };
-    if !root::is_indeterminate(progress) {
-        return false;
-    }
-    let status = shell
-        .state
-        .status
-        .roots
-        .iter()
-        .find(|root| root.selection_id == progress.selection_id);
-    root::visible_progress(
-        shell.state.status.connection,
-        shell.control.borrow().paused,
-        shell.state.quitting,
-        Some(progress),
-        &progress.selection_id,
-        status,
-    )
-}
-
-fn start_animation(shell: &mut Shell, cx: &mut Context<Shell>) {
-    if shell.progress_animation_active {
-        return;
-    }
-    shell.progress_animation_active = true;
-    shell.progress_animation_started = Some(Instant::now());
-    cx.spawn(async move |this, cx| {
-        loop {
-            cx.background_executor()
-                .timer(Duration::from_millis(80))
-                .await;
-            let running = this
-                .update(cx, |shell, cx| {
-                    if should_animate(shell) {
-                        cx.notify();
-                        true
-                    } else {
-                        shell.progress_animation_active = false;
-                        shell.progress_animation_started = None;
-                        false
-                    }
-                })
-                .unwrap_or(false);
-            if !running {
-                break;
-            }
-        }
-    })
-    .detach();
 }

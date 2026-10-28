@@ -8,7 +8,7 @@ use drip_client::{
 use gpui::{AppContext, Context, Entity, FocusHandle};
 use tokio::sync::{mpsc, watch};
 
-use super::{input::Input, runtime::Request};
+use super::{input::Input, runtime::Request, views::ProgressView};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum FeedbackSeverity {
@@ -129,14 +129,13 @@ pub(super) struct Shell {
     pub server: Entity<Input>,
     pub token: Entity<Input>,
     pub pc_name: Entity<Input>,
+    pub progress_views: HashMap<String, Entity<ProgressView>>,
     pub focus: FocusHandle,
     pub tab_focus: [FocusHandle; 4],
     pub requests: mpsc::Sender<Request>,
     pub control: watch::Sender<RunControl>,
     pub quit: watch::Sender<bool>,
     pub opened: bool,
-    pub progress_animation_active: bool,
-    pub progress_animation_started: Option<std::time::Instant>,
 }
 
 impl Shell {
@@ -159,14 +158,13 @@ impl Shell {
             server: cx.new(|cx| Input::new("server-url", false, cx)),
             token: cx.new(|cx| Input::new("registration-token", true, cx)),
             pc_name,
+            progress_views: HashMap::new(),
             focus: cx.focus_handle().tab_stop(true),
             tab_focus: std::array::from_fn(|_| cx.focus_handle()),
             requests,
             control,
             quit,
             opened: false,
-            progress_animation_active: false,
-            progress_animation_started: None,
         }
     }
 }
