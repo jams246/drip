@@ -73,6 +73,7 @@ pub(super) fn selection_details(shell: &Shell) -> impl IntoElement {
             let mirror = mirror_path(&binding.mirror_directory, &selection.source);
             card = card.child(
                 div()
+                    .id(format!("activity-selection-{}", selection.id))
                     .flex()
                     .flex_col()
                     .gap_1()
@@ -94,6 +95,7 @@ pub(super) fn selection_details(shell: &Shell) -> impl IntoElement {
 
 fn detail_row(label: &str, value: &str) -> impl IntoElement {
     div()
+        .id(format!("detail-{label}"))
         .flex()
         .items_start()
         .gap_6()

@@ -1,7 +1,4 @@
-use std::{
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{path::PathBuf, sync::atomic::AtomicU64};
 
 use drip_core::{
     SensitiveString, SourcePath,
@@ -24,10 +21,7 @@ impl Fixture {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join(".verification/phase-02/server-tests");
-        std::fs::create_dir_all(&parent).unwrap();
-        let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-        let root = parent.join(format!("{}-mutation-{suffix}", std::process::id()));
-        std::fs::create_dir(&root).unwrap();
+        let root = crate::upload_test_support::create_test_dir(&parent, "mutation", &NEXT_FIXTURE);
         let store = Store::open(root.join("state"), root.join("mirror")).unwrap();
         let token = store.create_enrollment_token().unwrap();
         let device = store

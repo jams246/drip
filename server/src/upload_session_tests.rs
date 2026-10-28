@@ -1,8 +1,4 @@
-use std::{
-    path::PathBuf,
-    sync::Arc,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{path::PathBuf, sync::Arc, sync::atomic::AtomicU64};
 
 use cap_std::{ambient_authority, fs::Dir};
 use drip_core::protocol::UploadState;
@@ -110,9 +106,5 @@ fn test_root(name: &str) -> PathBuf {
     let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(".verification/phase-02/server-tests");
-    std::fs::create_dir_all(&parent).unwrap();
-    let suffix = NEXT_ROOT.fetch_add(1, Ordering::Relaxed);
-    let root = parent.join(format!("{}-{name}-{suffix}", std::process::id()));
-    std::fs::create_dir(&root).unwrap();
-    root
+    crate::upload_test_support::create_test_dir(&parent, name, &NEXT_ROOT)
 }

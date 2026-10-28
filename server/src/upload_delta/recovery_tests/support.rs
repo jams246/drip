@@ -1,8 +1,4 @@
-use std::{
-    io::Cursor,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{io::Cursor, path::PathBuf, sync::atomic::AtomicU64};
 
 use axum::body::Body;
 use drip_core::protocol::UploadPrepareRequest;
@@ -27,10 +23,7 @@ pub(super) fn root() -> (PathBuf, TestRoot) {
     let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(".verification/phase-03/server-recovery-tests");
-    std::fs::create_dir_all(&parent).unwrap();
-    let suffix = NEXT_ROOT.fetch_add(1, Ordering::Relaxed);
-    let path = parent.join(format!("{}-{suffix}", std::process::id()));
-    std::fs::create_dir(&path).unwrap();
+    let path = crate::upload_test_support::create_test_dir(&parent, "recovery", &NEXT_ROOT);
     (path.clone(), TestRoot(path))
 }
 

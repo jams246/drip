@@ -1,7 +1,4 @@
-use std::{
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{path::PathBuf, sync::atomic::AtomicU64};
 
 use drip_core::SourcePath;
 use rusqlite::Connection;
@@ -15,10 +12,7 @@ fn legacy_selection_rows_migrate_to_file_roots() {
     let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(".verification/phase-02/schema-migrations");
-    std::fs::create_dir_all(&parent).unwrap();
-    let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let root = parent.join(format!("{}-{suffix}", std::process::id()));
-    std::fs::create_dir(&root).unwrap();
+    let root = crate::upload_test_support::create_test_dir(&parent, "schema", &NEXT_FIXTURE);
     let state = root.join("state");
     std::fs::create_dir(&state).unwrap();
     let database = state.join("drip.sqlite3");

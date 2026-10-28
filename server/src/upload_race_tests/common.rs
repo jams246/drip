@@ -1,7 +1,7 @@
 use std::{
     path::{Path, PathBuf},
     process::{Command, Output},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::AtomicU64,
     thread::JoinHandle,
 };
 
@@ -40,10 +40,8 @@ impl Fixture {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join(".verification/phase-02/server-tests");
-        std::fs::create_dir_all(&parent).unwrap();
-        let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-        let root = parent.join(format!("{}-upload-race-{suffix}", std::process::id()));
-        std::fs::create_dir(&root).unwrap();
+        let root =
+            crate::upload_test_support::create_test_dir(&parent, "upload-race", &NEXT_FIXTURE);
         let state_dir = root.join("state");
         let mirror_dir = root.join("mirror");
         let store = Store::open(&state_dir, &mirror_dir).unwrap();

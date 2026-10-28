@@ -3,11 +3,7 @@ mod assertions;
 #[path = "fixture/setup.rs"]
 mod setup;
 
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{fs, path::PathBuf, sync::atomic::AtomicU64};
 
 use drip_core::SourcePath;
 
@@ -194,11 +190,7 @@ fn fixture_root() -> PathBuf {
     let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(".verification/phase-02/server-tests");
-    fs::create_dir_all(&parent).unwrap();
-    let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let root = parent.join(format!("{}-exchange-fault-{suffix}", std::process::id()));
-    fs::create_dir(&root).unwrap();
-    root
+    crate::upload_test_support::create_test_dir(&parent, "exchange-fault", &NEXT_FIXTURE)
 }
 
 fn child(parent: &SourcePath, name: &str) -> SourcePath {
