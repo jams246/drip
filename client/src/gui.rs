@@ -39,9 +39,9 @@ struct Lifetime {
 
 impl Global for Lifetime {}
 
-pub(super) fn run(_background: bool, listener: Option<OpenListener>) -> Result<(), Box<dyn Error>> {
+pub(super) fn run(background: bool, listener: Option<OpenListener>) -> Result<(), Box<dyn Error>> {
     gpui_platform::application().run(move |cx: &mut App| {
-        if let Err(error) = start(cx, listener) {
+        if let Err(error) = start(cx, listener, background) {
             eprintln!("Could not open Drip: {error}");
             cx.quit();
         }
@@ -49,7 +49,11 @@ pub(super) fn run(_background: bool, listener: Option<OpenListener>) -> Result<(
     Ok(())
 }
 
-fn start(cx: &mut App, listener: Option<OpenListener>) -> Result<(), Box<dyn Error>> {
+fn start(
+    cx: &mut App,
+    listener: Option<OpenListener>,
+    background: bool,
+) -> Result<(), Box<dyn Error>> {
     input::init(cx);
     cx.bind_keys([
         KeyBinding::new("tab", NextFocus, None),
@@ -78,7 +82,7 @@ fn start(cx: &mut App, listener: Option<OpenListener>) -> Result<(), Box<dyn Err
                 cx,
             ))),
             window_min_size: Some(size(px(720.), px(480.))),
-            show: false,
+            show: !background,
             ..Default::default()
         },
         |window, cx| {
@@ -91,7 +95,9 @@ fn start(cx: &mut App, listener: Option<OpenListener>) -> Result<(), Box<dyn Err
             cx.new(|cx| Shell::new(shell_requests, shell_control, shell_quit, cx))
         },
     )?;
-    window.update(cx, |_, window, _cx| native::hide(window))??;
+    if background {
+        window.update(cx, |_, window, _cx| native::hide(window))??;
+    }
     let tray = tray::Tray::new(commands.clone(), control.clone(), quit.clone())?;
     let backend = runtime::start(request_rx, events.clone(), control.clone(), quit);
     let ipc_events = events.clone();
