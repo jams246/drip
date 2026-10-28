@@ -1,5 +1,7 @@
 use gpui::{App, KeyBinding, actions};
 
+use super::super::{NextFocus, PreviousFocus};
+
 actions!(
     drip_input,
     [
@@ -20,6 +22,8 @@ actions!(
 
 pub(super) fn init(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new("tab", NextFocus, Some("DripInput")),
+        KeyBinding::new("shift-tab", PreviousFocus, Some("DripInput")),
         KeyBinding::new("backspace", Backspace, Some("DripInput")),
         KeyBinding::new("delete", Delete, Some("DripInput")),
         KeyBinding::new("left", Left, Some("DripInput")),
