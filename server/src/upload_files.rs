@@ -102,14 +102,23 @@ pub(crate) fn check_stage_snapshot(
 }
 
 pub(crate) fn fsync_directory(directory: &Dir) -> StoreResult<()> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    options.follow(FollowSymlinks::No);
-    directory
-        .open_with(".", &options)
-        .map_err(database::io_error)?
-        .sync_all()
-        .map_err(database::io_error)
+    #[cfg(windows)]
+    {
+        // Windows directory handles cannot be flushed through the read-only handle cap-std exposes.
+        let _ = directory;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let mut options = OpenOptions::new();
+        options.read(true);
+        options.follow(FollowSymlinks::No);
+        directory
+            .open_with(".", &options)
+            .map_err(database::io_error)?
+            .sync_all()
+            .map_err(database::io_error)
+    }
 }
 
 pub(crate) fn publish(
