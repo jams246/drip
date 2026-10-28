@@ -1,7 +1,7 @@
 use std::io;
 
-use cap_fs_ext::{DirExt, FollowSymlinks, MetadataExt, OpenOptionsFollowExt};
-use cap_std::fs::{Dir, OpenOptions};
+use cap_fs_ext::{DirExt, MetadataExt};
+use cap_std::fs::Dir;
 use drip_core::{SourcePath, protocol::EntryKind};
 
 use crate::{
@@ -107,13 +107,9 @@ pub(crate) fn check_directory(
 }
 
 pub(crate) fn snapshot_directory(directory: &Dir) -> StoreResult<DirectorySnapshot> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    options.follow(FollowSymlinks::No);
-    let file = directory
-        .open_with(".", &options)
+    let metadata = directory
+        .symlink_metadata(".")
         .map_err(database::io_error)?;
-    let metadata = file.metadata().map_err(database::io_error)?;
     if !metadata.is_dir() {
         return Err(StoreError::Conflict);
     }

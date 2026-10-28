@@ -3,13 +3,14 @@ mod common;
 use std::fs;
 
 use common::{Fixture, enroll, mirror_path, select_kind};
-use drip_core::{
-    SourcePath,
-    protocol::{Entry, EntryDeleteRequest, EntryKind, EntryPrecondition},
-};
+#[cfg(not(windows))]
+use drip_core::protocol::{Entry, EntryDeleteRequest, EntryPrecondition};
+use drip_core::{SourcePath, protocol::EntryKind};
+#[cfg(not(windows))]
 use drip_server::StoreError;
 
 #[test]
+#[cfg(not(windows))]
 fn file_root_retires_old_spelling_directory_without_authorizing_current_descendants() {
     let fixture = Fixture::new();
     let device = enroll(&fixture.store, "File alias cleanup");
@@ -120,6 +121,43 @@ fn file_root_retires_old_spelling_directory_without_authorizing_current_descenda
     );
 }
 
+#[test]
+#[cfg(windows)]
+fn selected_case_variant_resolves_to_one_windows_directory_entry() {
+    let fixture = Fixture::new();
+    let device = enroll(&fixture.store, "Windows case lookup");
+    let credential = device.device_credential.expose_secret();
+    let selected = path(&["scope", "root.bin"]);
+    let selection_id = "d".repeat(32);
+    select_kind(
+        &fixture.store,
+        credential,
+        &selection_id,
+        selected.clone(),
+        EntryKind::File,
+    );
+
+    let root = mirror_path(&fixture, &device, &selected);
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("old.bin"), b"retained copy").unwrap();
+
+    let page = fixture
+        .store
+        .list_entries(credential, &selection_id, None)
+        .unwrap();
+    assert!(
+        page.entries
+            .iter()
+            .any(|entry| { entry.source_path == path(&["scope", "root.bin", "old.bin"]) })
+    );
+    assert!(
+        !page
+            .entries
+            .iter()
+            .any(|entry| { entry.source_path == path(&["SCOPE", "ROOT.bin", "old.bin"]) })
+    );
+}
+
 fn path(components: &[&str]) -> SourcePath {
     SourcePath::new(
         'C',
@@ -131,6 +169,7 @@ fn path(components: &[&str]) -> SourcePath {
     .unwrap()
 }
 
+#[cfg(not(windows))]
 fn deletion(selection_id: &str, generation: u64, entry: &Entry) -> EntryDeleteRequest {
     EntryDeleteRequest {
         selection_id: selection_id.to_owned(),
