@@ -21,7 +21,16 @@ async fn empty_binary_and_multimegabyte_files_publish_with_actual_inventory() {
         ("binary.bin", vec![0, 1, 255, 13, 10, 0, 128]),
         ("large.bin", large),
     ];
-    let last_write = Timestamp::new(1_700_000_000, 123_456_789).unwrap();
+    // Windows stores file times in 100 ns units.
+    let last_write = Timestamp::new(
+        1_700_000_000,
+        if cfg!(windows) {
+            123_456_700
+        } else {
+            123_456_789
+        },
+    )
+    .unwrap();
     for (index, (name, bytes)) in files.iter().enumerate() {
         let source = SourcePath::new('C', vec!["nested".to_owned(), (*name).to_owned()]).unwrap();
         let selection_id = format!("{:032x}", index + 1);
