@@ -152,6 +152,31 @@ mod tests {
     }
 
     #[test]
+    fn control_retry_keeps_same_upload_open_for_next_progress_tick() {
+        let mut state = UiState {
+            worker_generation: 1,
+            ..UiState::default()
+        };
+        state.progress(1, Some(progress()));
+        let mut retry = completed();
+        retry.event.kind = EventKind::ControlRetry;
+        retry.event.message = "HTTP 503; upload plan retry 1 of 3".into();
+
+        state.activity(retry);
+
+        assert_eq!(state.progress, Some(progress()));
+        assert!(state.finished_operations.is_empty());
+        assert!(state.last_file.is_empty());
+        let mut next = progress();
+        next.file.phase = UploadPhase::Uploading;
+        next.file.file_payload_sent = 2;
+        next.uploaded_file_bytes = 2;
+        state.progress(1, Some(next.clone()));
+        assert_eq!(state.progress, Some(next));
+        assert!(state.finished_operations.is_empty());
+    }
+
+    #[test]
     fn prior_pairing_worker_cannot_override_current_progress_or_status() {
         let mut state = UiState {
             worker_generation: 2,

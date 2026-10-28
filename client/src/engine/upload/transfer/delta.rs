@@ -111,7 +111,15 @@ pub(super) async fn send(
             config: ChunkConfig::V1,
             descriptors: page.descriptors.clone(),
         };
-        let response = requests::plan(transport, credential, upload_id, &request).await?;
+        let response = requests::plan(
+            transport,
+            credential,
+            upload_id,
+            &request,
+            &source_path,
+            events,
+        )
+        .await?;
         let missing = missing_indices(&page.descriptors, &response.missing_ordinals)?;
         let missing_bytes = missing.iter().try_fold(0u64, |total, index| {
             total.checked_add(u64::from(page.descriptors[*index].length))

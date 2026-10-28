@@ -83,6 +83,7 @@ fn event_label(kind: drip_client::EventKind) -> &'static str {
         DirectoryCreated => "Directory created",
         Deleted => "Deleted",
         Retry => "Retry",
+        ControlRetry => "Upload control retry",
         Error => "Error",
         Cancelled => "Cancelled",
         SelectionChanged => "Selection changed",

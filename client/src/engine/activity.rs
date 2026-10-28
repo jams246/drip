@@ -50,6 +50,19 @@ pub enum ActivityEvent {
     },
     /// Current bounded upload progress.
     Progress(ProgressSnapshot),
+    /// Transient failure or recovery of an upload-plan request.
+    ControlRetry {
+        /// Source path whose upload plan is being retried.
+        source_path: SourcePath,
+        /// Request attempt, starting at one.
+        attempt: usize,
+        /// Maximum attempts for this upload-plan request.
+        max_attempts: usize,
+        /// HTTP status when available.
+        status: Option<u16>,
+        /// Whether this attempt recovered from an earlier failed request.
+        recovered: bool,
+    },
     /// Server verified and published the source.
     UploadCompleted {
         /// Original source path.

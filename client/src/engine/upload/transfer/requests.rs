@@ -44,10 +44,12 @@ pub(super) async fn plan(
     credential: &str,
     upload_id: &str,
     request: &UploadPlanRequest,
+    source_path: &SourcePath,
+    events: &mpsc::Sender<ActivityEvent>,
 ) -> Result<UploadPlanResponse, EngineError> {
     let path = format!("v1/uploads/{upload_id}/plan");
     for attempt in 1..=MAX_ATTEMPTS {
-        match api::json::<UploadPlanResponse, _>(
+        match api::json_with_status::<UploadPlanResponse, _>(
             transport,
             Method::POST,
             &path,
@@ -58,14 +60,57 @@ pub(super) async fn plan(
         .await
         {
             Err(error) if error.should_retry_request() && attempt < MAX_ATTEMPTS => {
+                let _ = events
+                    .send(control_retry(
+                        source_path,
+                        attempt,
+                        retry_status(&error),
+                        false,
+                    ))
+                    .await;
                 tokio::time::sleep(Duration::from_millis(100 * attempt as u64)).await;
             }
-            result => return result,
+            Ok((response, status)) => {
+                if attempt > 1 {
+                    let _ = events
+                        .send(control_retry(
+                            source_path,
+                            attempt,
+                            Some(status.as_u16()),
+                            true,
+                        ))
+                        .await;
+                }
+                return Ok(response);
+            }
+            Err(error) => return Err(error),
         }
     }
     Err(EngineError::InvalidResponse(
         "bounded upload plan retries exhausted without a result",
     ))
+}
+
+fn retry_status(error: &EngineError) -> Option<u16> {
+    match error {
+        EngineError::Api { status, .. } => Some(status.as_u16()),
+        _ => None,
+    }
+}
+
+fn control_retry(
+    source_path: &SourcePath,
+    attempt: usize,
+    status: Option<u16>,
+    recovered: bool,
+) -> ActivityEvent {
+    ActivityEvent::ControlRetry {
+        source_path: source_path.clone(),
+        attempt,
+        max_attempts: MAX_ATTEMPTS,
+        status,
+        recovered,
+    }
 }
 
 pub(super) async fn chunk(
@@ -180,33 +225,5 @@ async fn report_while_waiting<F: Future>(pending: F, progress: &ChunkProgress) -
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn pending_response_reports_the_latest_sent_bytes() {
-        let (events, mut received) = mpsc::channel(2);
-        let progress = ChunkProgress {
-            sent: Arc::new(AtomicU64::new(42)),
-            report_clock: Arc::new(Mutex::new(std::time::Instant::now())),
-            events,
-            source_path: SourcePath::new('C', vec!["file.bin".into()]).unwrap(),
-            source_hashed_bytes: 42,
-            source_chunked_bytes: 42,
-            chunk_count: 1,
-            planned_payload_bytes: 42,
-            total_bytes: None,
-        };
-        let waiting = tokio::spawn(async move {
-            report_while_waiting(std::future::pending::<()>(), &progress).await;
-        });
-        let event = tokio::time::timeout(Duration::from_secs(1), received.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(
-            matches!(event, ActivityEvent::Progress(snapshot) if snapshot.file_payload_sent == 42)
-        );
-        waiting.abort();
-    }
-}
+#[path = "requests/tests.rs"]
+mod tests;

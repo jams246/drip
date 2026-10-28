@@ -135,3 +135,37 @@ pub(super) fn apply(snapshot: &mut SyncSnapshot, event: &LifecycleEvent) {
         snapshot.roots.push(root);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn control_retry_preserves_processing_root_and_connection() {
+        let path = SourcePath::new('C', vec!["file.bin".into()]).unwrap();
+        let mut snapshot = SyncSnapshot {
+            connection: ConnectionState::Connected,
+            roots: vec![RootStatus {
+                selection_id: "root".into(),
+                source_path: path.clone(),
+                state: SelectionState::Uploading,
+                message: "upload in progress".into(),
+            }],
+            ..SyncSnapshot::default()
+        };
+        let before = snapshot.clone();
+        let event = LifecycleEvent {
+            timestamp: drip_core::Timestamp::new(1, 0).unwrap(),
+            kind: EventKind::ControlRetry,
+            selection_id: Some("root".into()),
+            source_path: Some(path),
+            operation_id: "upload".into(),
+            message: "HTTP 503; upload plan retry 1 of 3".into(),
+            progress: None,
+        };
+
+        apply(&mut snapshot, &event);
+
+        assert_eq!(snapshot, before);
+    }
+}

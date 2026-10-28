@@ -52,7 +52,7 @@ async fn accepted_chunk_response_loss_retries_and_counts_each_payload() {
                     _ => {}
                 },
                 ActivityEvent::UploadCompleted { .. } => completed += 1,
-                ActivityEvent::UploadStarted { .. } => {}
+                ActivityEvent::UploadStarted { .. } | ActivityEvent::ControlRetry { .. } => {}
             }
         }
         (completed, final_upload, verifying)

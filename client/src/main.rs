@@ -6,12 +6,14 @@ use std::{error::Error, path::PathBuf};
 #[cfg(windows)]
 use clap::{Parser, Subcommand};
 #[cfg(windows)]
-use drip_client::transport::ServerUrl;
+use drip_client::Engine;
 #[cfg(windows)]
-use drip_client::{ActivityEvent, Engine, UploadPhase};
+use drip_client::transport::ServerUrl;
 #[cfg(windows)]
 use tokio::sync::mpsc;
 
+#[cfg(windows)]
+mod cli_activity;
 #[cfg(windows)]
 mod cli_run;
 #[cfg(windows)]
@@ -179,7 +181,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 async fn upload(path: PathBuf) -> Result<(), Box<dyn Error>> {
     let engine = Engine::beside_executable()?;
     let (sender, receiver) = mpsc::channel(16);
-    let progress = tokio::spawn(report_progress(receiver));
+    let progress = tokio::spawn(cli_activity::report_progress(receiver));
     let result = engine.upload(&path, &sender).await;
     drop(sender);
     progress.await?;
@@ -190,29 +192,6 @@ async fn upload(path: PathBuf) -> Result<(), Box<dyn Error>> {
         result.digest.to_hex()
     );
     Ok(())
-}
-
-#[cfg(windows)]
-async fn report_progress(mut events: mpsc::Receiver<ActivityEvent>) {
-    let mut previous = None;
-    while let Some(event) = events.recv().await {
-        if let ActivityEvent::Progress(snapshot) = event {
-            let name = match snapshot.phase {
-                UploadPhase::Hashing => "Hashing",
-                UploadPhase::Chunking => "Chunking / hashing",
-                UploadPhase::Uploading => "Uploading",
-                UploadPhase::Verifying => "Verifying",
-            };
-            let stage_changed = previous != Some(snapshot.phase);
-            if stage_changed || snapshot.processed_bytes % (1024 * 1024) == 0 {
-                let total = snapshot
-                    .total_bytes
-                    .map_or_else(|| "unknown".to_owned(), |total| total.to_string());
-                eprintln!("{name}: {} of {total} bytes.", snapshot.processed_bytes);
-            }
-            previous = Some(snapshot.phase);
-        }
-    }
 }
 
 #[cfg(all(test, windows))]

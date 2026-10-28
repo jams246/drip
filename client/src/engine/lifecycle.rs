@@ -24,6 +24,7 @@ pub enum EventKind {
     DirectoryCreated,
     Deleted,
     Retry,
+    ControlRetry,
     Error,
     Cancelled,
     SelectionChanged,

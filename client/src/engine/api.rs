@@ -22,6 +22,23 @@ where
     T: DeserializeOwned,
     B: Serialize + ?Sized,
 {
+    json_with_status(transport, method, path, credential, query, body)
+        .await
+        .map(|(value, _)| value)
+}
+
+pub(super) async fn json_with_status<T, B>(
+    transport: &HttpTransport,
+    method: Method,
+    path: &str,
+    credential: Option<&str>,
+    query: &[(&str, &str)],
+    body: Option<&B>,
+) -> Result<(T, StatusCode), EngineError>
+where
+    T: DeserializeOwned,
+    B: Serialize + ?Sized,
+{
     let mut request = if query.is_empty() {
         transport.request(method, path)?
     } else {
@@ -43,7 +60,7 @@ where
     }
     let request = request.build().map_err(TransportError::Build)?;
     let response = transport.send(request).await?;
-    decode_json(response).await
+    decode_json_with_status(response).await
 }
 
 pub(super) async fn status(
@@ -69,13 +86,17 @@ pub(super) async fn ensure_success(response: Response) -> Result<(), EngineError
     Err(api_error(status, body))
 }
 
-async fn decode_json<T: DeserializeOwned>(response: Response) -> Result<T, EngineError> {
+async fn decode_json_with_status<T: DeserializeOwned>(
+    response: Response,
+) -> Result<(T, StatusCode), EngineError> {
     let status = response.status();
     let body = read_body(response).await?;
     if !status.is_success() {
         return Err(api_error(status, body));
     }
-    serde_json::from_slice(&body).map_err(EngineError::ResponseJson)
+    serde_json::from_slice(&body)
+        .map(|value| (value, status))
+        .map_err(EngineError::ResponseJson)
 }
 
 async fn read_body(response: Response) -> Result<Vec<u8>, EngineError> {

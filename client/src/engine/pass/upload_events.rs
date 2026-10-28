@@ -75,6 +75,21 @@ pub(super) fn start(
                             format!("verified publication of {size} bytes"),
                         ).await?;
                     }
+                    Some(ActivityEvent::ControlRetry { source_path, attempt, max_attempts, status, recovered }) => {
+                        let message = match (recovered, status) {
+                            (true, Some(status)) => format!("HTTP {status}; upload plan recovered on attempt {attempt} of {max_attempts}"),
+                            (false, Some(status)) => format!("HTTP {status}; upload plan retry {attempt} of {max_attempts}"),
+                            (true, None) => format!("Upload plan recovered on attempt {attempt} of {max_attempts}"),
+                            (false, None) => format!("Upload plan retry {attempt} of {max_attempts}"),
+                        };
+                        events.emit(
+                            EventKind::ControlRetry,
+                            Some(&selection),
+                            Some(&source_path),
+                            &operation,
+                            message,
+                        ).await?;
+                    }
                     None => {
                         if let Some(progress) = pending.take() {
                             timer.as_mut().await;
@@ -114,81 +129,5 @@ fn initial(size: u64, source_path: drip_core::SourcePath) -> ProgressSnapshot {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::sync::watch;
-
-    #[tokio::test]
-    async fn rapid_page_phase_changes_reach_lifecycle_and_keep_final_counters() {
-        let (lifecycle, mut received) = mpsc::channel(16);
-        let (progress, mut latest) = watch::channel(None);
-        let (sender, report) = start(
-            EventSink::new(lifecycle, progress),
-            "selection".into(),
-            "operation".into(),
-        );
-        let path = drip_core::SourcePath::new('C', vec!["file.bin".into()]).unwrap();
-        for (phase, sent) in [
-            (UploadPhase::Hashing, 0),
-            (UploadPhase::Chunking, 0),
-            (UploadPhase::Uploading, 1),
-            (UploadPhase::Chunking, 1),
-            (UploadPhase::Uploading, 2),
-            (UploadPhase::Verifying, 2),
-        ] {
-            sender
-                .send(ActivityEvent::Progress(ProgressSnapshot {
-                    phase,
-                    source_path: path.clone(),
-                    processed_bytes: sent,
-                    total_bytes: None,
-                    source_hashed_bytes: 10,
-                    source_chunked_bytes: 10,
-                    chunk_count: 2,
-                    planned_payload_bytes: 2,
-                    file_payload_sent: sent,
-                }))
-                .await
-                .unwrap();
-        }
-        sender
-            .send(ActivityEvent::UploadCompleted {
-                source_path: path,
-                size: 10,
-                digest: drip_core::Blake3Digest::new(*blake3::hash(b"0123456789").as_bytes()),
-            })
-            .await
-            .unwrap();
-        drop(sender);
-        report.await.unwrap().unwrap();
-
-        let mut phases = Vec::new();
-        let mut completed = 0;
-        while let Ok(event) = received.try_recv() {
-            match event.kind {
-                EventKind::Hashing
-                | EventKind::Chunking
-                | EventKind::Uploading
-                | EventKind::Verifying => phases.push(event.kind),
-                EventKind::UploadCompleted => completed += 1,
-                _ => {}
-            }
-        }
-        assert_eq!(
-            phases,
-            [
-                EventKind::Hashing,
-                EventKind::Chunking,
-                EventKind::Uploading,
-                EventKind::Chunking,
-                EventKind::Uploading,
-                EventKind::Verifying,
-            ]
-        );
-        assert_eq!(completed, 1);
-        let snapshot = latest.borrow_and_update().clone().unwrap();
-        assert_eq!(snapshot.file.phase, UploadPhase::Verifying);
-        assert_eq!(snapshot.file.file_payload_sent, 2);
-        assert_eq!(snapshot.file.planned_payload_bytes, 2);
-    }
-}
+#[path = "upload_events/tests.rs"]
+mod tests;
