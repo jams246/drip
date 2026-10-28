@@ -14,7 +14,7 @@ use drip_core::{
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn root_relocation_keeps_both_existing_case_aliases_for_inventory_cleanup() {
+async fn root_relocation_keeps_existing_source_and_destination_copies() {
     let fixture = Fixture::new();
     let device = enroll(&fixture.store, "Relocation collision");
     let credential = device.device_credential.expose_secret();
@@ -42,6 +42,7 @@ async fn root_relocation_keeps_both_existing_case_aliases_for_inventory_cleanup(
     )
     .await;
     let new_path = mirror_path(&fixture, &device, &new);
+    #[cfg(not(windows))]
     fs::create_dir(&new_path).unwrap();
     fs::write(new_path.join("retained.bin"), b"existing destination").unwrap();
 
@@ -75,17 +76,27 @@ async fn root_relocation_keeps_both_existing_case_aliases_for_inventory_cleanup(
             .iter()
             .any(|entry| entry.source_path == child(&old))
     );
+    #[cfg(not(windows))]
+    {
+        assert!(
+            inventory
+                .entries
+                .iter()
+                .any(|entry| entry.source_path == new)
+        );
+        assert!(
+            inventory
+                .entries
+                .iter()
+                .any(|entry| { entry.source_path == child_named(&new, "retained.bin") })
+        );
+    }
+    #[cfg(windows)]
     assert!(
         inventory
             .entries
             .iter()
-            .any(|entry| entry.source_path == new)
-    );
-    assert!(
-        inventory
-            .entries
-            .iter()
-            .any(|entry| { entry.source_path == child_named(&new, "retained.bin") })
+            .any(|entry| { entry.source_path == child_named(&old, "retained.bin") })
     );
 }
 
