@@ -1,7 +1,9 @@
 mod status;
 
+use std::time::Instant;
+
 use drip_client::{RootStatus, SelectionProgress};
-use gpui::{Context, IntoElement, div, prelude::*, px, rgb};
+use gpui::{Context, IntoElement, Window, div, prelude::*, px, rgb};
 
 use crate::gui::{
     model::Shell,
@@ -16,8 +18,8 @@ pub(super) fn card(
     selection: &drip_client::settings::SavedSelection,
     root_status: Option<&RootStatus>,
     current: Option<&SelectionProgress>,
-    last_file: Option<&drip_client::LifecycleEvent>,
     progress_view: impl IntoElement,
+    window: &mut Window,
     cx: &mut Context<Shell>,
 ) -> impl IntoElement {
     let path = selection.source.to_windows_path();
@@ -30,12 +32,12 @@ pub(super) fn card(
     let directory = selection.root_kind == drip_core::protocol::EntryKind::Directory;
 
     let label = status::label(
-        shell.state.status.connection,
+        shell.state.connection_at(Instant::now()),
         shell.control.borrow().paused,
         shell.state.quitting,
         root_status,
         current,
-        last_file,
+        shell.state.last_file.get(&selection.id),
     );
 
     let (glyph, color) = status::icon(label);
@@ -97,17 +99,14 @@ pub(super) fn card(
                 )),
         );
         card = card.child(progress_view);
-    } else if let Some(message) = last_file.and_then(|event| status::last_file_label(event.kind)) {
-        card = card.child(
-            div()
-                .id(format!("home-last-file-{}", selection.id))
-                .text_sm()
-                .text_color(rgb(theme::MUTED))
-                .child(message),
-        );
     }
     if matches!(label, "Needs attention" | "File or folder unavailable") {
-        card = card.child(components::activity_link(cx, "View Activity"));
+        card = card.child(components::activity_link(
+            cx,
+            window,
+            &format!("home-{}", selection.id),
+            "View Activity",
+        ));
     }
     card
 }

@@ -1,11 +1,14 @@
 mod events;
 
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    time::Instant,
+};
 
 use drip_client::{
     LifecycleEvent, RunControl, SelectionProgress, SyncSnapshot, settings::ClientSettings,
 };
-use gpui::{AppContext, Context, Entity, FocusHandle};
+use gpui::{AppContext, Context, Entity, FocusHandle, ScrollHandle};
 use tokio::sync::{mpsc, watch};
 
 use super::{input::Input, runtime::Request, views::ProgressView};
@@ -123,6 +126,16 @@ impl Default for UiState {
     }
 }
 
+impl UiState {
+    pub(super) fn connection_at(&self, now: Instant) -> drip_client::ConnectionState {
+        if self.status.footer_label(now) == "Disconnected" {
+            drip_client::ConnectionState::Disconnected
+        } else {
+            self.status.connection
+        }
+    }
+}
+
 pub(super) struct Shell {
     pub tab: Tab,
     pub state: UiState,
@@ -132,6 +145,7 @@ pub(super) struct Shell {
     pub progress_views: HashMap<String, Entity<ProgressView>>,
     pub focus: FocusHandle,
     pub tab_focus: [FocusHandle; 4],
+    pub tab_scroll: [ScrollHandle; 4],
     pub requests: mpsc::Sender<Request>,
     pub control: watch::Sender<RunControl>,
     pub quit: watch::Sender<bool>,
@@ -161,6 +175,7 @@ impl Shell {
             progress_views: HashMap::new(),
             focus: cx.focus_handle().tab_stop(true),
             tab_focus: std::array::from_fn(|_| cx.focus_handle()),
+            tab_scroll: std::array::from_fn(|_| ScrollHandle::new()),
             requests,
             control,
             quit,

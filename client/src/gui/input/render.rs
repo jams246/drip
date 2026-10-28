@@ -9,7 +9,7 @@ impl Render for Input {
             _window.notify_text_selection_changed(&self.focus_handle);
             self.pending_native_change = false;
         }
-        div()
+        crate::gui::focus::reveal(div(), &self.id, self.focus_handle.clone(), _window, cx)
             .id(format!("drip-input-{}", self.id))
             .key_context("DripInput")
             .track_focus(&self.focus_handle)

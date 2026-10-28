@@ -1,6 +1,6 @@
 use gpui::{ClickEvent, Context, IntoElement, Window, div, prelude::*, px, rgb};
 
-use crate::gui::{input::Input, model::Shell, theme};
+use crate::gui::{focus, input::Input, model::Shell, theme};
 
 #[derive(Clone, Copy)]
 pub(in crate::gui::views) enum ButtonKind {
@@ -10,6 +10,7 @@ pub(in crate::gui::views) enum ButtonKind {
 
 pub(in crate::gui::views) fn button(
     cx: &mut Context<Shell>,
+    window: &mut Window,
     id: impl Into<gpui::SharedString>,
     label: impl Into<gpui::SharedString>,
     kind: ButtonKind,
@@ -20,7 +21,9 @@ pub(in crate::gui::views) fn button(
     let label = label.into();
 
     let primary = matches!(kind, ButtonKind::Primary);
-    let button = div()
+    let focus = focus::handle(&id, enabled, window, cx);
+    let button = focus::reveal(div(), &id, focus.clone(), window, cx)
+        .track_focus(&focus)
         .id(id.clone())
         .tab_index(0)
         .tab_stop(enabled)
@@ -50,10 +53,13 @@ pub(in crate::gui::views) fn button(
 
 pub(in crate::gui::views) fn startup_checkbox(
     cx: &mut Context<Shell>,
+    window: &mut Window,
     checked: bool,
     enabled: bool,
 ) -> impl IntoElement {
-    let checkbox = div()
+    let focus = focus::handle("startup", enabled, window, cx);
+    let checkbox = focus::reveal(div(), "startup", focus.clone(), window, cx)
+        .track_focus(&focus)
         .id("drip-startup-setting")
         .tab_index(0)
         .tab_stop(enabled)
@@ -62,6 +68,9 @@ pub(in crate::gui::views) fn startup_checkbox(
         .gap_2()
         .min_h(px(36.))
         .text_color(rgb(theme::TEXT))
+        .border_1()
+        .border_color(gpui::transparent_black())
+        .rounded(px(6.))
         .focus(|style| style.border_color(rgb(theme::ACCENT)))
         .child(
             div()

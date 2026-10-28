@@ -23,9 +23,7 @@ pub(super) fn pairing(error: &EngineError) -> Feedback {
             "Could not reach the server. Check the address and connection."
         }
         EngineError::UnsupportedProtocol(_) => "This server uses an incompatible Drip version.",
-        EngineError::Credential(_) => {
-            "Registration could not be saved. Your prior registration remains unchanged."
-        }
+        EngineError::Credential(_) => "Registration could not be saved.",
         _ => "Could not connect. Check the server address and one-time token.",
     };
     failure(
@@ -39,8 +37,9 @@ pub(super) fn add_selection(error: &EngineError) -> Feedback {
         EngineError::Settings(SettingsError::Selection(SelectionError::Overlap(_))) => {
             "This file or folder overlaps another watched item."
         }
-        EngineError::Source(_) => {
-            "Could not access this file or folder. Check its path and permissions."
+        EngineError::Source(_)
+        | EngineError::Settings(SettingsError::Selection(SelectionError::Source(_))) => {
+            "Could not watch this item. Choose a supported local file or folder and check its permissions."
         }
         _ => "Could not add this file or folder. Check Activity for details.",
     };
@@ -49,9 +48,9 @@ pub(super) fn add_selection(error: &EngineError) -> Feedback {
 
 pub(super) fn remove_selection(error: &EngineError) -> Feedback {
     let summary = if uncertain_commit(error) {
-        "Stop watching is pending. Your server copy stays until the server confirms the change."
+        "Stop watching is pending. Your server copy is kept."
     } else {
-        "Could not confirm stop watching. Your server copy is kept while the change remains pending."
+        "Could not confirm stop watching. Your server copy is kept."
     };
     Feedback::new(summary, FeedbackSeverity::Warning, Some(error.to_string()))
 }
@@ -151,71 +150,5 @@ fn uncertain_commit(error: &EngineError) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use drip_client::transport::ServerUrlError;
-
-    #[test]
-    fn invalid_token_has_plain_language_summary_and_technical_detail() {
-        let feedback = pairing(&EngineError::InvalidEnrollmentToken);
-        assert_eq!(
-            feedback.summary,
-            "Check the one-time connection token and try again. Your previous registration stays unchanged."
-        );
-        assert_eq!(
-            feedback.detail.as_deref(),
-            Some("enrollment token must be 64 lowercase hexadecimal characters")
-        );
-    }
-
-    #[test]
-    fn invalid_server_address_does_not_expose_backend_text_in_summary() {
-        let error =
-            EngineError::Transport(TransportError::ServerUrl(ServerUrlError::HttpsRequired));
-        let feedback = pairing(&error);
-        assert!(
-            feedback
-                .summary
-                .starts_with("Enter a valid HTTPS server address.")
-        );
-        assert!(feedback.detail.unwrap().contains("HTTPS"));
-    }
-
-    #[test]
-    fn overlap_error_maps_without_parsing_its_display_text() {
-        let error = EngineError::Settings(SettingsError::Selection(SelectionError::Overlap(
-            r"C:\Users\Ada\Documents".into(),
-        )));
-        let feedback = add_selection(&error);
-        assert_eq!(
-            feedback.summary,
-            "This file or folder overlaps another watched item."
-        );
-        assert!(feedback.detail.unwrap().contains("Documents"));
-    }
-
-    #[test]
-    fn failed_removal_keeps_copy_warning_and_uncertain_detail() {
-        let error = EngineError::SelectionChanged;
-        let feedback = remove_selection(&error);
-        assert_eq!(feedback.severity, FeedbackSeverity::Warning);
-        assert!(feedback.summary.contains("server copy is kept"));
-        assert!(feedback.detail.unwrap().contains("selection changed"));
-    }
-
-    #[test]
-    fn uncertain_upload_outcome_asks_user_to_check_activity_and_server() {
-        let feedback = sync(&EngineError::CommitUncertain, false);
-        assert_eq!(feedback.severity, FeedbackSeverity::Error);
-        assert!(feedback.summary.contains("outcome is uncertain"));
-    }
-
-    #[test]
-    fn stopping_summary_hides_barrier_details_for_activity_routing() {
-        let feedback = stopping();
-        assert_eq!(feedback.summary, "Stopping Drip safely. Please wait.");
-        assert_eq!(feedback.severity, FeedbackSeverity::Info);
-        assert!(!feedback.summary.contains("mutation barrier"));
-        assert!(feedback.detail.unwrap().contains("server mutation barrier"));
-    }
-}
+#[path = "feedback_tests.rs"]
+mod tests;

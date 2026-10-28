@@ -1,7 +1,7 @@
 mod details;
 mod entry;
 
-use gpui::{div, prelude::*, rgb};
+use gpui::{Context, Window, div, prelude::*, rgb};
 
 use super::super::model::Shell;
 use super::components;
@@ -9,7 +9,11 @@ use super::theme;
 use details::{connection_details, current_transfer, selection_details};
 use entry::log_row;
 
-pub(super) fn render(shell: &Shell) -> impl IntoElement {
+pub(super) fn render(
+    shell: &Shell,
+    window: &mut Window,
+    cx: &mut Context<Shell>,
+) -> impl IntoElement {
     let mut page = div()
         .id("drip-logs")
         .w_full()
@@ -64,7 +68,7 @@ pub(super) fn render(shell: &Shell) -> impl IntoElement {
         );
     } else {
         for row in shell.state.logs.iter().rev() {
-            list = list.child(log_row(row));
+            list = list.child(log_row(row, window, cx));
         }
     }
     page.child(components::card_heading("Recent activity"))

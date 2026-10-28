@@ -86,7 +86,7 @@ pub(super) fn page_header(title: &'static str, subtitle: Option<&'static str>) -
     if let Some(subtitle) = subtitle {
         page.child(
             div()
-                .text_size(px(16.))
+                .text_size(px(14.))
                 .text_color(rgb(theme::MUTED))
                 .child(subtitle),
         )

@@ -1,4 +1,4 @@
-use gpui::{IntoElement, div, prelude::*, rgb};
+use gpui::{IntoElement, div, prelude::*, px, rgb};
 
 use super::super::super::model::Shell;
 use super::super::components;
@@ -95,17 +95,19 @@ pub(super) fn selection_details(shell: &Shell) -> impl IntoElement {
 fn detail_row(label: &str, value: &str) -> impl IntoElement {
     div()
         .flex()
-        .flex_col()
-        .gap_1()
+        .items_start()
+        .gap_6()
         .child(
             div()
+                .w(px(240.))
+                .flex_shrink_0()
                 .text_sm()
                 .text_color(rgb(theme::MUTED))
                 .child(label.to_owned()),
         )
         .child(
             div()
-                .w_full()
+                .flex_1()
                 .min_w_0()
                 .text_sm()
                 .child(components::breakable_path(value)),

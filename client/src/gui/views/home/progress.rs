@@ -98,9 +98,10 @@ fn indeterminate_segment() -> impl IntoElement {
     .right_0()
 }
 
-pub(super) fn render(progress: &SelectionProgress) -> impl IntoElement {
+fn render(progress: &SelectionProgress) -> impl IntoElement {
     let mut stage = stage(progress.file.phase);
     stage.percent = measurement(progress);
+
     let indicator = div()
         .id(format!("home-progress-{}", progress.operation_id))
         .flex()

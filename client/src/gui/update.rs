@@ -60,6 +60,7 @@ impl Shell {
                         ));
                         self.state.binding = Some(binding);
                         self.tab = Tab::Home;
+                        window.focus(&self.tab_focus[self.tab.index()], cx);
                         if self.opened {
                             self.show(window, cx);
                         }

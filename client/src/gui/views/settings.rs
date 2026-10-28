@@ -1,10 +1,14 @@
-use gpui::{Context, div, prelude::*, rgb};
+use gpui::{Context, Window, div, prelude::*, rgb};
 
 use super::super::model::Shell;
 use super::components::{self, ButtonKind};
 use super::theme;
 
-pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement {
+pub(super) fn render(
+    shell: &Shell,
+    window: &mut Window,
+    cx: &mut Context<Shell>,
+) -> impl IntoElement {
     let enabled = !shell.state.loading && !shell.state.busy && !shell.state.quitting;
     let mut server = components::card(
         "settings-server-card")
@@ -41,6 +45,7 @@ pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement
     ))
     .child(div().flex().justify_start().child(components::button(
         cx,
+        window,
         "settings-pair",
         if shell.state.connecting {
             "Connecting..."
@@ -54,6 +59,7 @@ pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement
     if let Some(feedback) = &shell.state.settings_feedback {
         server = server.child(components::feedback_summary(
             cx,
+            window,
             "settings-message",
             feedback,
         ));
@@ -62,6 +68,7 @@ pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement
         .child(components::card_heading("This computer"))
         .child(components::startup_checkbox(
             cx,
+            window,
             shell.state.settings.start_at_sign_in,
             enabled,
         ));

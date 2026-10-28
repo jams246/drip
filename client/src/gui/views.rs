@@ -1,4 +1,5 @@
 mod components;
+mod heading;
 mod home;
 mod logs;
 mod settings;
@@ -8,21 +9,19 @@ pub(super) use home::progress::ProgressView;
 
 use std::time::Instant;
 
-use gpui::{
-    Context, HighlightStyle, Render, StyledText, UnderlineStyle, Window, div, prelude::*, px, rgb,
-};
+use gpui::{Context, Render, Window, div, prelude::*, px, relative, rgb};
 
 use super::model::{Shell, Tab};
 use super::{NextFocus, Pause, PreviousFocus, Quit, theme};
 
 impl Render for Shell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tab = self.tab;
         let mut content = match tab {
-            Tab::Home => home::render(self, cx).into_any_element(),
-            Tab::Watch => watch::render(self, cx).into_any_element(),
-            Tab::Activity => logs::render(self).into_any_element(),
-            Tab::Settings => settings::render(self, cx).into_any_element(),
+            Tab::Home => home::render(self, window, cx).into_any_element(),
+            Tab::Watch => watch::render(self, window, cx).into_any_element(),
+            Tab::Activity => logs::render(self, window, cx).into_any_element(),
+            Tab::Settings => settings::render(self, window, cx).into_any_element(),
         };
         if tab != Tab::Activity
             && let Some(diagnostic) = &self.state.diagnostic
@@ -35,12 +34,37 @@ impl Render for Shell {
                 .child(content)
                 .child(components::feedback_summary(
                     cx,
+                    window,
                     "drip-diagnostic-summary",
                     diagnostic,
                 ))
                 .into_any_element();
         }
+        let scroll = self.tab_scroll[tab.index()].clone();
+        let panel_scroll = scroll.clone();
+        let shell = cx.entity().downgrade();
         let panel = div()
+            .on_children_prepainted(move |_, window, _cx| {
+                let Some(target) = window.take_autoscroll() else {
+                    return;
+                };
+                let mut offset = scroll.offset();
+                let next = super::focus::scroll_offset(
+                    offset.y,
+                    scroll.max_offset().y,
+                    scroll.bounds(),
+                    target,
+                );
+                if next != offset.y {
+                    offset.y = next;
+                    let scroll = scroll.clone();
+                    let shell = shell.clone();
+                    window.on_next_frame(move |_, cx| {
+                        scroll.set_offset(offset);
+                        let _ = shell.update(cx, |_, cx| cx.notify());
+                    });
+                }
+            })
             .id("drip-tab-panel")
             .track_focus(&self.focus)
             .tab_index(0)
@@ -50,9 +74,13 @@ impl Render for Shell {
             .h(px(0.))
             .min_h_0()
             .overflow_y_scroll()
+            .track_scroll(&panel_scroll)
+            .border_1()
+            .border_color(rgb(theme::PAGE))
+            .focus(|style| style.border_color(rgb(theme::ACCENT)))
             .bg(rgb(theme::PAGE))
             .px_8()
-            .py_7()
+            .py_8()
             .child(content);
         div()
             .id("drip-shell")
@@ -64,61 +92,15 @@ impl Render for Shell {
             .flex()
             .flex_col()
             .font_family("Segoe UI")
+            .text_size(px(14.))
+            .line_height(relative(1.4))
             .bg(rgb(theme::PAGE))
             .text_color(rgb(theme::TEXT))
-            .child(heading())
+            .child(heading::render())
             .child(navigation(self, cx))
             .child(panel)
             .child(components::footer(self.footer_label(Instant::now())))
     }
-}
-
-fn heading() -> impl IntoElement {
-    let underline = HighlightStyle {
-        underline: Some(UnderlineStyle {
-            color: Some(rgb(theme::ACCENT).into()),
-            thickness: px(1.),
-            wavy: false,
-        }),
-        ..Default::default()
-    };
-    let subtitle = StyledText::new("Directed Remote Incremental Push").with_highlights([
-        (0..1, underline),
-        (9..10, underline),
-        (16..17, underline),
-        (28..29, underline),
-    ]);
-    div()
-        .id("drip-heading")
-        .flex()
-        .flex_shrink_0()
-        .items_center()
-        .gap_4()
-        .px_8()
-        .py_5()
-        .border_b_1()
-        .border_color(rgb(theme::BORDER))
-        .bg(rgb(theme::PANEL))
-        .child(components::icon(components::Glyph::Brand, 44.))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .id("drip-title")
-                        .text_size(px(32.))
-                        .font_weight(gpui::FontWeight::BOLD)
-                        .child("DRIP"),
-                )
-                .child(
-                    div()
-                        .text_size(px(16.))
-                        .text_color(rgb(theme::MUTED))
-                        .child(subtitle),
-                ),
-        )
 }
 
 fn navigation(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoElement {
@@ -139,7 +121,11 @@ fn navigation(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoElement {
             .rounded_t(px(8.))
             .border_1()
             .when(selected, |tab| tab.border_b_0().mb(px(-1.)))
-            .border_color(rgb(theme::BORDER))
+            .border_color(rgb(if selected {
+                theme::BORDER
+            } else {
+                theme::PANEL
+            }))
             .bg(rgb(if selected { theme::PAGE } else { theme::PANEL }))
             .text_color(rgb(if selected { theme::TEXT } else { theme::MUTED }))
             .font_weight(if selected {

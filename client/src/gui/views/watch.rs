@@ -1,12 +1,16 @@
 use std::path::PathBuf;
 
-use gpui::{Context, div, prelude::*, px, rgb};
+use gpui::{Context, Window, div, prelude::*, px, rgb};
 
 use super::super::model::Shell;
 use super::components::{self, ButtonKind, Glyph};
 use super::theme;
 
-pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement {
+pub(super) fn render(
+    shell: &Shell,
+    window: &mut Window,
+    cx: &mut Context<Shell>,
+) -> impl IntoElement {
     let enabled = !shell.state.loading && !shell.state.busy && !shell.state.quitting;
     let mut page = div()
         .id("drip-watch")
@@ -24,6 +28,7 @@ pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement
                 .gap_3()
                 .child(components::button(
                     cx,
+                    window,
                     "watch-add-folder",
                     "Add folder",
                     ButtonKind::Primary,
@@ -32,6 +37,7 @@ pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement
                 ))
                 .child(components::button(
                     cx,
+                    window,
                     "watch-add-file",
                     "Add file",
                     ButtonKind::Secondary,
@@ -40,7 +46,12 @@ pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement
                 )),
         );
     if let Some(feedback) = &shell.state.watch_feedback {
-        page = page.child(components::feedback_summary(cx, "watch-message", feedback));
+        page = page.child(components::feedback_summary(
+            cx,
+            window,
+            "watch-message",
+            feedback,
+        ));
     }
     for selection in &shell.state.settings.selections {
         let path = selection.source.to_windows_path();
@@ -118,6 +129,7 @@ pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement
             let path = PathBuf::from(path);
             row = row.child(components::button(
                 cx,
+                window,
                 format!("watch-remove-{}", selection.id),
                 "Stop watching",
                 ButtonKind::Secondary,

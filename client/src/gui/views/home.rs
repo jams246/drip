@@ -1,7 +1,9 @@
 pub(super) mod progress;
 mod root;
 
-use gpui::{Context, div, prelude::*, rgb};
+use std::time::Instant;
+
+use gpui::{Context, Window, div, prelude::*, rgb};
 
 use super::super::{
     model::{Shell, Tab},
@@ -9,7 +11,11 @@ use super::super::{
 };
 use super::components;
 
-pub(super) fn render(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoElement {
+pub(super) fn render(
+    shell: &mut Shell,
+    window: &mut Window,
+    cx: &mut Context<Shell>,
+) -> impl IntoElement {
     let active: Vec<_> = shell
         .state
         .settings
@@ -20,12 +26,6 @@ pub(super) fn render(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoEle
     shell
         .progress_views
         .retain(|id, _| active.iter().any(|selection| selection.id == *id));
-    for selection in &active {
-        shell
-            .progress_views
-            .entry(selection.id.clone())
-            .or_insert_with(|| cx.new(|_| progress::ProgressView::default()));
-    }
     let mut page = div()
         .id("drip-home")
         .w_full()
@@ -56,7 +56,7 @@ pub(super) fn render(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoEle
         let progress = shell.state.progress.as_ref();
         let current = progress.filter(|_| {
             root::visible_progress(
-                shell.state.status.connection,
+                shell.state.connection_at(Instant::now()),
                 shell.control.borrow().paused,
                 shell.state.quitting,
                 progress,
@@ -64,16 +64,19 @@ pub(super) fn render(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoEle
                 status,
             )
         });
-        let progress_view = shell.progress_views.get(&selection.id).unwrap().clone();
+        let progress_view = shell
+            .progress_views
+            .entry(selection.id.clone())
+            .or_insert_with(|| cx.new(|_| progress::ProgressView::default()))
+            .clone();
         progress_view.update(cx, |view, cx| view.set_progress(current.cloned(), cx));
-        let last_file = shell.state.last_file.get(&selection.id);
         page = page.child(root::card(
             shell,
             selection,
             status,
             current,
-            last_file,
             progress_view,
+            window,
             cx,
         ));
     }
@@ -87,6 +90,7 @@ pub(super) fn render(shell: &mut Shell, cx: &mut Context<Shell>) -> impl IntoEle
                 )
                 .child(components::button(
                     cx,
+                    window,
                     "home-choose-selections",
                     "Choose files or folders",
                     components::ButtonKind::Primary,

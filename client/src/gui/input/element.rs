@@ -5,6 +5,7 @@ use gpui::{
 };
 
 use super::{model::Input, render, text};
+use crate::gui::theme;
 
 pub(super) struct TextElement {
     pub(super) input: Entity<Input>,
@@ -122,7 +123,7 @@ impl Element for TextElement {
                         point(bounds.left() + cursor_x, bounds.top()),
                         size(px(2.), bounds.bottom() - bounds.top()),
                     ),
-                    gpui::blue(),
+                    gpui::rgb(theme::ACCENT),
                 )),
             )
         } else {
@@ -140,7 +141,7 @@ impl Element for TextElement {
                             bounds.bottom(),
                         ),
                     ),
-                    rgba(0x3311ff30),
+                    rgba((theme::ACCENT << 8) | 0x40),
                 )),
                 None,
             )

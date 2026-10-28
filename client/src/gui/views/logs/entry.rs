@@ -1,10 +1,17 @@
-use gpui::{IntoElement, div, prelude::*, px, rgb};
+use gpui::{Context, IntoElement, Window, div, prelude::*, px, rgb};
 
 use super::super::components;
 use super::super::theme;
-use crate::gui::model::LogRow;
+use crate::gui::{
+    focus,
+    model::{LogRow, Shell},
+};
 
-pub(super) fn log_row(row: &LogRow) -> impl IntoElement {
+pub(super) fn log_row(
+    row: &LogRow,
+    window: &mut Window,
+    cx: &mut Context<Shell>,
+) -> impl IntoElement {
     let event = &row.event;
     let timestamp = event.timestamp;
     let kind = event_label(event.kind);
@@ -13,7 +20,15 @@ pub(super) fn log_row(row: &LogRow) -> impl IntoElement {
         .as_ref()
         .map(|path| path.to_windows_path());
 
-    let mut entry = div()
+    let id = format!(
+        "log-{}-{}-{}",
+        timestamp.unix_seconds(),
+        timestamp.nanos(),
+        event.operation_id
+    );
+    let focus = focus::handle(&id, true, window, cx);
+    let mut entry = focus::reveal(div(), &id, focus.clone(), window, cx)
+        .track_focus(&focus)
         .id(format!(
             "log-{}-{}-{}",
             timestamp.unix_seconds(),
@@ -21,6 +36,8 @@ pub(super) fn log_row(row: &LogRow) -> impl IntoElement {
             event.operation_id
         ))
         .tab_index(0)
+        .w_full()
+        .min_w_0()
         .flex()
         .flex_col()
         .gap_2()
@@ -33,9 +50,9 @@ pub(super) fn log_row(row: &LogRow) -> impl IntoElement {
         .child(
             div()
                 .flex()
-                .flex_wrap()
-                .gap_2()
-                .items_center()
+                .flex_col()
+                .gap_1()
+                .items_start()
                 .child(
                     div()
                         .text_sm()
@@ -58,7 +75,11 @@ pub(super) fn log_row(row: &LogRow) -> impl IntoElement {
             event.selection_id.as_deref().unwrap_or("unknown"),
             event.operation_id
         )))
-        .child(div().text_sm().child(event.message.clone()))
+        .child(
+            div()
+                .text_sm()
+                .child(components::breakable_path(&event.message)),
+        )
 }
 
 fn event_label(kind: drip_client::EventKind) -> &'static str {
