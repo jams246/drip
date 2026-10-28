@@ -129,7 +129,7 @@ async fn root_spelling_move_retains_inactive_ancestor_contents_and_fences_old_up
         move_request(&fixture, credential, old.clone(), new.clone()).await,
         StatusCode::OK
     );
-    assert!(!mirror_path(&fixture, &device, &old).exists());
+    assert_eq!(mirror_path(&fixture, &device, &old).exists(), cfg!(windows));
     assert_eq!(
         fs::read(mirror_path(&fixture, &device, &child(&new))).unwrap(),
         b"complete original"
