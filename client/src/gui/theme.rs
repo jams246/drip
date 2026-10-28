@@ -1,0 +1,10 @@
+pub(super) const PAGE: u32 = 0x14171c;
+pub(super) const PANEL: u32 = 0x1d2026;
+pub(super) const BORDER: u32 = 0x30343d;
+pub(super) const ACCENT: u32 = 0x9fb4f4;
+pub(super) const TEXT: u32 = 0xf3f4f7;
+pub(super) const MUTED: u32 = 0xb0b9cd;
+pub(super) const SUCCESS: u32 = 0xa9d0ad;
+pub(super) const WARNING: u32 = 0xe1c285;
+pub(super) const ERROR: u32 = 0xefaaaa;
+pub(super) const TRACK: u32 = 0x30343d;

@@ -1,8 +1,10 @@
 mod actions;
+mod feedback;
 mod input;
 mod model;
 mod native;
 mod runtime;
+mod theme;
 mod tray;
 mod update;
 mod views;
@@ -100,9 +102,9 @@ fn start(cx: &mut App, listener: Option<OpenListener>) -> Result<(), Box<dyn Err
                 .await
             {
                 let _ = ipc_events
-                    .send(runtime::Event::Diagnostic(format!(
+                    .send(runtime::Event::Diagnostic(feedback::diagnostic(format!(
                         "Second-instance Open channel failed: {error}"
-                    )))
+                    ))))
                     .await;
             }
         })
@@ -131,7 +133,7 @@ fn start(cx: &mut App, listener: Option<OpenListener>) -> Result<(), Box<dyn Err
                     if changed.is_err() { break; }
                     if *quitting.borrow_and_update() {
                         control.send_modify(|desired| desired.stop = true);
-                        let _ = window.update(cx, |shell, _, cx| { shell.state.quitting = true; shell.state.diagnostic = "Stopping Drip. Waiting for safe engine shutdown and the server mutation barrier.".into(); cx.notify(); });
+                        let _ = window.update(cx, |shell, _, cx| { shell.state.quitting = true; shell.state.diagnostic = Some(feedback::action("Stopping Drip. Waiting for safe engine shutdown and the server mutation barrier.", model::FeedbackSeverity::Info, None)); cx.notify(); });
                         if requests.send(runtime::Request::Quit).await.is_err() { cx.update(|cx| cx.quit()); break; }
                     }
                 }

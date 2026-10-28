@@ -10,10 +10,10 @@ impl Render for Input {
             self.pending_native_change = false;
         }
         div()
-            .id(format!("drip-input-{}", self.label))
+            .id(format!("drip-input-{}", self.id))
             .key_context("DripInput")
             .track_focus(&self.focus_handle)
-            .focus_visible(|style| style.border_color(rgb(0x38bdf8)))
+            .focus_visible(|style| style.border_color(rgb(crate::gui::theme::ACCENT)))
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
@@ -34,10 +34,11 @@ impl Render for Input {
             .w_full()
             .px_3()
             .py_2()
-            .bg(rgb(0x18212b))
-            .border_2()
-            .border_color(rgb(0x516070))
-            .rounded(px(4.))
+            .bg(rgb(crate::gui::theme::PANEL))
+            .border_1()
+            .border_color(rgb(crate::gui::theme::BORDER))
+            .min_h(px(36.))
+            .rounded(px(6.))
             .overflow_hidden()
             .child(TextElement { input: cx.entity() })
     }

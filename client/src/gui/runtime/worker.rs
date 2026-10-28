@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use drip_client::{Engine, EventSink, RunControl};
+use drip_client::{Engine, EngineError, EventSink, RunControl};
 use tokio::{
     sync::{mpsc, watch},
     task::JoinHandle,
@@ -66,11 +66,11 @@ impl Worker {
         let engine_sink = sink.clone();
         let task = tokio::spawn(async move {
             let result = engine.run(control, engine_sink).await;
-            let registration_required = result
-                .as_ref()
-                .err()
-                .is_some_and(|error| error.registration_required());
-            let error = result.as_ref().err().map(ToString::to_string);
+            let cause = result.as_ref().err();
+            let registration_required = cause.is_some_and(EngineError::registration_required);
+            let error = cause
+                .filter(|error| !matches!(error, EngineError::Cancelled))
+                .map(|error| crate::gui::feedback::sync(error, registration_required));
             let _ = events
                 .send(Event::WorkerEnded {
                     generation,
@@ -89,7 +89,10 @@ impl Worker {
         }
     }
 
-    pub(super) async fn stop(self, control: &watch::Sender<RunControl>) -> Option<String> {
+    pub(super) async fn stop(
+        self,
+        control: &watch::Sender<RunControl>,
+    ) -> Option<crate::gui::model::Feedback> {
         control.send_modify(|desired| desired.stop = true);
         let Self {
             sink,
@@ -99,8 +102,16 @@ impl Worker {
             progress,
         } = self;
         let error = match task.await {
-            Ok(result) => result.err().map(|error| error.to_string()),
-            Err(error) => Some(format!("Sync worker stopped unexpectedly: {error}")),
+            Ok(Err(EngineError::Cancelled)) | Ok(Ok(())) => None,
+            Ok(Err(error)) => {
+                let registration_required = error.registration_required();
+                Some(crate::gui::feedback::sync(&error, registration_required))
+            }
+            Err(error) => Some(crate::gui::feedback::action(
+                "Sync worker stopped unexpectedly. Open Activity for details.",
+                crate::gui::model::FeedbackSeverity::Error,
+                Some(error.to_string()),
+            )),
         };
         drop(sink);
         status.abort();

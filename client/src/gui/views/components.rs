@@ -1,159 +1,123 @@
-use gpui::{ClickEvent, Context, IntoElement, Window, div, prelude::*, px, rgb};
+mod controls;
+mod feedback;
+mod icons;
 
-use super::super::model::Shell;
+use gpui::{ElementId, IntoElement, Stateful, div, prelude::*, px, rgb};
 
-pub(super) fn button(
-    cx: &mut Context<Shell>,
-    id: impl Into<gpui::SharedString>,
-    label: impl Into<gpui::SharedString>,
-    enabled: bool,
-    on_click: impl Fn(&mut Shell, &ClickEvent, &mut Window, &mut Context<Shell>) + 'static,
-) -> impl IntoElement {
-    let id = id.into();
-    let label = label.into();
+use super::super::theme;
 
-    let button = div()
-        .id(id.clone())
-        .tab_index(0)
-        .tab_stop(enabled)
-        .px_3()
-        .py_2()
-        .rounded(px(4.))
-        .border_1()
-        .border_color(if enabled {
-            rgb(0x526578)
-        } else {
-            rgb(0x343c45)
-        })
-        .bg(if enabled {
-            rgb(0x202b36)
-        } else {
-            rgb(0x171e25)
-        })
-        .text_color(if enabled {
-            rgb(0xe9eef4)
-        } else {
-            rgb(0x77828d)
-        })
-        .focus(|style| style.border_color(rgb(0x8be0d3)))
-        .hover(|style| style.bg(rgb(0x283a48)))
-        .child(label);
-    if enabled {
-        button.on_click(cx.listener(on_click)).cursor_pointer()
-    } else {
-        button
-    }
-}
-
-pub(super) fn startup_checkbox(
-    cx: &mut Context<Shell>,
-    checked: bool,
-    enabled: bool,
-) -> impl IntoElement {
-    let label = if checked && enabled {
-        "Start at sign-in, checked"
-    } else if checked {
-        "Start at sign-in, checked, unavailable while Drip is loading or busy"
-    } else if enabled {
-        "Start at sign-in, not checked"
-    } else {
-        "Start at sign-in, not checked, unavailable while Drip is loading or busy"
-    };
-    let checkbox = div()
-        .id("drip-startup-setting")
-        .tab_index(0)
-        .tab_stop(enabled)
-        .flex()
-        .items_center()
-        .gap_2()
-        .px_3()
-        .py_2()
-        .rounded(px(4.))
-        .border_1()
-        .border_color(if enabled {
-            rgb(0x526578)
-        } else {
-            rgb(0x343c45)
-        })
-        .bg(if enabled {
-            rgb(0x202b36)
-        } else {
-            rgb(0x171e25)
-        })
-        .text_color(if enabled {
-            rgb(0xe9eef4)
-        } else {
-            rgb(0x77828d)
-        })
-        .focus(|style| style.border_color(rgb(0x8be0d3)))
-        .child(if checked { "☑" } else { "☐" })
-        .child("Start at sign-in");
-    if enabled {
-        checkbox.on_click(cx.listener(|shell, _, window, cx| {
-            shell.toggle_startup(window, cx);
-        }))
-    } else {
-        checkbox
-    }
-}
+pub(super) use controls::{ButtonKind, button, field, startup_checkbox};
+pub(super) use feedback::{
+    activity_link, summary as feedback_summary, technical as technical_feedback,
+};
+pub(super) use icons::{Glyph, icon};
 
 pub(super) fn footer(connection: &str) -> impl IntoElement {
+    let color = match connection {
+        "Connected" => theme::SUCCESS,
+        "Paused" => theme::WARNING,
+        _ => theme::ERROR,
+    };
+    let marker = match connection {
+        "Connected" => div()
+            .w(px(8.))
+            .h(px(8.))
+            .rounded_full()
+            .bg(rgb(color))
+            .into_any_element(),
+        "Paused" => div().text_color(rgb(color)).child("Ⅱ").into_any_element(),
+        _ => div().text_color(rgb(color)).child("×").into_any_element(),
+    };
     div()
         .id("drip-footer")
         .tab_index(0)
-        .focus(|style| style.border_color(rgb(0x8be0d3)))
+        .focus(|style| style.border_color(rgb(theme::ACCENT)))
         .w_full()
         .flex()
+        .items_center()
         .justify_between()
         .border_t_1()
-        .border_color(rgb(0x354452))
-        .pt_3()
-        .text_sm()
-        .child(connection.to_owned())
-        .child(format!("Version {}", env!("CARGO_PKG_VERSION")))
-}
-
-pub(super) fn diagnostic(message: &str) -> impl IntoElement {
-    div()
-        .id("drip-diagnostic")
-        .tab_index(0)
-        .border_1()
-        .border_color(rgb(0x354452))
-        .focus(|style| style.border_color(rgb(0xffc07a)))
-        .text_color(rgb(0xffc07a))
-        .child(message.to_owned())
-}
-
-pub(super) fn field(
-    label: &'static str,
-    input: gpui::Entity<super::super::input::Input>,
-) -> impl IntoElement {
-    div()
-        .id(format!("field-{}", label.to_lowercase().replace(' ', "-")))
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(div().child(label))
-        .child(input)
-}
-
-pub(super) fn section(title: &'static str) -> gpui::Div {
-    div().flex().flex_col().gap_3().child(
-        div()
-            .id(format!(
-                "section-heading-{}",
-                title.to_lowercase().replace(' ', "-")
-            ))
-            .text_lg()
-            .font_weight(gpui::FontWeight::SEMIBOLD)
-            .child(title),
-    )
+        .border_color(rgb(theme::BORDER))
+        .px_8()
+        .py_3()
+        .bg(rgb(theme::PANEL))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_2()
+                .rounded(px(6.))
+                .border_1()
+                .border_color(rgb(color))
+                .text_color(rgb(color))
+                .child(marker)
+                .child(connection.to_owned()),
+        )
+        .child(
+            div()
+                .flex()
+                .gap_2()
+                .text_sm()
+                .text_color(rgb(theme::MUTED))
+                .child("DRIP")
+                .child(env!("CARGO_PKG_VERSION")),
+        )
 }
 
 pub(super) fn message(id: &'static str, text: &str) -> impl IntoElement {
     div()
         .id(id)
         .text_sm()
-        .text_color(rgb(0xc5d2dc))
+        .text_color(rgb(theme::MUTED))
         .child(text.to_owned())
+}
+
+pub(super) fn page_header(title: &'static str, subtitle: Option<&'static str>) -> gpui::Div {
+    let heading = div()
+        .id(format!("page-heading-{}", title.to_lowercase()))
+        .text_size(px(32.))
+        .font_weight(gpui::FontWeight::BOLD)
+        .text_color(rgb(theme::TEXT))
+        .child(title);
+    let page = div().flex().flex_col().gap_2().child(heading);
+    if let Some(subtitle) = subtitle {
+        page.child(
+            div()
+                .text_size(px(16.))
+                .text_color(rgb(theme::MUTED))
+                .child(subtitle),
+        )
+    } else {
+        page
+    }
+}
+
+pub(super) fn card(id: impl Into<ElementId>) -> Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .w_full()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .p_6()
+        .rounded(px(12.))
+        .border_1()
+        .border_color(rgb(theme::BORDER))
+        .bg(rgb(theme::PANEL))
+}
+
+pub(super) fn card_heading(title: &'static str) -> impl IntoElement {
+    div()
+        .id(format!("card-heading-{}", title.to_lowercase()))
+        .text_size(px(18.))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(rgb(theme::TEXT))
+        .child(title)
+}
+
+pub(super) fn breakable_path(path: &str) -> String {
+    path.replace('\\', "\\\u{200b}").replace('/', "/\u{200b}")
 }

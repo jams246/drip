@@ -3,6 +3,14 @@ use drip_client::{EventKind, SelectionProgress, SyncSnapshot};
 use super::{LogRow, UiState};
 
 impl UiState {
+    pub(in crate::gui) fn worker_started(&mut self, generation: u64) {
+        self.worker_generation = generation;
+        self.status = SyncSnapshot::default();
+        self.progress = None;
+        self.last_file.clear();
+        self.finished_operations.clear();
+    }
+
     pub(in crate::gui) fn progress(
         &mut self,
         generation: u64,
@@ -187,6 +195,25 @@ mod tests {
         stale.connection = drip_client::ConnectionState::Paused;
         state.status(1, stale);
         assert!(state.progress.is_none());
+        assert_eq!(
+            state.status.connection,
+            drip_client::ConnectionState::Disconnected
+        );
+    }
+
+    #[test]
+    fn new_worker_clears_prior_progress_and_terminal_correlations() {
+        let mut state = UiState {
+            worker_generation: 1,
+            ..UiState::default()
+        };
+        state.progress(1, Some(progress()));
+        state.activity(completed());
+        state.worker_started(2);
+        assert_eq!(state.worker_generation, 2);
+        assert!(state.progress.is_none());
+        assert!(state.last_file.is_empty());
+        assert!(state.finished_operations.is_empty());
         assert_eq!(
             state.status.connection,
             drip_client::ConnectionState::Disconnected

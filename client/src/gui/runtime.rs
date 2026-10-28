@@ -10,7 +10,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use super::model::{Binding, LogRow};
+use super::model::{Binding, Feedback, LogRow};
 
 pub(super) enum Request {
     Pair {
@@ -25,9 +25,9 @@ pub(super) enum Request {
 }
 
 pub(super) struct Initial {
-    pub settings: Result<ClientSettings, String>,
-    pub binding: Result<Binding, String>,
-    pub logs: Result<Vec<LogRow>, String>,
+    pub settings: Result<ClientSettings, Feedback>,
+    pub binding: Result<Binding, Feedback>,
+    pub logs: Result<Vec<LogRow>, Feedback>,
 }
 
 pub(super) enum Event {
@@ -46,14 +46,14 @@ pub(super) enum Event {
     Paired(Binding),
     Message {
         settings: bool,
-        message: String,
+        feedback: Feedback,
         busy: bool,
     },
-    Diagnostic(String),
-    Fatal(String),
+    Diagnostic(Feedback),
+    Fatal(Feedback),
     WorkerEnded {
         generation: u64,
-        error: Option<String>,
+        error: Option<Feedback>,
         registration_required: bool,
     },
     ShutdownReady,

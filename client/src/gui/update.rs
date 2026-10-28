@@ -2,7 +2,8 @@ use drip_client::SyncSnapshot;
 use gpui::{Context, Focusable, Window};
 
 use super::{
-    model::{Shell, Tab},
+    feedback,
+    model::{Feedback, FeedbackSeverity, Shell, Tab},
     native,
     runtime::Event,
 };
@@ -26,9 +27,12 @@ impl Shell {
                         self.state.settings = settings;
                     }
                     Err(error) => {
-                        self.state.diagnostic = format!(
-                            "Could not load drip.json: {error}. Preserve the file and repair its permissions or contents before syncing."
-                        )
+                        self.state.diagnostic = Some(error);
+                        self.state.settings_feedback = Some(Feedback::new(
+                            "Settings could not be loaded. Preserve drip.json and open Activity for details.",
+                            FeedbackSeverity::Error,
+                            None,
+                        ));
                     }
                 }
                 match initial.logs {
@@ -37,7 +41,7 @@ impl Shell {
                             self.state.activity(row);
                         }
                     }
-                    Err(error) => self.state.diagnostic = error,
+                    Err(error) => self.state.diagnostic = Some(error),
                 }
                 match initial.binding {
                     Ok(binding) => {
@@ -46,14 +50,22 @@ impl Shell {
                                 input.set_value(binding.server.clone(), cx)
                             });
                         }
+                        self.state.settings_feedback = Some(Feedback::new(
+                            "Saved registration loaded. Current reachability appears in the footer.",
+                            FeedbackSeverity::Info,
+                            Some(format!(
+                                "Computer ID: {}. Server folder: /mirror/{}. Credential stored with user-scoped Windows DPAPI.",
+                                binding.pc_id, binding.mirror_directory
+                            )),
+                        ));
                         self.state.binding = Some(binding);
                         self.tab = Tab::Home;
                         if self.opened {
                             self.show(window, cx);
                         }
                     }
-                    Err(message) => {
-                        self.state.settings_message = message;
+                    Err(feedback) => {
+                        self.state.settings_feedback = Some(feedback);
                         self.tab = Tab::Settings;
                         self.opened = true;
                         self.show(window, cx);
@@ -61,13 +73,7 @@ impl Shell {
                     }
                 }
             }
-            Event::WorkerStarted(generation) => {
-                self.state.worker_generation = generation;
-                self.state.status = SyncSnapshot::default();
-                self.state.progress = None;
-                self.state.last_file.clear();
-                self.state.finished_operations.clear();
-            }
+            Event::WorkerStarted(generation) => self.state.worker_started(generation),
             Event::Status { generation, status } => self.state.status(generation, status),
             Event::Progress {
                 generation,
@@ -81,31 +87,45 @@ impl Shell {
                 self.server
                     .update(cx, |input, cx| input.set_value(binding.server.clone(), cx));
                 self.token.update(cx, |input, cx| input.clear(cx));
-                self.state.settings_message = format!(
-                    "Registered PC {}. Credential saved with user-scoped Windows DPAPI.",
-                    binding.pc_id
-                );
+                self.state.settings_feedback = Some(Feedback::new(
+                    "Computer registration saved. Current reachability appears in the footer.",
+                    FeedbackSeverity::Success,
+                    Some(format!(
+                        "Computer ID: {}. Server folder: /mirror/{}. Credential stored with user-scoped Windows DPAPI.",
+                        binding.pc_id, binding.mirror_directory
+                    )),
+                ));
                 self.state.binding = Some(binding);
                 self.state.busy = false;
+                self.state.connecting = false;
                 self.select_tab(Tab::Home, window, cx);
             }
             Event::Message {
                 settings,
-                message,
+                feedback,
                 busy,
             } => {
                 self.state.busy = busy;
+                if !busy {
+                    self.state.connecting = false;
+                }
                 if settings {
-                    self.state.settings_message = message;
+                    self.state.settings_feedback = Some(feedback);
                 } else {
-                    self.state.watch_message = message;
+                    self.state.watch_feedback = Some(feedback);
                 }
             }
-            Event::Diagnostic(message) => self.state.diagnostic = message,
-            Event::Fatal(message) => {
-                self.state.diagnostic = message;
+            Event::Diagnostic(feedback) => self.state.diagnostic = Some(feedback),
+            Event::Fatal(feedback) => {
+                self.state.diagnostic = Some(feedback.clone());
+                self.state.settings_feedback = Some(Feedback::new(
+                    "Drip could not start. Open Activity for technical details.",
+                    FeedbackSeverity::Error,
+                    None,
+                ));
                 self.state.loading = false;
                 self.state.busy = false;
+                self.state.connecting = false;
                 self.tab = Tab::Settings;
                 self.opened = true;
                 self.show(window, cx);
@@ -119,17 +139,17 @@ impl Shell {
                 if let Some(error) = error {
                     self.state.status = SyncSnapshot::default();
                     if registration_required {
-                        self.state.settings_message = format!(
-                            "Registration was rejected: {error}. Verify the server URL, then pair again with a valid registration token."
-                        );
+                        self.state.settings_feedback = Some(Feedback::new(
+                            "Registration needs attention. Connect again with a valid one-time token.",
+                            FeedbackSeverity::Error,
+                            error.detail,
+                        ));
                         self.tab = Tab::Settings;
                         self.opened = true;
                         self.show(window, cx);
                         window.focus(&self.server.focus_handle(cx), cx);
                     } else {
-                        self.state.diagnostic = format!(
-                            "Sync stopped: {error}. Resolve the reported error, then retry."
-                        );
+                        self.state.diagnostic = Some(error);
                     }
                 }
             }
@@ -142,7 +162,7 @@ impl Shell {
 
     pub(super) fn show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Err(error) = native::show(window) {
-            self.state.diagnostic = error.to_string();
+            self.state.diagnostic = Some(feedback::diagnostic(error.to_string()));
         }
         cx.notify();
     }

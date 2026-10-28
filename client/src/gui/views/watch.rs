@@ -3,72 +3,124 @@ use std::path::PathBuf;
 use gpui::{Context, div, prelude::*, px, rgb};
 
 use super::super::model::Shell;
-use super::components;
+use super::components::{self, ButtonKind, Glyph};
+use super::theme;
 
 pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement {
     let enabled = !shell.state.loading && !shell.state.busy && !shell.state.quitting;
-    let mut page = components::section("Watch").id("drip-watch").gap_4().child(
-        div()
-            .flex()
-            .gap_2()
-            .child(components::button(
-                cx,
-                "watch-add-file",
-                "Add file",
-                enabled,
-                |shell, _, window, cx| {
-                    shell.add_file(window, cx);
-                },
-            ))
-            .child(components::button(
-                cx,
-                "watch-add-folder",
-                "Add folder",
-                enabled,
-                |shell, _, window, cx| {
-                    shell.add_folder(window, cx);
-                },
-            )),
-    );
-    if !shell.state.watch_message.is_empty() {
-        page = page.child(components::message(
-            "watch-message",
-            &shell.state.watch_message,
-        ));
+    let mut page = div()
+        .id("drip-watch")
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap_6()
+        .child(components::page_header(
+            "Watch",
+            Some("Choose the files and folders to send to your server."),
+        ))
+        .child(
+            div()
+                .flex()
+                .gap_3()
+                .child(components::button(
+                    cx,
+                    "watch-add-folder",
+                    "Add folder",
+                    ButtonKind::Primary,
+                    enabled,
+                    |shell, _, window, cx| shell.add_folder(window, cx),
+                ))
+                .child(components::button(
+                    cx,
+                    "watch-add-file",
+                    "Add file",
+                    ButtonKind::Secondary,
+                    enabled,
+                    |shell, _, window, cx| shell.add_file(window, cx),
+                )),
+        );
+    if let Some(feedback) = &shell.state.watch_feedback {
+        page = page.child(components::feedback_summary(cx, "watch-message", feedback));
     }
     for selection in &shell.state.settings.selections {
-        let source = selection.source.to_windows_path();
-        let mirror = mirror_destination(shell, &selection.source);
+        let path = selection.source.to_windows_path();
+        let name = selection
+            .source
+            .components()
+            .last()
+            .cloned()
+            .unwrap_or_else(|| format!("{}:", selection.source.drive()));
+        let directory = selection.root_kind == drip_core::protocol::EntryKind::Directory;
 
         let active = selection.active;
-        let mut row = div()
-            .id(format!("watch-selection-{}", selection.id))
-            .flex()
-            .flex_col()
-            .gap_2()
-            .p_4()
-            .rounded(px(6.))
-            .border_1()
-            .border_color(rgb(0x354452))
-            .bg(rgb(0x18212b))
-            .child(div().text_sm().text_color(rgb(0xaebcc8)).child(if active {
-                "Active"
-            } else {
-                "Retained copy"
-            }))
-            .child(div().child(format!("Source: {source}")))
+        let id = format!("watch-selection-{}", selection.id);
+
+        let mut row = components::card(id)
+            .flex_row()
+            .items_center()
+            .gap_4()
+            .child(components::icon(
+                if directory {
+                    Glyph::FolderFilled
+                } else {
+                    Glyph::File
+                },
+                36.,
+            ))
             .child(
                 div()
-                    .text_sm()
-                    .text_color(rgb(0xc5d2dc))
-                    .child(format!("Mirror: {mirror}")),
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_size(px(18.))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(name),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(theme::MUTED))
+                            .child(components::breakable_path(&path)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .text_sm()
+                            .child(div().w(px(8.)).h(px(8.)).rounded_full().bg(rgb(if active {
+                                theme::SUCCESS
+                            } else {
+                                theme::MUTED
+                            })))
+                            .child(if active {
+                                "Watching"
+                            } else {
+                                "Stopped watching"
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(theme::MUTED))
+                            .child(if active {
+                                "The copy on your server will stay."
+                            } else {
+                                "Your server copy is kept."
+                            }),
+                    ),
             );
         if active {
-            let path = PathBuf::from(source);
+            let path = PathBuf::from(path);
             row = row.child(components::button(
                 cx,
                 format!("watch-remove-{}", selection.id),
-                "Remove selection",
+                "Stop watching",
+                ButtonKind::Secondary,
                 enabled,
                 move |shell, _, window, cx| shell.remove(path.clone(), window, cx),
             ));
@@ -76,40 +128,13 @@ pub(super) fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement
         page = page.child(row);
     }
     if shell.state.settings.selections.is_empty() {
-        page = page.child(components::message(
-            "watch-empty",
-            "No files or folders selected.",
-        ));
-    }
-    page
-}
-
-fn mirror_destination(shell: &Shell, source: &drip_core::SourcePath) -> String {
-    let Some(binding) = shell.state.binding.as_ref() else {
-        return "Unavailable until paired".into();
-    };
-    mirror_path(&binding.mirror_directory, source)
-}
-
-fn mirror_path(mirror_directory: &str, source: &drip_core::SourcePath) -> String {
-    let root = format!("/mirror/{}/{}", mirror_directory, source.drive());
-    if source.components().is_empty() {
-        root
-    } else {
-        format!("{root}/{}", source.components().join("/"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::mirror_path;
-
-    #[test]
-    fn mirror_path_preserves_drive_and_source_components() {
-        let source = drip_core::SourcePath::parse_absolute(r"C:\Users\Ada\file.txt").unwrap();
-        assert_eq!(
-            mirror_path("drip-ada-123", &source),
-            "/mirror/drip-ada-123/C/Users/Ada/file.txt"
+        page = page.child(
+            components::card("watch-empty-card").child(
+                div()
+                    .text_color(rgb(theme::MUTED))
+                    .child("Add a file or folder to get started."),
+            ),
         );
     }
+    page
 }

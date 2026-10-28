@@ -9,7 +9,7 @@ use drip_core::{
 };
 use serde::{Deserialize, Serialize};
 
-pub use selection::AddSelectionResult;
+pub use selection::{AddSelectionResult, SelectionError};
 pub use store::{SettingsError, SettingsStore};
 
 /// Settings independent of the authoritative DPAPI pairing envelope.

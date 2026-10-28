@@ -5,7 +5,7 @@ use gpui::{
 };
 
 pub(in crate::gui) struct Input {
-    pub(super) label: SharedString,
+    pub(super) id: SharedString,
     pub(super) secret: bool,
     pub(super) focus_handle: FocusHandle,
     pub(super) content: String,
@@ -21,12 +21,12 @@ pub(in crate::gui) struct Input {
 
 impl Input {
     pub(in crate::gui) fn new(
-        label: impl Into<SharedString>,
+        id: impl Into<SharedString>,
         secret: bool,
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
-            label: label.into(),
+            id: id.into(),
             secret,
             focus_handle: cx.focus_handle().tab_stop(true),
             content: String::new(),
