@@ -31,7 +31,11 @@ impl Fixture {
             .join(".verification/phase-02/server-tests");
         std::fs::create_dir_all(&parent).unwrap();
         let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-        let root = parent.join(format!("{}-{suffix}", std::process::id()));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = parent.join(format!("{}-{nanos}-{suffix}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
         let store = Store::open(root.join("state"), root.join("mirror")).unwrap();
         Self { _root: root, store }
@@ -43,7 +47,11 @@ impl Fixture {
             .join(".verification/phase-02/server-tests");
         std::fs::create_dir_all(&parent).unwrap();
         let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-        let root = parent.join(format!("{}-clock-{suffix}", std::process::id()));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = parent.join(format!("{}-clock-{nanos}-{suffix}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
         let clock = std::sync::Arc::clone(&clock);
         let store = Store::open_with_clock(root.join("state"), root.join("mirror"), move || {
