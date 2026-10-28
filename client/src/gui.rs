@@ -78,7 +78,10 @@ fn start(
             }),
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                 None,
-                size(px(1000.), px(760.)),
+                initial_window_size(
+                    cx.primary_display()
+                        .map(|display| display.visible_bounds().size),
+                ),
                 cx,
             ))),
             window_min_size: Some(size(px(720.), px(480.))),
@@ -165,4 +168,37 @@ fn start(
         ipc_shutdown,
     });
     Ok(())
+}
+
+fn initial_window_size(available: Option<gpui::Size<gpui::Pixels>>) -> gpui::Size<gpui::Pixels> {
+    let preferred = size(px(1000.), px(760.));
+    let Some(available) = available else {
+        return preferred;
+    };
+    let fit = size(
+        (available.width - px(40.)).max(px(720.)),
+        (available.height - px(40.)).max(px(480.)),
+    );
+    preferred.min(&fit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initial_size_fits_work_area_below_preferred_height() {
+        assert_eq!(
+            initial_window_size(Some(size(px(1280.), px(672.)))),
+            size(px(1000.), px(632.))
+        );
+    }
+
+    #[test]
+    fn initial_size_keeps_preferred_size_when_work_area_fits() {
+        assert_eq!(
+            initial_window_size(Some(size(px(1280.), px(900.)))),
+            size(px(1000.), px(760.))
+        );
+    }
 }
