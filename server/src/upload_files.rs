@@ -74,7 +74,10 @@ pub(crate) fn verify_stage(
             )?)),
         )
         .map_err(map_io)?;
-    let file = open_read(staging, name)?;
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    options.follow(FollowSymlinks::No);
+    let file = staging.open_with(name, &options).map_err(map_io)?;
     file.sync_all().map_err(map_io)?;
     let metadata = file.metadata().map_err(database::io_error)?;
     if metadata.len() != expected_size
