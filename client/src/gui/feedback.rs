@@ -116,6 +116,14 @@ pub(super) fn diagnostic(detail: impl Into<String>) -> Feedback {
     )
 }
 
+pub(super) fn stopping() -> Feedback {
+    Feedback::new(
+        "Stopping Drip safely. Please wait.",
+        FeedbackSeverity::Info,
+        Some("Waiting for safe engine shutdown and the server mutation barrier.".into()),
+    )
+}
+
 pub(super) fn action(
     summary: impl Into<String>,
     severity: FeedbackSeverity,
@@ -200,5 +208,14 @@ mod tests {
         let feedback = sync(&EngineError::CommitUncertain, false);
         assert_eq!(feedback.severity, FeedbackSeverity::Error);
         assert!(feedback.summary.contains("outcome is uncertain"));
+    }
+
+    #[test]
+    fn stopping_summary_hides_barrier_details_for_activity_routing() {
+        let feedback = stopping();
+        assert_eq!(feedback.summary, "Stopping Drip safely. Please wait.");
+        assert_eq!(feedback.severity, FeedbackSeverity::Info);
+        assert!(!feedback.summary.contains("mutation barrier"));
+        assert!(feedback.detail.unwrap().contains("server mutation barrier"));
     }
 }

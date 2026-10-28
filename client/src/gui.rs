@@ -139,7 +139,11 @@ fn start(
                     if changed.is_err() { break; }
                     if *quitting.borrow_and_update() {
                         control.send_modify(|desired| desired.stop = true);
-                        let _ = window.update(cx, |shell, _, cx| { shell.state.quitting = true; shell.state.diagnostic = Some(feedback::action("Stopping Drip. Waiting for safe engine shutdown and the server mutation barrier.", model::FeedbackSeverity::Info, None)); cx.notify(); });
+                        let _ = window.update(cx, |shell, _, cx| {
+                            shell.state.quitting = true;
+                            shell.state.diagnostic = Some(feedback::stopping());
+                            cx.notify();
+                        });
                         if requests.send(runtime::Request::Quit).await.is_err() { cx.update(|cx| cx.quit()); break; }
                     }
                 }
