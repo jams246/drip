@@ -77,7 +77,7 @@ pub(super) async fn synchronize(
             .find(|previous| previous.id == incoming.id)
             && previous.source != incoming.source
         {
-            if !incoming.active || !crate::source::same_path(&previous.source, &incoming.source) {
+            if !incoming.active || previous.source.drive() != incoming.source.drive() {
                 return Err(EngineError::SelectionChanged);
             }
             root_moves.push(SelectionRootMove {

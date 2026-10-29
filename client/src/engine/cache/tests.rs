@@ -113,6 +113,7 @@ fn removed_changed_or_uncertain_selections_are_evicted_independently() {
         source: source.protocol_path().clone(),
         root_kind: drip_core::protocol::EntryKind::File,
         volume_identity: source.volume_identity().into(),
+        root_identity: None,
         active: true,
     };
     let mut b = a.clone();

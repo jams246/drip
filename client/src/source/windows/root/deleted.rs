@@ -9,6 +9,9 @@ use crate::settings::SavedSelection;
 
 /// Confirms absence through readable ancestors on the original volume without following links.
 pub(crate) fn confirm_root_absent(selection: &SavedSelection) -> Result<bool, SourceError> {
+    if selection.root_identity.is_some() && super::resolve_root(selection)?.is_some() {
+        return Ok(false);
+    }
     native::validate_drive(selection.source.drive())?;
     native::reject_application_data(&selection.source)?;
     let mut path = PathBuf::from(format!("{}:\\", selection.source.drive()));

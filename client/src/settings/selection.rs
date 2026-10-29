@@ -58,6 +58,7 @@ pub(super) fn add(
             item.source = root.source;
             item.root_kind = root.kind;
             item.volume_identity = root.volume_identity;
+            item.root_identity = Some(root.identity);
             item.active = true;
             item
         }
@@ -66,6 +67,7 @@ pub(super) fn add(
             source: root.source,
             root_kind: root.kind,
             volume_identity: root.volume_identity,
+            root_identity: Some(root.identity),
             active: true,
         },
     };

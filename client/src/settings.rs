@@ -46,6 +46,8 @@ pub struct SavedSelection {
     pub source: SourcePath,
     pub root_kind: EntryKind,
     pub volume_identity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_identity: Option<crate::source::RootIdentity>,
     pub active: bool,
 }
 

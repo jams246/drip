@@ -1,9 +1,12 @@
 mod absence;
 mod deleted;
 mod identity;
+mod tracked;
 
 pub use absence::confirm_absent;
 pub(crate) use deleted::confirm_root_absent;
+pub use tracked::RootIdentity;
+pub(crate) use tracked::resolve_root;
 
 use std::{
     fs::{File, OpenOptions},
@@ -31,6 +34,7 @@ pub struct SourceRoot {
     pub source: SourcePath,
     pub kind: EntryKind,
     pub volume_identity: String,
+    pub identity: RootIdentity,
 }
 
 /// Captures canonical path, root kind, and native volume identity.
@@ -57,6 +61,10 @@ pub fn capture_root(path: &Path) -> Result<SourceRoot, SourceError> {
         source,
         kind,
         volume_identity,
+        identity: RootIdentity {
+            file_id: info.id.FileId.Identifier,
+            created: info.basic.CreationTime,
+        },
     })
 }
 

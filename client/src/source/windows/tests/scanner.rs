@@ -180,6 +180,7 @@ fn saved(path: &Path) -> SavedSelection {
         source: root.source,
         root_kind: root.kind,
         volume_identity: root.volume_identity,
+        root_identity: None,
         active: true,
     }
 }

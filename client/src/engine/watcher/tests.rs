@@ -12,6 +12,7 @@ fn roots() -> Vec<SavedSelection> {
             source: drip_core::SourcePath::parse_absolute(path).unwrap(),
             root_kind: drip_core::protocol::EntryKind::Directory,
             volume_identity: "volume".into(),
+            root_identity: None,
             active: true,
         })
         .collect()

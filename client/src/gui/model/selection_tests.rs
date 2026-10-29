@@ -8,6 +8,7 @@ fn selection(id: &str, active: bool) -> SavedSelection {
         source: SourcePath::new('C', vec![format!("{id}.txt")]).unwrap(),
         root_kind: EntryKind::File,
         volume_identity: "synthetic".into(),
+        root_identity: None,
         active,
     }
 }

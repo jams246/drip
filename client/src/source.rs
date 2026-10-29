@@ -18,3 +18,8 @@ pub(crate) use windows::is_application_data_name;
 
 #[cfg(windows)]
 pub(crate) use windows::confirm_root_absent;
+
+#[cfg(windows)]
+pub use windows::RootIdentity;
+#[cfg(windows)]
+pub(crate) use windows::resolve_root;

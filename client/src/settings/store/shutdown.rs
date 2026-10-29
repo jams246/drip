@@ -64,6 +64,7 @@ mod tests {
             source: SourcePath::parse_absolute("C:\\old").unwrap(),
             root_kind: EntryKind::Directory,
             volume_identity: "volume".to_owned(),
+            root_identity: None,
             active: false,
         }
     }

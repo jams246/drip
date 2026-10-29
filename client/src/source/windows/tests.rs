@@ -4,6 +4,7 @@ mod native;
 mod ordinal;
 mod paths;
 mod root_deletion;
+mod root_moves;
 mod scanner;
 mod source;
 mod spelling;

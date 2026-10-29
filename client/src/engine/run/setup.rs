@@ -6,7 +6,7 @@ use crate::{
         watcher::SourceWatcher,
     },
     settings::{ClientSettings, SavedSelection},
-    source::{capture_root, same_path},
+    source::{resolve_root, same_path},
 };
 
 #[derive(Default)]
@@ -22,14 +22,26 @@ impl PassState {
         context: &PassContext<'_>,
         barrier: bool,
     ) -> Result<(Vec<ActiveSelection>, ClientSettings), EngineError> {
+        if context.signal.rebuild() {
+            self.watcher = None;
+        }
         let local = engine.settings.load()?;
         for saved in local.selections.iter().filter(|saved| saved.active) {
-            if let Ok(current) = capture_root(&PathBuf::from(saved.source.to_windows_path()))
-                && same_path(&current.source, &saved.source)
-                && current.volume_identity == saved.volume_identity
-                && (current.kind != saved.root_kind || current.source != saved.source)
-            {
-                engine.settings.refresh_root(&saved.id, &current)?;
+            if let Ok(Some(current)) = resolve_root(saved) {
+                if same_path(&current.source, &saved.source) {
+                    engine.settings.refresh_root(&saved.id, &current)?;
+                } else if let Err(error) = engine.settings.follow_root(saved, &current) {
+                    context
+                        .events
+                        .emit(
+                            EventKind::Error,
+                            Some(&saved.id),
+                            Some(&saved.source),
+                            "root-move",
+                            error.to_string(),
+                        )
+                        .await?;
+                }
             }
         }
         let active = saved::synchronize(
