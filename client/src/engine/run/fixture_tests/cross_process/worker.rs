@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fs,
     path::PathBuf,
     time::{Duration, Instant},
@@ -21,6 +21,9 @@ struct StageResult {
     peak_working_set_bytes: u64,
     interrupted: bool,
     target_file_checked: bool,
+    audit_requested: bool,
+    audit_hash_paths: usize,
+    audit_synced_after_hashing: bool,
 }
 
 pub async fn run(stage: &str) {
@@ -63,6 +66,14 @@ pub async fn run(stage: &str) {
     let mut stopped = false;
     let mut interrupted = false;
     let mut target_file_checked = false;
+    let mut audit_requested = false;
+    let mut audit_hash_paths = HashSet::new();
+    let mut audit_synced_after_hashing = false;
+    let audit_expected_paths = if matches!(stage, "audit" | "release-audit") {
+        cache_rows(&path_env("DRIP_TEST_ARTIFACT_ROOT").join("drip.state.sqlite3"))
+    } else {
+        0
+    };
     loop {
         if stopped && worker.is_finished() {
             break;
@@ -77,8 +88,21 @@ pub async fn run(stage: &str) {
         *event_counts
             .entry(event_key(event.kind).to_owned())
             .or_default() += 1;
+        if audit_requested
+            && event.kind == EventKind::Hashing
+            && let Some(path) = &event.source_path
+        {
+            audit_hash_paths.insert(path.clone());
+        }
         if event.kind == EventKind::FileChecked && event.source_path.as_ref() == target.as_ref() {
             target_file_checked = true;
+        }
+        if event.kind == EventKind::Synced
+            && event.selection_id.as_deref() == Some(&selection.id)
+            && audit_requested
+            && u64::try_from(audit_hash_paths.len()).unwrap_or(u64::MAX) >= audit_expected_paths
+        {
+            audit_synced_after_hashing = true;
         }
         if event.selection_id.as_deref() == Some(&selection.id) && event.kind == EventKind::Synced {
             synced += 1;
@@ -89,10 +113,11 @@ pub async fn run(stage: &str) {
                 paused = true;
                 commands.send_modify(|control| control.paused = true);
             }
-            "audit" if synced == 1 && !stopped => {
+            "audit" | "release-audit" if synced == 1 && !audit_requested => {
                 commands.send_modify(|control| control.reconcile += 1);
+                audit_requested = true;
             }
-            "interrupt"
+            "interrupt" | "release-interrupt"
                 if event.kind == EventKind::Chunking
                     && event.source_path.as_ref() == target.as_ref()
                     && !stopped =>
@@ -112,8 +137,8 @@ pub async fn run(stage: &str) {
         if event.kind == EventKind::Synced && event.selection_id.as_deref() == Some(&selection.id) {
             let finish = match stage {
                 "warm" => resumed && synced >= 4,
-                "audit" => synced >= 2,
-                "interrupt" => false,
+                "audit" | "release-audit" => audit_synced_after_hashing,
+                "interrupt" | "release-interrupt" => false,
                 _ => synced >= 1,
             };
             if finish && !stopped {
@@ -133,7 +158,7 @@ pub async fn run(stage: &str) {
         .unwrap()
         .unwrap();
     assert!(
-        stage != "interrupt" || interrupted,
+        !matches!(stage, "interrupt" | "release-interrupt") || interrupted,
         "no unfinished file was reached"
     );
     let metrics_path = path_env("DRIP_SOURCE_READ_METRICS_PATH");
@@ -151,6 +176,9 @@ pub async fn run(stage: &str) {
         peak_working_set_bytes: resources.peak_working_set_bytes,
         interrupted,
         target_file_checked,
+        audit_requested,
+        audit_hash_paths: audit_hash_paths.len(),
+        audit_synced_after_hashing,
     };
     fs::write(
         path_env("DRIP_STAGE_RESULT_PATH"),

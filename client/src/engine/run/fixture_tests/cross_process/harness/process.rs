@@ -21,6 +21,9 @@ pub(super) struct StageResult {
     pub peak_working_set_bytes: u64,
     pub interrupted: bool,
     pub target_file_checked: bool,
+    pub audit_requested: bool,
+    pub audit_hash_paths: usize,
+    pub audit_synced_after_hashing: bool,
 }
 
 pub(super) fn run_stage(stage: &str, target: Option<&Path>) -> StageResult {
@@ -73,6 +76,15 @@ fn run_expected_exit(stage: &str, target: &Path, code: i32) {
 pub(super) fn create_dataset(profile: &str, root: &Path) -> BTreeMap<String, u64> {
     assert!(!root.exists(), "synthetic source root already exists");
     fs::create_dir_all(root).unwrap();
+    let files = dataset_sizes(profile);
+    for (name, size) in &files {
+        let seed = format!("{}:{profile}:{name}", deterministic::SEED);
+        deterministic::write_file(&root.join(name), *size, &seed, false);
+    }
+    files
+}
+
+pub(super) fn dataset_sizes(profile: &str) -> BTreeMap<String, u64> {
     let mut files = BTreeMap::new();
     for index in 0..200 {
         files.insert(format!("small-{index:03}.bin"), 64 * 1024);
@@ -92,10 +104,6 @@ pub(super) fn create_dataset(profile: &str, root: &Path) -> BTreeMap<String, u64
     };
     for (name, mebibytes) in large {
         files.insert((*name).to_owned(), mebibytes * 1024 * 1024);
-    }
-    for (name, size) in &files {
-        let seed = format!("{}:{profile}:{name}", deterministic::SEED);
-        deterministic::write_file(&root.join(name), *size, &seed, false);
     }
     files
 }

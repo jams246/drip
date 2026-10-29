@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, fs, path::Path};
 #[path = "checks.rs"]
 mod checks;
 mod process;
+mod release;
 
 use serde::{Deserialize, Serialize};
 
@@ -62,9 +63,32 @@ pub async fn run() {
     });
     if profile == "routine" {
         run_routine_scenarios(&source_root, &sizes, &mut summary);
+    } else {
+        release::run_release_scenarios(&source_root, &sizes, &mut summary);
     }
     let output = root.join(format!("acceptance-{profile}.json"));
     fs::write(output, serde_json::to_vec_pretty(&summary).unwrap()).unwrap();
+}
+
+pub fn run_existing_release_scenarios() {
+    verify_owned_fixture();
+    let root = path_env("DRIP_TEST_ARTIFACT_ROOT");
+    assert!(std::env::current_exe().unwrap().starts_with(&root));
+    let mut summary: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("acceptance-release.json")).unwrap()).unwrap();
+    assert_eq!(summary["profile"], "release");
+    let source_root = path_env("DRIP_PERSISTENCE_SOURCE_ROOT");
+    assert_eq!(process::cache_row_count(), 203);
+    release::run_release_scenarios(
+        &source_root,
+        &process::dataset_sizes("release"),
+        &mut summary,
+    );
+    fs::write(
+        root.join("acceptance-release.json"),
+        serde_json::to_vec_pretty(&summary).unwrap(),
+    )
+    .unwrap();
 }
 
 fn run_routine_scenarios(
@@ -110,6 +134,9 @@ fn run_routine_scenarios(
 
     let audit = run_stage("audit", None);
     let audit_metrics = read_metrics("audit");
+    assert!(audit.audit_requested);
+    assert_eq!(audit.audit_hash_paths, sizes.len());
+    assert!(audit.audit_synced_after_hashing);
     assert_file_metrics(source_root, sizes, &audit_metrics, true, false);
     let cached_digest = cache_digest(&small).expect("completed audit did not persist the file");
     run_cache_race_exit(&small);

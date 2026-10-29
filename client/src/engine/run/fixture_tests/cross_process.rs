@@ -13,3 +13,9 @@ async fn persistent_cache_process_restart_acceptance() {
         harness::run().await;
     }
 }
+
+#[test]
+#[ignore = "continues the owned release dataset with an isolated test executable"]
+fn persistent_cache_release_scenarios_acceptance() {
+    harness::run_existing_release_scenarios();
+}
