@@ -1,5 +1,4 @@
 use gpui::{ClickEvent, Context, IntoElement, Window, div, prelude::*, px, rgb};
-use std::rc::Rc;
 
 use crate::gui::{focus, input::Input, model::Shell, theme};
 
@@ -46,21 +45,7 @@ pub(in crate::gui::views) fn button(
         .hover(|style| style.bg(rgb(if primary { 0xb5c6f7 } else { 0x282c34 })))
         .child(label);
     if enabled {
-        let on_click = Rc::new(on_click);
-        button
-            .on_click(cx.listener({
-                let on_click = on_click.clone();
-                move |shell, event, window, cx| on_click(shell, event, window, cx)
-            }))
-            .on_key_down(
-                cx.listener(move |shell, event: &gpui::KeyDownEvent, window, cx| {
-                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                        cx.stop_propagation();
-                        on_click(shell, &ClickEvent::default(), window, cx);
-                    }
-                }),
-            )
-            .cursor_pointer()
+        button.on_click(cx.listener(on_click)).cursor_pointer()
     } else {
         button
     }
