@@ -111,17 +111,11 @@ fn validate_same_root_kind(selection: &SavedSelection) -> Result<(), SourceError
 }
 
 fn is_protected_application_path(target: &SourcePath, exe_dir: &SourceRoot) -> bool {
-    let Some(name) = target.components().last() else {
-        return false;
-    };
-    let Some(parent) = SourcePath::new(
-        target.drive(),
-        target.components()[..target.components().len() - 1].to_vec(),
-    )
-    .ok() else {
-        return false;
-    };
-    same_path(&parent, &exe_dir.source) && native::is_application_data_name(name)
+    target.has_windows_prefix(&exe_dir.source)
+        && target
+            .components()
+            .get(exe_dir.source.components().len())
+            .is_some_and(|name| native::is_application_data_name(name))
 }
 
 fn selected_path(parent: &SourcePath, child: &SourcePath) -> bool {

@@ -1,3 +1,4 @@
+mod application_state;
 mod client_settings;
 mod delta_reads;
 mod native;
