@@ -40,14 +40,21 @@ fn directory_revision_changes_when_a_child_is_added() {
         .list_entries(credential, &selection_id, None)
         .unwrap();
     let initial_revision = entry_precondition(&first.entries, &root).revision;
+    let root_path = mirror_path(&fixture, &device, &root);
+    let initial_modified = fs::metadata(&root_path).unwrap().modified().unwrap();
     fs::write(
         mirror_path(&fixture, &device, &child(&root, "child.txt")),
         b"child",
     )
     .unwrap();
+    let changed_modified = fs::metadata(&root_path).unwrap().modified().unwrap();
     let second = fixture
         .store
         .list_entries(credential, &selection_id, None)
         .unwrap();
-    assert!(entry_precondition(&second.entries, &root).revision > initial_revision);
+    let changed_revision = entry_precondition(&second.entries, &root).revision;
+    assert!(
+        changed_revision > initial_revision,
+        "directory revision {initial_revision} did not advance to {changed_revision}; modified time {initial_modified:?} -> {changed_modified:?}"
+    );
 }

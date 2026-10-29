@@ -113,7 +113,10 @@ pub(crate) fn snapshot_directory(directory: &Dir) -> StoreResult<DirectorySnapsh
     if !metadata.is_dir() {
         return Err(StoreError::Conflict);
     }
+    #[cfg(unix)]
     let (change_seconds, change_nanos) = upload_files::change_time(&metadata);
+    #[cfg(not(unix))]
+    let (change_seconds, change_nanos) = directory_membership_stamp(directory)?;
     Ok(DirectorySnapshot {
         device: metadata.dev(),
         inode: metadata.ino(),
@@ -136,7 +139,63 @@ pub(crate) fn check_directory_after_exchange(
     {
         return Err(StoreError::Conflict);
     }
+    #[cfg(not(unix))]
+    if current.change_seconds != expected.change_seconds
+        || current.change_nanos != expected.change_nanos
+    {
+        return Err(StoreError::Conflict);
+    }
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn directory_membership_stamp(directory: &Dir) -> StoreResult<(i64, i64)> {
+    // Windows does not reliably advance a directory timestamp after a child is created.
+    let mut names = directory
+        .read_dir(".")
+        .map_err(database::io_error)?
+        .map(|entry| {
+            entry
+                .map(|entry| entry.file_name().into_string())
+                .map_err(database::io_error)?
+                .map_err(|_| StoreError::UnsupportedEntry)
+        })
+        .collect::<StoreResult<Vec<_>>>()?;
+    names.sort_unstable();
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"drip-directory-membership-v1\0");
+    for name in names {
+        let metadata = directory
+            .symlink_metadata(&name)
+            .map_err(database::io_error)?;
+        let kind = if metadata.is_dir() {
+            1
+        } else if metadata.is_file() {
+            2
+        } else {
+            return Err(StoreError::UnsupportedEntry);
+        };
+        let length = u64::try_from(name.len()).map_err(|_| StoreError::Conflict)?;
+        hasher.update(&length.to_le_bytes());
+        hasher.update(name.as_bytes());
+        hasher.update(&[kind]);
+        hasher.update(&metadata.dev().to_le_bytes());
+        hasher.update(&metadata.ino().to_le_bytes());
+        hasher.update(&metadata.len().to_le_bytes());
+        let modified = crate::upload_times::metadata_timestamp(&metadata)?;
+        hasher.update(&modified.unix_seconds().to_le_bytes());
+        hasher.update(&modified.nanos().to_le_bytes());
+    }
+    let digest = hasher.finalize();
+    let mut seconds = [0; 8];
+    seconds.copy_from_slice(&digest.as_bytes()[..8]);
+    let mut nanos = [0; 4];
+    nanos.copy_from_slice(&digest.as_bytes()[8..12]);
+    Ok((
+        i64::from_le_bytes(seconds),
+        i64::from(u32::from_le_bytes(nanos) % 1_000_000_000),
+    ))
 }
 
 pub(crate) fn check_absent(root: &Dir, source: &SourcePath) -> StoreResult<()> {
@@ -178,3 +237,6 @@ fn open_drive(root: &Dir, drive: char) -> StoreResult<Option<Dir>> {
         Err(_) => Err(StoreError::Conflict),
     }
 }
+
+#[cfg(all(test, not(unix)))]
+mod tests;
