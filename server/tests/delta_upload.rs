@@ -1,18 +1,12 @@
 mod common;
 
-use std::{
-    io::Cursor,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{io::Cursor, path::PathBuf};
 
 use axum::body::Body;
-use common::{Fixture, enroll, mirror_path, request, select, upload};
+use common::{Fixture, enroll, mirror_path, request, select, unique_fixture_directory, upload};
 use drip_core::protocol::UploadPlanRequest;
 use drip_core::{Blake3Digest, ChunkConfig, ChunkStream, SourcePath, Timestamp};
 use drip_server::StoreError;
-
-static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 #[tokio::test]
 async fn legacy_baseline_reuses_ranges_and_retries_keep_their_original_result() {
@@ -237,10 +231,7 @@ fn fixture() -> Fixture {
     let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(".verification/phase-03/server-tests");
-    std::fs::create_dir_all(&parent).unwrap();
-    let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let root = parent.join(format!("{}-{id}", std::process::id()));
-    std::fs::create_dir(&root).unwrap();
+    let root = unique_fixture_directory(&parent, "delta-upload");
     let store = drip_server::Store::open(root.join("state"), root.join("mirror")).unwrap();
     Fixture { _root: root, store }
 }

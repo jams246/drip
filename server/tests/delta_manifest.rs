@@ -1,17 +1,11 @@
 mod common;
 
-use std::{
-    io::Cursor,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{io::Cursor, path::PathBuf};
 
-use common::{enroll, request, select, upload};
+use common::{enroll, request, select, unique_fixture_directory, upload};
 use drip_core::protocol::UploadPlanRequest;
 use drip_core::{Blake3Digest, ChunkConfig, ChunkStream, SourcePath, Timestamp};
 use rusqlite::params;
-
-static NEXT_ROOT: AtomicU64 = AtomicU64::new(0);
 
 struct TestRoot(PathBuf);
 
@@ -175,9 +169,5 @@ fn test_root() -> PathBuf {
     let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(".verification/phase-03/server-manifest-tests");
-    std::fs::create_dir_all(&parent).unwrap();
-    let id = NEXT_ROOT.fetch_add(1, Ordering::Relaxed);
-    let root = parent.join(format!("{}-{id}", std::process::id()));
-    std::fs::create_dir(&root).unwrap();
-    root
+    unique_fixture_directory(&parent, "delta-manifest")
 }

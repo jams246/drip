@@ -4,7 +4,7 @@
 )]
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -19,6 +19,32 @@ use std::sync::atomic::AtomicI64;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
+pub fn unique_fixture_directory(parent: &Path, label: &str) -> PathBuf {
+    std::fs::create_dir_all(parent).unwrap();
+    loop {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
+        let root = parent.join(fixture_directory_name(
+            std::process::id(),
+            label,
+            nanos,
+            suffix,
+        ));
+        match std::fs::create_dir(&root) {
+            Ok(()) => return root,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!("could not create verification fixture directory: {error}"),
+        }
+    }
+}
+
+pub fn fixture_directory_name(process_id: u32, label: &str, nanos: u128, suffix: u64) -> String {
+    format!("{process_id}-{label}-{nanos}-{suffix}")
+}
+
 pub struct Fixture {
     pub _root: PathBuf,
     pub store: Store,
@@ -29,14 +55,7 @@ impl Fixture {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join(".verification/phase-02/server-tests");
-        std::fs::create_dir_all(&parent).unwrap();
-        let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = parent.join(format!("{}-{nanos}-{suffix}", std::process::id()));
-        std::fs::create_dir(&root).unwrap();
+        let root = unique_fixture_directory(&parent, "fixture");
         let store = Store::open(root.join("state"), root.join("mirror")).unwrap();
         Self { _root: root, store }
     }
@@ -45,14 +64,7 @@ impl Fixture {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join(".verification/phase-02/server-tests");
-        std::fs::create_dir_all(&parent).unwrap();
-        let suffix = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = parent.join(format!("{}-clock-{nanos}-{suffix}", std::process::id()));
-        std::fs::create_dir(&root).unwrap();
+        let root = unique_fixture_directory(&parent, "clock");
         let clock = std::sync::Arc::clone(&clock);
         let store = Store::open_with_clock(root.join("state"), root.join("mirror"), move || {
             Ok(clock.load(Ordering::SeqCst))

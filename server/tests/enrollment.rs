@@ -4,12 +4,12 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Barrier,
-        atomic::{AtomicI64, AtomicU64, Ordering},
+        atomic::{AtomicI64, Ordering},
     },
     thread,
 };
 
-use common::Fixture;
+use common::{Fixture, unique_fixture_directory};
 use drip_core::{SensitiveString, protocol::EnrollmentRequest};
 use drip_server::{Store, StoreError};
 
@@ -103,10 +103,7 @@ impl ClockFixture {
         let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join(".verification/phase-02/server-tests");
-        std::fs::create_dir_all(&parent).unwrap();
-        let suffix = NEXT_CLOCK_FIXTURE.fetch_add(1, Ordering::Relaxed);
-        let root = parent.join(format!("{}-clock-{suffix}", std::process::id()));
-        std::fs::create_dir(&root).unwrap();
+        let root = unique_fixture_directory(&parent, "clock");
         let clock = Arc::new(AtomicI64::new(1_000));
         let test_clock = Arc::clone(&clock);
         let store = Store::open_with_clock(root.join("state"), root.join("mirror"), move || {
@@ -116,8 +113,6 @@ impl ClockFixture {
         Self { root, store, clock }
     }
 }
-
-static NEXT_CLOCK_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 impl Drop for ClockFixture {
     fn drop(&mut self) {
