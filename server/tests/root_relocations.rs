@@ -98,6 +98,11 @@ async fn file_rename_and_move_preserve_bytes_selection_id_and_generation_fence()
             ),
         )
         .unwrap();
+    fixture
+        .store
+        .put_upload_data(credential, &pending.upload_id, Body::from("obsolete"))
+        .await
+        .unwrap();
     assert_eq!(
         relocate(&fixture, credential, &id, old.clone(), new.clone()).await,
         StatusCode::OK
