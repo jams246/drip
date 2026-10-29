@@ -13,6 +13,7 @@ pub(crate) struct DirtyBatch {
     pub selections: HashSet<String>,
     pub uncertain: HashSet<String>,
     pub full: bool,
+    pub all: bool,
 }
 
 #[derive(Default)]
@@ -72,6 +73,10 @@ impl DirtySignal {
         self.state().batch.selections.insert(selection.to_owned());
     }
 
+    pub fn sweep(&self) {
+        self.state().batch.all = true;
+    }
+
     pub fn take(&self) -> DirtyBatch {
         let mut state = self.state();
         state.settings = false;
@@ -80,7 +85,7 @@ impl DirtySignal {
 
     pub fn pending(&self) -> bool {
         let state = self.state();
-        state.settings || state.batch.full || !state.batch.selections.is_empty()
+        state.settings || state.batch.full || state.batch.all || !state.batch.selections.is_empty()
     }
 
     pub fn full(&self) -> bool {
@@ -125,6 +130,22 @@ mod tests {
         let epoch = signal.epoch("a");
         signal.overflow();
         assert!(signal.changed_since("a", epoch));
+    }
+
+    #[test]
+    fn sweep_and_full_verification_remain_pending_until_a_batch_starts() {
+        let signal = DirtySignal::default();
+        signal.sweep();
+        assert!(signal.pending());
+        assert!(!signal.full());
+        let batch = signal.take();
+        assert!(batch.all && !batch.full);
+        signal.overflow();
+        signal.sweep();
+        assert!(signal.full());
+        let batch = signal.take();
+        assert!(batch.all && batch.full);
+        assert!(!signal.pending());
     }
 
     #[test]

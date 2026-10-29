@@ -1,4 +1,5 @@
 use super::*;
+use crate::engine::{ProgressSnapshot, UploadPhase};
 use tokio::sync::watch;
 
 #[tokio::test]

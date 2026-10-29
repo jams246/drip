@@ -11,12 +11,10 @@ impl Engine {
         context: &PassContext<'_>,
         state: &mut PassState,
         barrier: bool,
-        all: bool,
-        force_hash: bool,
     ) -> Result<bool, EngineError> {
         let (active, latest) = state.prepare(self, context, barrier).await?;
         let batch = context.signal.take();
-        if force_hash || batch.full {
+        if batch.full {
             context.cache.clear();
         }
         for id in batch
@@ -29,7 +27,7 @@ impl Engine {
         let active: Vec<_> = active
             .into_iter()
             .filter(|selection| {
-                all || batch.full || batch.selections.contains(&selection.selection.id)
+                batch.all || batch.full || batch.selections.contains(&selection.selection.id)
             })
             .collect();
         let mut successful = true;

@@ -1,4 +1,11 @@
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use drip_core::{Blake3Digest, SourcePath, Timestamp};
 use tokio::{
@@ -31,6 +38,7 @@ pub struct SourceFile {
     file: Arc<Mutex<TokioFile>>,
     initial: Observation,
     volume_identity: String,
+    hashed_bytes: AtomicU64,
 }
 
 impl SourceFile {
@@ -59,6 +67,7 @@ impl SourceFile {
             file: Arc::new(Mutex::new(TokioFile::from_std(file))),
             initial,
             volume_identity,
+            hashed_bytes: AtomicU64::new(0),
         })
     }
 
@@ -84,6 +93,10 @@ impl SourceFile {
 
     pub(crate) fn observation(&self) -> Observation {
         self.initial
+    }
+
+    pub(crate) fn hashed_bytes(&self) -> u64 {
+        self.hashed_bytes.load(Ordering::Relaxed)
     }
 
     /// Hashes the opened file using bounded memory and restores its position.
@@ -145,6 +158,7 @@ impl SourceFile {
         file.seek(SeekFrom::Start(0)).await?;
         drop(file);
         self.verify().await?;
+        self.hashed_bytes.store(processed, Ordering::Relaxed);
         Ok(Blake3Digest::new(*hasher.finalize().as_bytes()))
     }
 

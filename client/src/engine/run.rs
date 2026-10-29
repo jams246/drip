@@ -3,6 +3,8 @@ mod passes;
 mod setup;
 
 #[cfg(test)]
+mod fixture_tests;
+#[cfg(test)]
 mod tests;
 
 use std::{sync::Arc, time::Instant};
@@ -52,8 +54,8 @@ impl Engine {
         );
         let mut connection = events.subscribe_status();
         let signal = DirtySignal::default();
+        signal.overflow();
         let cache = super::cache::FileCache::default();
-        let mut force_hash = true;
         let mut state = setup::PassState::default();
         let mut schedule = Schedule::new(Instant::now());
         let mut barrier = true;
@@ -67,7 +69,7 @@ impl Engine {
             let desired = *control.borrow_and_update();
             if desired.reconcile != reconciled_request {
                 reconciled_request = desired.reconcile;
-                force_hash = true;
+                signal.overflow();
                 schedule.force(Instant::now());
             }
             if desired.refresh_selections != refreshed_request {
@@ -156,7 +158,7 @@ impl Engine {
             }
             if paused {
                 paused = false;
-                force_hash = true;
+                signal.overflow();
                 barrier = true;
                 schedule.force(Instant::now());
                 events
@@ -179,11 +181,10 @@ impl Engine {
                     else if signal.pending() { schedule.hint(Instant::now()); }
                 }
                 _ = tokio::time::sleep_until(due) => {
-                    let all = schedule.begin(Instant::now());
+                    if schedule.begin(Instant::now()) { signal.sweep(); }
                     let context = super::pass::PassContext { cache: &cache, store: &self.settings,
                         transport: &transport, pairing: &pairing, events: &events, signal: &signal, control: &control };
-                    let result = self.continuous_pass(&context, &mut state, barrier, all, force_hash).await;
-                    if result.is_ok() { force_hash = false; }
+                    let result = self.continuous_pass(&context, &mut state, barrier).await;
                     if let Err(error) = &result { reachability.observe_error(error); }
                     match result {
                         Ok(true) => {

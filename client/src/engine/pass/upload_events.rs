@@ -2,9 +2,7 @@ use std::time::{Duration, Instant};
 
 use tokio::{sync::mpsc, task::JoinHandle};
 
-use crate::engine::{
-    ActivityEvent, EngineError, EventKind, EventSink, ProgressSnapshot, UploadPhase,
-};
+use crate::engine::{ActivityEvent, EngineError, EventKind, EventSink};
 
 const REPORT_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -55,16 +53,6 @@ pub(super) fn start(
                             &operation,
                             format!("uploading {size} bytes"),
                         ).await?;
-                        if phase.is_none() {
-                            let progress = initial(size, source_path);
-                            phase = Some(progress.phase);
-                            events.progress(&selection, &operation, progress.clone());
-                            events.progress_phase(&selection, &operation, progress).await?;
-                            last_report = Some(Instant::now());
-                            timer
-                                .as_mut()
-                                .reset(tokio::time::Instant::now() + REPORT_INTERVAL);
-                        }
                     }
                     Some(ActivityEvent::UploadCompleted { source_path, size, .. }) => {
                         events.emit(
@@ -112,20 +100,6 @@ pub(super) fn start(
         Ok(())
     });
     (sender, report)
-}
-
-fn initial(size: u64, source_path: drip_core::SourcePath) -> ProgressSnapshot {
-    ProgressSnapshot {
-        phase: UploadPhase::Hashing,
-        source_path,
-        processed_bytes: 0,
-        total_bytes: Some(size),
-        source_hashed_bytes: 0,
-        source_chunked_bytes: 0,
-        chunk_count: 0,
-        planned_payload_bytes: 0,
-        file_payload_sent: 0,
-    }
 }
 
 #[cfg(test)]

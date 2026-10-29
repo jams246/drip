@@ -52,7 +52,7 @@ pub(super) async fn send(
     let size = source.size();
     let source_path = source.protocol_path().clone();
     let mut counters = Counters {
-        source_hashed: size,
+        source_hashed: source.hashed_bytes(),
         ..Counters::default()
     };
     let sent = Arc::new(AtomicU64::new(0));

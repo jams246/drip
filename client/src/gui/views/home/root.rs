@@ -73,6 +73,9 @@ pub(super) fn card(
             .child(
                 div()
                     .flex()
+                    .w(px(200.))
+                    .flex_shrink_0()
+                    .justify_end()
                     .items_center()
                     .gap_2()
                     .text_color(rgb(color))
