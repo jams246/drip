@@ -42,10 +42,10 @@ pub struct SelectionUpdateResponse {
     pub generation: u64,
 }
 
-/// Explicit previous binding for a selected root whose canonical spelling changed.
+/// Explicit previous binding for a renamed or moved selected root.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionRootMove {
-    /// Selection whose existing root entry moves to its new source spelling.
+    /// Selection whose existing root entry moves to its new source path.
     pub selection_id: String,
     /// Exact previous binding read from the authenticated server selection set.
     pub previous_source: SourcePath,
@@ -57,7 +57,7 @@ pub struct SelectionRelocationRequest {
     /// Complete selection set and its current-generation precondition.
     #[serde(flatten)]
     pub update: SelectionUpdate,
-    /// Explicit root moves, omitted by clients that do not change root spelling.
+    /// Explicit root moves, omitted by clients that do not change root paths.
     #[serde(default)]
     pub root_moves: Vec<SelectionRootMove>,
 }

@@ -2,14 +2,19 @@ use std::io;
 
 use cap_std::fs::Dir;
 use drip_core::protocol::{Selection, SelectionRootMove};
+use rusqlite::Transaction;
 
 use crate::{StoreError, StoreResult, database, entry_files, upload_files};
+
+mod recovery;
 
 pub(crate) fn relocate(
     root: &Dir,
     previous: &[Selection],
     incoming: &[Selection],
     moves: &[SelectionRootMove],
+    transaction: &Transaction<'_>,
+    pc_id: &str,
 ) -> StoreResult<()> {
     for (index, moved) in moves.iter().enumerate() {
         if moves[..index]
@@ -30,9 +35,9 @@ pub(crate) fn relocate(
             || old.source != moved.previous_source
             || old.source == new.source
             || old.source.drive() != new.source.drive()
-            || old.source.components().len() != new.source.components().len()
-            || !old.source.has_windows_prefix(&new.source)
-            || !new.source.has_windows_prefix(&old.source)
+            || (!aliases(&old.source, &new.source)
+                && (old.source.has_windows_prefix(&new.source)
+                    || new.source.has_windows_prefix(&old.source)))
         {
             return Err(StoreError::Conflict);
         }
@@ -42,7 +47,13 @@ pub(crate) fn relocate(
             .iter()
             .find(|item| item.id == moved.selection_id)
             .ok_or(StoreError::Conflict)?;
-        move_root(root, &moved.previous_source, &new.source)?;
+        move_root(
+            root,
+            &moved.previous_source,
+            &new.source,
+            transaction,
+            pc_id,
+        )?;
     }
     Ok(())
 }
@@ -51,6 +62,8 @@ fn move_root(
     root: &Dir,
     old: &drip_core::SourcePath,
     new: &drip_core::SourcePath,
+    transaction: &Transaction<'_>,
+    pc_id: &str,
 ) -> StoreResult<()> {
     let old_parent = entry_files::open_parent(root, old)?;
     let (new_parent, new_name) = entry_files::create_parent(root, new)?;
@@ -59,6 +72,18 @@ fn move_root(
         None => false,
     };
     let new_exists = ordinary_entry_exists(&new_parent, &new_name)?;
+    if !aliases(old, new)
+        && new_exists
+        && (old_exists
+            || !recovery::matches(
+                transaction,
+                pc_id,
+                old,
+                &entry_files::read_entry(root, new)?.ok_or(StoreError::Conflict)?,
+            )?)
+    {
+        return Err(StoreError::Conflict);
+    }
     if old_exists && !new_exists {
         let (parent, name) = old_parent.as_ref().ok_or(StoreError::Conflict)?;
         upload_files::checkpoint("before_root_relocation");
@@ -71,6 +96,10 @@ fn move_root(
         upload_files::fsync_directory(&parent)?;
     }
     Ok(())
+}
+
+fn aliases(old: &drip_core::SourcePath, new: &drip_core::SourcePath) -> bool {
+    old.has_windows_prefix(new) && new.has_windows_prefix(old)
 }
 
 fn ordinary_entry_exists(parent: &Dir, name: &str) -> StoreResult<bool> {
@@ -110,12 +139,14 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn explicit_move_cannot_rebind_an_unrelated_root() {
+    async fn explicit_move_cannot_place_a_root_inside_itself() {
         let fixture = crate::upload_race_test_common::Fixture::new().await;
         let current = fixture.store.get_selections(&fixture.credential).unwrap();
         let previous = current.selections;
         let mut incoming = previous.clone();
-        incoming[0].source = drip_core::SourcePath::new('C', vec!["unrelated.bin".into()]).unwrap();
+        let mut components = incoming[0].source.components().to_vec();
+        components.push("nested".into());
+        incoming[0].source = drip_core::SourcePath::new('C', components).unwrap();
         let device =
             crate::upload_store::authenticated_device(&fixture.store, &fixture.credential).unwrap();
         let directory = fixture.store.open_device_directory(&device).unwrap();
@@ -123,8 +154,17 @@ mod tests {
             selection_id: previous[0].id.clone(),
             previous_source: previous[0].source.clone(),
         };
+        let mut connection = fixture.store.connect().unwrap();
+        let transaction = connection.transaction().unwrap();
         assert!(matches!(
-            relocate(&directory, &previous, &incoming, &[moved]),
+            relocate(
+                &directory,
+                &previous,
+                &incoming,
+                &[moved],
+                &transaction,
+                &device.pc_id
+            ),
             Err(StoreError::Conflict)
         ));
         crate::upload_race_test_common::assert_old_bytes(&fixture);

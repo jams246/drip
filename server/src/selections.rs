@@ -114,7 +114,14 @@ fn apply_selection_update(
         }
     }
     validate_selections(&selections)?;
-    crate::selection_paths::relocate(directory, &current.selections, &selections, root_moves)?;
+    crate::selection_paths::relocate(
+        directory,
+        &current.selections,
+        &selections,
+        root_moves,
+        transaction,
+        pc_id,
+    )?;
     let next = current
         .generation
         .checked_add(1)
