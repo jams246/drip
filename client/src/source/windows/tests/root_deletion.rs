@@ -106,3 +106,33 @@ fn watch_retirement_requires_current_settings_and_reconfirmed_absence() {
     assert_eq!(reactivated.selection.id, selection.id);
     assert!(reactivated.selection.active);
 }
+
+#[test]
+fn reparse_point_replacing_a_deleted_root_cannot_authorize_deletion() {
+    let fixture = TestDirectory::new();
+    let root = fixture.path.join("selected");
+    let outside = fixture.path.join("outside");
+    fs::create_dir(&root).unwrap();
+    fs::create_dir(&outside).unwrap();
+    let selection = saved(&root);
+    fs::remove_dir(&root).unwrap();
+    let command = format!(
+        "New-Item -ItemType Junction -Path '{}' -Target '{}' | Out-Null",
+        root.display(),
+        outside.display()
+    );
+    let result = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(matches!(
+        confirm_root_absent(&selection),
+        Err(SourceError::ReparsePoint(_))
+    ));
+    fs::remove_dir(&root).unwrap();
+}
