@@ -56,7 +56,7 @@ impl PassState {
                         if selection.active {
                             "active selection acknowledged"
                         } else {
-                            "selection removed; mirror retained"
+                            "selection removed"
                         },
                     )
                     .await?;

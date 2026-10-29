@@ -1,6 +1,7 @@
+mod deletions;
 mod support;
 
-use std::{fs, time::Duration};
+use std::{fs, os::windows::fs::OpenOptionsExt, time::Duration};
 
 use crate::engine::{EventKind, LifecycleEvent};
 use support::Fixture;
@@ -113,9 +114,12 @@ async fn real_watch_events_isolate_roots_and_periodic_checks_reuse_verified_cont
     assert!(events.iter().any(|event| event.kind == EventKind::Hashing));
     assert!(content(&fixture.pass(true, true).await));
 
-    let before = fixture.signal.epoch(&b);
-    fs::remove_file(&text).unwrap();
-    fixture.changed(&b, before).await;
+    let locked = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&text)
+        .unwrap();
+    fixture.signal.mark(&b, false);
     let events = fixture.attempt(false, false).await.1;
     assert!(!processed(&events, &a));
     assert!(
@@ -125,6 +129,6 @@ async fn real_watch_events_isolate_roots_and_periodic_checks_reuse_verified_cont
     );
     let retry = fixture.attempt(false, false).await.1;
     assert!(!processed(&retry, &a), "retry restarted successful folder");
-    fs::write(&text, b"edited text").unwrap();
+    drop(locked);
     fixture.pass(false, false).await;
 }

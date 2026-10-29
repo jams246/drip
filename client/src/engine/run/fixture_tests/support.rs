@@ -19,6 +19,8 @@ use crate::{
     transport::HttpTransport,
 };
 
+mod server;
+
 pub(super) struct Fixture {
     pub engine: Engine,
     pub sources: PathBuf,
@@ -141,13 +143,7 @@ impl Fixture {
             "{{index .Config.Labels \"drip.verification\"}}",
         ]);
         assert_eq!(label.trim(), "watch-isolation");
-        let source = drip_core::SourcePath::try_from_path(source).unwrap();
-        let path = format!(
-            "/mirror/{}/{}/{}",
-            self.pairing.mirror_directory(),
-            source.drive(),
-            source.components().join("/")
-        );
+        let path = self.remote_path(source);
         use std::{io::Write, process::Stdio};
         let mut process = Command::new("wsl")
             .args([

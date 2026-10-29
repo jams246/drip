@@ -1,3 +1,4 @@
+mod deleted;
 mod refresh;
 mod shutdown;
 mod startup;

@@ -1,7 +1,9 @@
+mod deleted_root;
 mod deletion;
 mod entries;
 mod file;
 mod upload_events;
+mod validation;
 
 use std::collections::HashMap;
 
@@ -11,7 +13,7 @@ use tokio::sync::watch;
 use crate::{
     credentials::Pairing,
     settings::{SavedSelection, SettingsStore},
-    source::{ScannedEntry, capture_root, scan_root, validate_root},
+    source::{ScannedEntry, scan_root},
     transport::HttpTransport,
 };
 
@@ -46,7 +48,10 @@ impl PassContext<'_> {
             "scanning source and actual mirror",
         )
         .await?;
-        self.check(active, saved)?;
+        self.check_selection(active, saved)?;
+        if crate::source::confirm_root_absent(saved)? {
+            return self.delete_root(active, saved, operation, epoch).await;
+        }
         let scan = scan_root(saved, self.store.directory())?;
         if scan.complete {
             self.cache.scanned(&saved.id, &scan.entries);
@@ -128,7 +133,8 @@ impl PassContext<'_> {
             self.check(active, saved)?;
             let after = scan_root(saved, self.store.directory())?;
             if after.complete && fingerprint(&after.entries) == fingerprint(&scan.entries) {
-                self.delete_extras(active, saved, &scan, epoch).await?;
+                self.delete_extras(active, saved, Some(&scan), epoch)
+                    .await?;
             } else {
                 successful = false;
             }
@@ -157,45 +163,6 @@ impl PassContext<'_> {
             .await?;
             Ok(false)
         }
-    }
-
-    pub fn check(
-        &self,
-        active: &ActiveSelection,
-        saved: &SavedSelection,
-    ) -> Result<(), EngineError> {
-        let control = self.control.borrow();
-        if control.paused || control.stop {
-            return Err(EngineError::Cancelled);
-        }
-        drop(control);
-        let settings = self.store.load()?;
-        if settings.pending_update.is_some()
-            || settings.acknowledged_generation != active.generation
-            || !settings
-                .selections
-                .iter()
-                .any(|item| item == saved && item.active)
-        {
-            return Err(EngineError::SelectionChanged);
-        }
-        validate_root(saved)?;
-        Ok(())
-    }
-
-    pub fn fresh_kind(
-        &self,
-        saved: &SavedSelection,
-        entry: &ScannedEntry,
-    ) -> Result<(), EngineError> {
-        let current = capture_root(&entry.local_path)?;
-        if current.source != entry.source_path
-            || current.kind != entry.kind
-            || current.volume_identity != saved.volume_identity
-        {
-            return Err(crate::source::SourceError::Changed.into());
-        }
-        Ok(())
     }
 
     pub async fn emit(

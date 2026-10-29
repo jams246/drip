@@ -1,7 +1,9 @@
 mod absence;
+mod deleted;
 mod identity;
 
 pub use absence::confirm_absent;
+pub(crate) use deleted::confirm_root_absent;
 
 use std::{
     fs::{File, OpenOptions},

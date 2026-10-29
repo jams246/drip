@@ -15,3 +15,6 @@ pub(crate) use windows::{Observation, SourceError, random_id, same_path};
 
 #[cfg(windows)]
 pub(crate) use windows::is_application_data_name;
+
+#[cfg(windows)]
+pub(crate) use windows::confirm_root_absent;

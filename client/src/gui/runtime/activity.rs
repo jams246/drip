@@ -1,5 +1,6 @@
 use chrono::{DateTime, Local};
 use drip_client::{LifecycleEvent, SelectionProgress};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use super::Event;
@@ -27,8 +28,23 @@ pub(super) async fn forward(
     mut receiver: mpsc::Receiver<LifecycleEvent>,
     generation: u64,
     events: mpsc::Sender<Event>,
+    engine: Arc<drip_client::Engine>,
 ) {
     while let Some(mut event) = receiver.recv().await {
+        if event.kind == drip_client::EventKind::SelectionChanged {
+            match engine.status() {
+                Ok(settings) => {
+                    let _ = events.send(Event::Settings(settings)).await;
+                }
+                Err(error) => {
+                    let _ = events
+                        .send(Event::Diagnostic(crate::gui::feedback::diagnostic(
+                            error.to_string(),
+                        )))
+                        .await;
+                }
+            }
+        }
         let message = if let Some(file) = event.progress.take() {
             let (Some(selection_id), operation_id) = (event.selection_id, event.operation_id)
             else {

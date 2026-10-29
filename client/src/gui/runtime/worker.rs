@@ -33,6 +33,7 @@ impl Worker {
             received,
             generation,
             events.clone(),
+            engine.clone(),
         ));
         let progress_events = events.clone();
         let progress = tokio::spawn(async move {

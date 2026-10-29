@@ -3,6 +3,7 @@ mod delta_reads;
 mod native;
 mod ordinal;
 mod paths;
+mod root_deletion;
 mod scanner;
 mod source;
 mod spelling;

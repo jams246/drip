@@ -5,7 +5,7 @@ use reqwest::Method;
 
 use crate::{
     settings::SavedSelection,
-    source::{SourceScan, confirm_absent},
+    source::{SourceScan, confirm_absent, confirm_root_absent},
 };
 
 use super::PassContext;
@@ -19,12 +19,12 @@ impl PassContext<'_> {
         &self,
         active: &ActiveSelection,
         saved: &SavedSelection,
-        scan: &SourceScan,
+        scan: Option<&SourceScan>,
         epoch: crate::engine::watcher::ChangeEpoch,
     ) -> Result<(), EngineError> {
         let source_paths: HashSet<_> = scan
-            .entries
-            .iter()
+            .into_iter()
+            .flat_map(|scan| &scan.entries)
             .map(|entry| &entry.source_path)
             .collect();
         let mut remote =
@@ -32,17 +32,15 @@ impl PassContext<'_> {
         remote.sort_by_key(|entry| std::cmp::Reverse(entry.source_path.components().len()));
         for mut entry in remote {
             if source_paths.contains(&entry.source_path)
-                || scan
-                    .protected_paths
-                    .iter()
-                    .any(|protected| mirror_api::contains(protected, &entry.source_path))
+                || scan.is_some_and(|scan| {
+                    scan.protected_paths
+                        .iter()
+                        .any(|protected| mirror_api::contains(protected, &entry.source_path))
+                })
             {
                 continue;
             }
-            self.check(active, saved)?;
-            if self.signal.changed_since(&saved.id, epoch) {
-                return Err(EngineError::SelectionChanged);
-            }
+            self.check_deletion(active, saved, &entry.source_path, epoch, scan.is_none())?;
             selection::require_current(self.transport, self.pairing.credential(), active).await?;
             if entry.kind == EntryKind::Directory {
                 let fresh =
@@ -60,13 +58,7 @@ impl PassContext<'_> {
                 // Child deletions change directory metadata, so the old revision cannot authorize removal.
                 entry.revision = current.revision;
             }
-            if !confirm_absent(saved, &entry.source_path, self.store.directory())? {
-                return Err(EngineError::SelectionChanged);
-            }
-            self.check(active, saved)?;
-            if self.signal.changed_since(&saved.id, epoch) {
-                return Err(EngineError::SelectionChanged);
-            }
+            self.check_deletion(active, saved, &entry.source_path, epoch, scan.is_none())?;
             let operation = crate::source::random_id()?;
             let request = EntryDeleteRequest {
                 selection_id: active.selection.id.clone(),
@@ -94,6 +86,27 @@ impl PassContext<'_> {
                 "confirmed absent source entry deleted",
             )
             .await?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn check_deletion(
+        &self,
+        active: &ActiveSelection,
+        saved: &SavedSelection,
+        target: &drip_core::SourcePath,
+        epoch: crate::engine::watcher::ChangeEpoch,
+        missing_root: bool,
+    ) -> Result<(), EngineError> {
+        self.check_selection(active, saved)?;
+        let absent = if missing_root {
+            confirm_root_absent(saved)?
+        } else {
+            self.check(active, saved)?;
+            confirm_absent(saved, target, self.store.directory())?
+        };
+        if !absent || self.signal.changed_since(&saved.id, epoch) {
+            return Err(EngineError::SelectionChanged);
         }
         Ok(())
     }
