@@ -70,5 +70,13 @@ impl SourceWatcher {
     }
 }
 
+impl Drop for SourceWatcher {
+    fn drop(&mut self) {
+        for (path, _) in &self.watched {
+            let _ = self.watcher.unwatch(path);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

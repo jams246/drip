@@ -37,6 +37,12 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
+    pub fn restart_worker(&mut self) {
+        self.state = PassState::default();
+        self.cache.clear();
+        self.barrier = true;
+    }
+
     pub async fn new() -> Self {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()

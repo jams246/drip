@@ -1,4 +1,5 @@
 mod deletions;
+mod moves;
 mod support;
 
 use std::{fs, os::windows::fs::OpenOptionsExt, time::Duration};
