@@ -127,6 +127,12 @@ impl Default for UiState {
 }
 
 impl UiState {
+    pub(super) fn active_selections(
+        &self,
+    ) -> impl Iterator<Item = &drip_client::settings::SavedSelection> {
+        self.settings.selections.iter().filter(|item| item.active)
+    }
+
     pub(super) fn connection_at(&self, now: Instant) -> drip_client::ConnectionState {
         if self.status.footer_label(now) == "Disconnected" {
             drip_client::ConnectionState::Disconnected
@@ -135,6 +141,10 @@ impl UiState {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "model/selection_tests.rs"]
+mod selection_tests;
 
 pub(super) struct Shell {
     pub tab: Tab,

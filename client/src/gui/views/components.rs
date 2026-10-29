@@ -1,6 +1,7 @@
 mod controls;
 mod feedback;
 mod icons;
+mod watched;
 
 use gpui::{ElementId, IntoElement, Stateful, div, prelude::*, px, rgb};
 
@@ -11,6 +12,7 @@ pub(super) use feedback::{
     activity_link, summary as feedback_summary, technical as technical_feedback,
 };
 pub(super) use icons::{Glyph, icon};
+pub(super) use watched::{list as watched_list, row as watched_row};
 
 pub(super) fn footer(connection: &str) -> impl IntoElement {
     let color = match connection {

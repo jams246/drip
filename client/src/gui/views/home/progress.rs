@@ -46,7 +46,7 @@ pub(super) fn render(selection_id: &str, processing: bool) -> impl IntoElement {
     let slot = div()
         .id(format!("home-progress-{selection_id}"))
         .w_full()
-        .h(px(8.))
+        .h(px(4.))
         .flex_shrink_0();
     if processing {
         slot.child(

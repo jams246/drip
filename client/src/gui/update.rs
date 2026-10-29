@@ -83,7 +83,27 @@ impl Shell {
                 .state
                 .progress(generation, progress.map(|progress| *progress)),
             Event::Activity(row) => self.state.activity(*row),
-            Event::Settings(settings) => self.state.settings = settings,
+            Event::Settings(settings) => {
+                let removed_focus = self.tab == Tab::Watch
+                    && self.state.active_selections().any(|selection| {
+                        !settings
+                            .selections
+                            .iter()
+                            .any(|next| next.id == selection.id && next.active)
+                            && super::focus::handle(
+                                &format!("watch-remove-{}", selection.id),
+                                false,
+                                window,
+                                cx,
+                            )
+                            .is_focused(window)
+                    });
+                self.state.settings = settings;
+                if removed_focus {
+                    let focus = super::focus::handle("watch-add-folder", true, window, cx);
+                    window.focus(&focus, cx);
+                }
+            }
             Event::Paired(binding) => {
                 self.server
                     .update(cx, |input, cx| input.set_value(binding.server.clone(), cx));

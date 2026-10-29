@@ -6,7 +6,6 @@ use crate::gui::theme;
 pub(in crate::gui::views) enum Glyph {
     Brand,
     Folder,
-    FolderFilled,
     File,
     Check,
     Clock,
@@ -61,12 +60,8 @@ fn paths(glyph: Glyph, bounds: Bounds<Pixels>) -> Vec<(Path<Pixels>, Hsla)> {
             arrow.close();
             push(&mut paths, arrow, rgb(theme::PAGE).into());
         }
-        Glyph::Folder | Glyph::FolderFilled => {
-            let mut folder = if matches!(glyph, Glyph::FolderFilled) {
-                PathBuilder::fill()
-            } else {
-                PathBuilder::stroke(px(1.7))
-            };
+        Glyph::Folder => {
+            let mut folder = PathBuilder::stroke(px(1.7));
             folder.move_to(at(2.5, 6.));
             folder.line_to(at(9., 6.));
             folder.line_to(at(11., 8.));
@@ -74,12 +69,7 @@ fn paths(glyph: Glyph, bounds: Bounds<Pixels>) -> Vec<(Path<Pixels>, Hsla)> {
             folder.line_to(at(21.5, 19.5));
             folder.line_to(at(2.5, 19.5));
             folder.close();
-            let color = if matches!(glyph, Glyph::FolderFilled) {
-                rgb(0xf4c64e)
-            } else {
-                rgb(theme::MUTED)
-            };
-            push(&mut paths, folder, color.into());
+            push(&mut paths, folder, rgb(theme::MUTED).into());
         }
         Glyph::File => {
             let mut file = PathBuilder::stroke(px(1.7));

@@ -14,13 +14,6 @@ pub(super) fn render(
     window: &mut Window,
     cx: &mut Context<Shell>,
 ) -> impl IntoElement {
-    let active: Vec<_> = shell
-        .state
-        .settings
-        .selections
-        .iter()
-        .filter(|item| item.active)
-        .collect();
     let mut page = div().id("drip-home").w_full().flex().flex_col().gap_6();
     if shell.control.borrow().paused
         && shell.state.status.connection != drip_client::ConnectionState::Paused
@@ -31,7 +24,8 @@ pub(super) fn render(
         page = page.child(components::message("home-stopping", "Stopped"));
     }
     let mut has_rows = false;
-    for selection in active {
+    let mut list = components::watched_list("home-watched-list");
+    for (index, selection) in shell.state.active_selections().enumerate() {
         has_rows = true;
         let status = shell
             .state
@@ -39,9 +33,11 @@ pub(super) fn render(
             .roots
             .iter()
             .find(|root| root.selection_id == selection.id);
-        page = page.child(root::card(shell, selection, status, window, cx));
+        list = list.child(root::row(shell, selection, status, index > 0, window, cx));
     }
-    if !has_rows {
+    if has_rows {
+        page = page.child(list);
+    } else {
         page = page.child(
             components::card("home-empty-card")
                 .child(
