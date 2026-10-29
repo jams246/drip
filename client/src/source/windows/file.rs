@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::sync::atomic::AtomicBool;
 use std::{
     path::Path,
     sync::{
@@ -39,6 +41,8 @@ pub struct SourceFile {
     initial: Observation,
     volume_identity: String,
     hashed_bytes: AtomicU64,
+    #[cfg(test)]
+    mutate_during_hash: AtomicBool,
 }
 
 impl SourceFile {
@@ -61,14 +65,19 @@ impl SourceFile {
         validate_final_path(&file, &protocol_path)?;
         let initial = info.observation()?;
         let volume_identity = file_volume_identity(&file)?;
-        Ok(Self {
+        let source = Self {
             path: path.to_owned(),
             protocol_path,
             file: Arc::new(Mutex::new(TokioFile::from_std(file))),
             initial,
             volume_identity,
             hashed_bytes: AtomicU64::new(0),
-        })
+            #[cfg(test)]
+            mutate_during_hash: AtomicBool::new(false),
+        };
+        #[cfg(test)]
+        crate::engine::test_metrics::register_source(&source.protocol_path);
+        Ok(source)
     }
 
     /// Returns the original drive and component spelling.
@@ -120,6 +129,16 @@ impl SourceFile {
             if count == 0 {
                 return Err(SourceError::Changed);
             }
+            #[cfg(test)]
+            if processed == 0 && self.mutate_during_hash.swap(false, Ordering::Relaxed) {
+                std::fs::write(&self.path, b"changed during hashing")?;
+            }
+            #[cfg(test)]
+            crate::engine::test_metrics::source_read(
+                &self.protocol_path,
+                crate::engine::test_metrics::ReadKind::Hashing,
+                count,
+            );
             hasher.update(&buffer[..count]);
             processed = processed
                 .checked_add(count as u64)
@@ -188,6 +207,11 @@ impl SourceFile {
 
     pub(crate) fn reader(&self) -> Arc<Mutex<TokioFile>> {
         Arc::clone(&self.file)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mutate_during_hash_for_test(&self) {
+        self.mutate_during_hash.store(true, Ordering::Relaxed);
     }
 }
 

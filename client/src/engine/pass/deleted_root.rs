@@ -26,7 +26,6 @@ impl PassContext<'_> {
         if !self.store.remove_deleted_root(source, active.generation)? {
             return Err(EngineError::SelectionChanged);
         }
-        self.cache.forget(&source.id);
         self.signal.refresh();
         saved::synchronize(self.store, self.transport, self.pairing, true).await?;
         self.emit(

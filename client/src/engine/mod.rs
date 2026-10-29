@@ -12,6 +12,8 @@ mod saved;
 mod schedule;
 mod selection;
 mod status;
+#[cfg(test)]
+pub(crate) mod test_metrics;
 mod upload;
 mod watcher;
 

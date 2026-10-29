@@ -1,4 +1,6 @@
 use reqwest::{Client, Method, Request, RequestBuilder, Response, StatusCode, redirect::Policy};
+#[cfg(test)]
+use std::path::PathBuf;
 use thiserror::Error;
 use url::Url;
 
@@ -58,14 +60,27 @@ impl HttpTransport {
     /// Builds a client using the platform's default certificate validation.
     pub fn new(server_url: &str) -> Result<Self, TransportError> {
         let server = ServerUrl::parse(server_url)?;
-        let client = Client::builder()
+        let builder = Client::builder()
             .tls_backend_native()
             .https_only(true)
             .redirect(Policy::none())
             .connect_timeout(std::time::Duration::from_secs(10))
-            .read_timeout(std::time::Duration::from_secs(60))
-            .build()
-            .map_err(TransportError::Client)?;
+            .read_timeout(std::time::Duration::from_secs(60));
+        #[cfg(test)]
+        let builder = if let Some(path) = std::env::var_os("DRIP_TEST_ROOT_CERT") {
+            let path = PathBuf::from(path);
+            let pem =
+                std::fs::read(&path).map_err(|source| TransportError::TestRootCertificate {
+                    path: path.clone(),
+                    source,
+                })?;
+            let certificate =
+                reqwest::Certificate::from_pem(&pem).map_err(TransportError::Client)?;
+            builder.add_root_certificate(certificate)
+        } else {
+            builder
+        };
+        let client = builder.build().map_err(TransportError::Client)?;
         Ok(Self {
             server,
             client,
@@ -164,6 +179,13 @@ pub enum TransportError {
     ServerUrl(#[from] ServerUrlError),
     #[error("could not build HTTPS client: {0}")]
     Client(#[source] reqwest::Error),
+    #[cfg(test)]
+    #[error("could not read test root certificate {path}: {source}")]
+    TestRootCertificate {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("could not build HTTPS request: {0}")]
     Build(#[source] reqwest::Error),
     #[error("request failed: {0}")]
@@ -175,55 +197,5 @@ pub enum TransportError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{HttpTransport, ServerUrl, ServerUrlError};
-
-    #[test]
-    fn server_url_should_normalize_https_origin() {
-        let server = ServerUrl::parse("HTTPS://Example.COM:443").unwrap();
-
-        assert_eq!(server.as_str(), "https://example.com/");
-    }
-
-    #[test]
-    fn server_url_should_reject_non_origin_or_non_https_values() {
-        for value in [
-            "http://example.com",
-            "https://user@example.com",
-            "https://example.com/path",
-            "https://example.com?key=value",
-            "https://example.com/#fragment",
-        ] {
-            assert!(ServerUrl::parse(value).is_err(), "accepted {value}");
-        }
-    }
-
-    #[test]
-    fn endpoint_should_reject_authority_and_path_escape() {
-        let server = ServerUrl::parse("https://example.com").unwrap();
-
-        for path in [
-            "",
-            "/v1/enroll",
-            "//other.test/v1/enroll",
-            "../x",
-            "v1/../x",
-        ] {
-            assert!(matches!(
-                server.endpoint(path),
-                Err(ServerUrlError::InvalidEndpoint)
-            ));
-        }
-        assert_eq!(
-            server.endpoint("v1/enroll").unwrap().as_str(),
-            "https://example.com/v1/enroll"
-        );
-    }
-
-    #[test]
-    fn transport_should_build_for_validated_https_origin() {
-        let transport = HttpTransport::new("https://example.com").unwrap();
-
-        assert_eq!(transport.server().as_str(), "https://example.com/");
-    }
-}
+#[path = "transport_tests.rs"]
+mod tests;

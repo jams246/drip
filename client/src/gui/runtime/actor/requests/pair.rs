@@ -79,7 +79,6 @@ impl RequestHandler<'_> {
         if self.credentials.load().is_ok() {
             self.control.send_modify(|desired| {
                 desired.stop = false;
-                desired.reconcile = desired.reconcile.wrapping_add(1);
             });
             *self.generation = self.generation.wrapping_add(1);
             *self.worker = Some(

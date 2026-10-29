@@ -1,3 +1,4 @@
+mod cross_process;
 mod deletions;
 mod moves;
 mod support;
@@ -5,6 +6,7 @@ mod support;
 use std::{fs, os::windows::fs::OpenOptionsExt, time::Duration};
 
 use crate::engine::{EventKind, LifecycleEvent};
+use rusqlite::Connection;
 use support::Fixture;
 
 fn processed(events: &[LifecycleEvent], id: &str) -> bool {
@@ -112,9 +114,19 @@ async fn real_watch_events_isolate_roots_and_periodic_checks_reuse_verified_cont
     fixture.signal.mark(&b, true);
     let events = fixture.pass(false, false).await;
     assert!(!processed(&events, &a));
-    assert!(events.iter().any(|event| event.kind == EventKind::Hashing));
+    assert!(
+        events.iter().any(|event| {
+            event.selection_id.as_deref() == Some(&b) && event.kind == EventKind::FileChecked
+        }),
+        "watcher uncertainty should re-enumerate and reuse a valid fingerprint"
+    );
+    assert!(
+        !content(&events),
+        "watcher uncertainty rehashed unchanged files"
+    );
     assert!(content(&fixture.pass(true, true).await));
 
+    let rows_before_lock = cached_file_count(&fixture);
     let locked = fs::OpenOptions::new()
         .read(true)
         .share_mode(0)
@@ -128,8 +140,23 @@ async fn real_watch_events_isolate_roots_and_periodic_checks_reuse_verified_cont
             .iter()
             .any(|event| event.kind == EventKind::UnavailableRoot)
     );
+    assert_eq!(cached_file_count(&fixture), rows_before_lock);
     let retry = fixture.attempt(false, false).await.1;
     assert!(!processed(&retry, &a), "retry restarted successful folder");
+    assert_eq!(cached_file_count(&fixture), rows_before_lock);
     drop(locked);
     fixture.pass(false, false).await;
+}
+
+fn cached_file_count(fixture: &Fixture) -> i64 {
+    Connection::open(
+        fixture
+            .engine
+            .settings
+            .directory()
+            .join("drip.state.sqlite3"),
+    )
+    .unwrap()
+    .query_row("SELECT count(*) FROM cached_files", [], |row| row.get(0))
+    .unwrap()
 }

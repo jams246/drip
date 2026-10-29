@@ -55,7 +55,7 @@ impl Engine {
         let mut connection = events.subscribe_status();
         let signal = DirtySignal::default();
         signal.overflow();
-        let cache = super::cache::FileCache::default();
+        let cache = super::cache::FileCache::beside_settings(&self.settings);
         let mut state = setup::PassState::default();
         let mut schedule = Schedule::new(Instant::now());
         let mut barrier = true;
@@ -63,13 +63,15 @@ impl Engine {
         let mut acknowledged_failure_epoch = 0;
         let mut attempts = 0u32;
         let mut closed = false;
-        let mut reconciled_request = 0;
+        let mut reconciled_request = control.borrow().reconcile;
         let mut refreshed_request = 0;
+        #[cfg(test)]
+        let mut inject_test_overflow = std::env::var_os("DRIP_TEST_OVERFLOW_AFTER_SYNC").is_some();
         loop {
             let desired = *control.borrow_and_update();
             if desired.reconcile != reconciled_request {
                 reconciled_request = desired.reconcile;
-                signal.overflow();
+                signal.audit();
                 schedule.force(Instant::now());
             }
             if desired.refresh_selections != refreshed_request {
@@ -167,7 +169,7 @@ impl Engine {
                         None,
                         None,
                         "resume",
-                        "full reconciliation requested",
+                        "source observations will be reconciled",
                     )
                     .await?;
             }
@@ -190,6 +192,11 @@ impl Engine {
                         Ok(true) => {
                             barrier = false;
                             attempts = 0;
+                            #[cfg(test)]
+                            if inject_test_overflow {
+                                signal.overflow();
+                                inject_test_overflow = false;
+                            }
                             if signal.pending() { schedule.hint(Instant::now()); }
                         }
                         Err(EngineError::Cancelled) => continue,

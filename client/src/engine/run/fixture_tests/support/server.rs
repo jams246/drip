@@ -1,6 +1,6 @@
 use std::{path::Path, process::Command};
 
-use super::Fixture;
+use super::{Fixture, test_container};
 
 impl Fixture {
     pub fn remote_path(&self, source: &Path) -> String {
@@ -14,6 +14,7 @@ impl Fixture {
     }
 
     pub fn server_exists(&self, source: &Path) -> bool {
+        let container = test_container();
         let output = Command::new("wsl")
             .args([
                 "-d",
@@ -21,7 +22,7 @@ impl Fixture {
                 "--",
                 "docker",
                 "exec",
-                "drip-watch-isolation-server",
+                &container,
                 "test",
                 "-e",
                 &self.remote_path(source),

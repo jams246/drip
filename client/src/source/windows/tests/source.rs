@@ -51,6 +51,22 @@ async fn changed_open_source_is_rejected() {
 }
 
 #[tokio::test]
+async fn mutation_during_hash_cannot_return_a_fingerprint() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("source.bin");
+    fs::write(&path, vec![4; 128 * 1024]).unwrap();
+    let source = SourceFile::open(&path).unwrap();
+    source.mutate_during_hash_for_test();
+    let (events, _receiver) = mpsc::channel(2);
+
+    assert!(matches!(
+        source.hash(&events).await,
+        Err(SourceError::Changed)
+    ));
+    assert_eq!(fs::read(&path).unwrap(), b"changed during hashing");
+}
+
+#[tokio::test]
 async fn missing_range_reread_uses_independent_handle() {
     let directory = TestDirectory::new();
     let path = directory.path.join("source.bin");

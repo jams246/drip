@@ -1,9 +1,9 @@
 use drip_core::{
     Blake3Digest,
-    protocol::{Entry, EntryKind, EntryPrecondition},
+    protocol::{Entry, EntryKind},
 };
 
-use super::{PassContext, upload_events};
+use super::{PassContext, PassOptions, upload_events};
 use crate::engine::{
     ActivityEvent, EngineError, EventKind, ProgressSnapshot, UploadPhase,
     selection::ActiveSelection, upload,
@@ -20,7 +20,7 @@ impl PassContext<'_> {
         saved: &SavedSelection,
         entry: &ScannedEntry,
         remote: Option<&Entry>,
-        expected_entry: Option<EntryPrecondition>,
+        options: PassOptions,
         operation: &str,
     ) -> Result<(), EngineError> {
         let source = SourceFile::open(&entry.local_path)?;
@@ -30,18 +30,41 @@ impl PassContext<'_> {
             return Err(crate::source::SourceError::Replaced.into());
         }
         source.verify().await?;
-        let cached = self.cache.get(&saved.id, &source);
+        let lookup = self.cache.get(saved, &source, options.audit).await;
+        #[cfg(test)]
+        if lookup.digest.is_some() {
+            mutate_cached_source_for_test(&source);
+        }
+        if let Some(warning) = lookup.warning {
+            let _ = self
+                .events
+                .emit(EventKind::Error, None, None, "local-cache", warning)
+                .await;
+        }
+        let cached = lookup.digest;
         if let Some(digest) = cached
             && matches_remote(remote, &source, digest)
         {
-            source.verify().await?;
+            let verification = source.verify().await;
+            #[cfg(test)]
+            if verification.is_err()
+                && test_path_for_source("DRIP_TEST_MUTATE_AFTER_CACHE_LOOKUP", &source).is_some()
+            {
+                let metrics = std::path::PathBuf::from(
+                    std::env::var_os("DRIP_SOURCE_READ_METRICS_PATH")
+                        .expect("source read metrics path is required"),
+                );
+                crate::engine::test_metrics::write(&metrics).unwrap();
+                std::process::exit(85);
+            }
+            verification?;
             return self
                 .emit(
                     EventKind::FileChecked,
                     active,
                     &entry.source_path,
                     operation,
-                    "verified source observations and digest match the actual mirror",
+                    "Source observations and saved fingerprint match the current mirror",
                 )
                 .await;
         }
@@ -83,7 +106,7 @@ impl PassContext<'_> {
                     self.pairing,
                     source,
                     active,
-                    expected_entry,
+                    options.expected_entry,
                     Some(digest),
                     &sender,
                 )
@@ -100,8 +123,22 @@ impl PassContext<'_> {
             .await
             .map_err(|error| std::io::Error::other(error.to_string()))??;
         let (checked, digest) = result?;
-        self.cache
-            .remember(&saved.id, &entry.source_path, observation, &volume, digest);
+        if cached.is_none() {
+            let warning = self
+                .cache
+                .remember(saved, &entry.source_path, observation, &volume, digest)
+                .await;
+            #[cfg(test)]
+            if warning.is_none() && exit_after_cache_commit_for_test(&entry.source_path) {
+                std::process::exit(86);
+            }
+            if let Some(warning) = warning {
+                let _ = self
+                    .events
+                    .emit(EventKind::Error, None, None, "local-cache", warning)
+                    .await;
+            }
+        }
         if checked {
             self.emit(
                 EventKind::FileChecked,
@@ -114,6 +151,31 @@ impl PassContext<'_> {
         }
         Ok(())
     }
+}
+
+#[cfg(test)]
+fn mutate_cached_source_for_test(source: &SourceFile) {
+    let Some(path) = test_path_for_source("DRIP_TEST_MUTATE_AFTER_CACHE_LOOKUP", source) else {
+        return;
+    };
+    let size = usize::try_from(source.size()).unwrap();
+    std::fs::write(path, vec![0xa5; size]).unwrap();
+}
+
+#[cfg(test)]
+fn test_path_for_source(name: &str, source: &SourceFile) -> Option<std::path::PathBuf> {
+    let path = std::path::PathBuf::from(std::env::var_os(name)?);
+    drip_core::SourcePath::try_from_path(&path)
+        .is_ok_and(|path| path == *source.protocol_path())
+        .then_some(path)
+}
+
+#[cfg(test)]
+fn exit_after_cache_commit_for_test(path: &drip_core::SourcePath) -> bool {
+    std::env::var_os("DRIP_TEST_EXIT_AFTER_CACHE_COMMIT").is_some_and(|target| {
+        drip_core::SourcePath::try_from_path(std::path::Path::new(&target))
+            .is_ok_and(|target| target == *path)
+    })
 }
 
 fn matches_remote(remote: Option<&Entry>, source: &SourceFile, digest: Blake3Digest) -> bool {

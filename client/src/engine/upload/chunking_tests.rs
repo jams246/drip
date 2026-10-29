@@ -179,14 +179,14 @@ fn native_change_time(path: &std::path::Path) -> i64 {
     basic.ChangeTime
 }
 
-struct GatedReader {
-    file: std::fs::File,
+struct GatedReader<R> {
+    file: R,
     entered: Option<std::sync::mpsc::SyncSender<()>>,
     resume: std::sync::mpsc::Receiver<()>,
     reads: usize,
 }
 
-impl Read for GatedReader {
+impl<R: Read> Read for GatedReader<R> {
     fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
         if self.reads == 1
             && let Some(entered) = self.entered.take()

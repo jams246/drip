@@ -71,6 +71,9 @@ fn siblings_parent_metadata_access_and_internal_files_do_not_queue_work() {
             r"C:\app\drip.state.sqlite3-wal",
             r"C:\app\drip.state.sqlite3-shm",
             r"C:\app\drip.state.corrupt.id.sqlite3",
+            r"C:\app\drip.state.corrupt.id.sqlite3-journal",
+            r"C:\app\drip.state.backup.sqlite3",
+            r"C:\app\drip.state.17.tmp",
         ],
     );
     assert!(!signal.pending());

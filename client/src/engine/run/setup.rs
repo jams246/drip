@@ -52,7 +52,16 @@ impl PassState {
         )
         .await?;
         let latest = engine.settings.load()?;
-        context.cache.selections(&self.seen, &latest.selections);
+        if let Some(warning) = context
+            .cache
+            .reconcile(context.pairing, &latest.selections)
+            .await
+        {
+            let _ = context
+                .events
+                .emit(EventKind::Error, None, None, "local-cache", warning)
+                .await;
+        }
         for selection in &latest.selections {
             if !self.seen.contains(selection) {
                 if selection.active {

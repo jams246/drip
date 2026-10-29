@@ -1,6 +1,8 @@
 mod error;
 mod file;
 mod native;
+#[cfg(test)]
+mod read_metrics;
 mod root;
 mod scan;
 

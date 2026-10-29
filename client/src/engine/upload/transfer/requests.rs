@@ -49,6 +49,8 @@ pub(super) async fn plan(
 ) -> Result<UploadPlanResponse, EngineError> {
     let path = format!("v1/uploads/{upload_id}/plan");
     for attempt in 1..=MAX_ATTEMPTS {
+        #[cfg(test)]
+        crate::engine::test_metrics::plan_request(source_path);
         match api::json_with_status::<UploadPlanResponse, _>(
             transport,
             Method::POST,
@@ -172,6 +174,8 @@ pub(super) fn body_stream(
             let end = (offset + BODY_CHUNK_BYTES).min(bytes.len());
             let chunk = bytes[offset..end].to_vec();
             let chunk_len = chunk.len() as u64;
+            #[cfg(test)]
+            crate::engine::test_metrics::upload_payload(&progress.source_path, chunk.len());
             progress
                 .sent
                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |total| {

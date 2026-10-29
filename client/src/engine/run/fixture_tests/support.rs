@@ -39,15 +39,20 @@ pub(super) struct Fixture {
 impl Fixture {
     pub fn restart_worker(&mut self) {
         self.state = PassState::default();
-        self.cache.clear();
+        self.cache = FileCache::beside_settings(&self.engine.settings);
+        self.signal.overflow();
         self.barrier = true;
     }
 
     pub async fn new() -> Self {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join(".verification/watch-isolation");
+        let root = std::env::var_os("DRIP_TEST_ARTIFACT_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .unwrap()
+                    .join(".verification/watch-isolation")
+            });
         assert!(
             std::env::current_exe()
                 .unwrap()
@@ -59,7 +64,10 @@ impl Fixture {
         let parsed = url::Url::parse(&url).unwrap();
         assert_eq!(parsed.scheme(), "https");
         assert!(matches!(parsed.host_str(), Some("localhost" | "127.0.0.1")));
-        let token = fs::read_to_string(root.join("enrollment-token.txt")).unwrap();
+        let token_path = std::env::var_os("DRIP_TEST_TOKEN_FILE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| root.join("enrollment-token.txt"));
+        let token = fs::read_to_string(token_path).unwrap();
         let engine = Engine::beside_executable().unwrap();
         let pairing = engine
             .pair(&url, "Watch isolation fixture", token.trim())
@@ -72,13 +80,14 @@ impl Fixture {
         let (commands, control) = watch::channel(RunControl::default());
         let sources = root.join(crate::source::random_id().unwrap());
         fs::create_dir_all(&sources).unwrap();
+        let cache = FileCache::beside_settings(&engine.settings);
         Self {
             engine,
             sources,
             signal: DirtySignal::default(),
             pairing,
             transport,
-            cache: FileCache::default(),
+            cache,
             events,
             received,
             control,
@@ -90,7 +99,7 @@ impl Fixture {
 
     pub async fn attempt(&mut self, all: bool, force: bool) -> (bool, Vec<LifecycleEvent>) {
         if force {
-            self.signal.overflow();
+            self.signal.audit();
         } else if all {
             self.signal.sweep();
         }
@@ -142,26 +151,19 @@ impl Fixture {
     }
 
     pub fn change_server(&self, source: &Path) {
+        let container = test_container();
         let label = docker(&[
             "inspect",
-            "drip-watch-isolation-server",
+            &container,
             "--format",
             "{{index .Config.Labels \"drip.verification\"}}",
         ]);
-        assert_eq!(label.trim(), "watch-isolation");
+        assert_eq!(label.trim(), test_label());
         let path = self.remote_path(source);
         use std::{io::Write, process::Stdio};
         let mut process = Command::new("wsl")
             .args([
-                "-d",
-                "Docker",
-                "--",
-                "docker",
-                "exec",
-                "-i",
-                "drip-watch-isolation-server",
-                "tee",
-                &path,
+                "-d", "Docker", "--", "docker", "exec", "-i", &container, "tee", &path,
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -195,4 +197,13 @@ fn docker(args: &[&str]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
+}
+
+pub(super) fn test_container() -> String {
+    std::env::var("DRIP_TEST_CONTAINER")
+        .unwrap_or_else(|_| "drip-watch-isolation-server".to_owned())
+}
+
+fn test_label() -> String {
+    std::env::var("DRIP_TEST_LABEL").unwrap_or_else(|_| "watch-isolation".to_owned())
 }

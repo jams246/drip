@@ -1,7 +1,10 @@
 use rusqlite::Connection;
 
 use super::support::Fixture;
-use crate::source::SourceFile;
+use crate::{
+    engine::cache::{database::Binding, state::CacheState},
+    source::SourceFile,
+};
 
 #[tokio::test]
 async fn changed_observation_fields_and_invalid_digest_miss() {
@@ -35,6 +38,99 @@ async fn changed_observation_fields_and_invalid_digest_miss() {
         )
         .unwrap();
     assert_miss(&fixture).await;
+
+    for update in [
+        "UPDATE cached_files SET volume_serial = X'01'",
+        "UPDATE cached_files SET file_id = X'01'",
+        "UPDATE cached_files SET file_size = -1",
+        "UPDATE cached_files SET last_write_nanos = 1000000000",
+        "UPDATE cached_files SET change_time = 0",
+        "UPDATE cached_files SET digest = X'01'",
+        "UPDATE cached_files SET verified_seconds = -1",
+        "UPDATE cached_files SET verified_nanos = 1000000000",
+    ] {
+        restore_record(&fixture).await;
+        Connection::open(fixture.database())
+            .unwrap()
+            .execute_batch(&format!("PRAGMA ignore_check_constraints = ON; {update};"))
+            .unwrap();
+        assert_miss(&fixture).await;
+    }
+}
+
+#[tokio::test]
+async fn unavailable_change_time_never_uses_or_deletes_a_saved_digest() {
+    let fixture = Fixture::new();
+    let cache = fixture.cache();
+    fixture.seed(&cache, &fixture.selection).await;
+    drop(cache);
+
+    let source = fixture.source();
+    let mut observation = source.observation();
+    observation.change_time = 0;
+    let mut state = CacheState::default();
+    assert!(
+        state
+            .reconcile(
+                Some(&fixture.database()),
+                Binding::from(&fixture.pairing),
+                vec![fixture.selection.clone()],
+            )
+            .is_none()
+    );
+    let path = source.protocol_path();
+    let result = state.get(
+        &fixture.selection,
+        path,
+        &serde_json::to_string(path).unwrap(),
+        observation,
+        source.volume_identity(),
+    );
+
+    assert!(result.digest.is_none());
+    let rows: i64 = Connection::open(fixture.database())
+        .unwrap()
+        .query_row("SELECT count(*) FROM cached_files", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 1);
+}
+
+#[tokio::test]
+async fn row_path_outside_its_saved_selection_is_discarded() {
+    let fixture = Fixture::new();
+    let cache = fixture.cache();
+    fixture.seed(&cache, &fixture.selection).await;
+    drop(cache);
+    let outside = fixture.directory.join("outside.txt");
+    std::fs::write(&outside, b"outside selection").unwrap();
+    let outside_source = SourceFile::open(&outside).unwrap();
+    Connection::open(fixture.database())
+        .unwrap()
+        .execute(
+            "UPDATE cached_files SET source_json = ?1",
+            [serde_json::to_string(outside_source.protocol_path()).unwrap()],
+        )
+        .unwrap();
+
+    let cache = fixture.cache();
+    assert!(
+        cache
+            .reconcile(&fixture.pairing, std::slice::from_ref(&fixture.selection))
+            .await
+            .is_none()
+    );
+    assert_eq!(
+        cache
+            .get(&fixture.selection, &outside_source, false)
+            .await
+            .digest,
+        None
+    );
+    let rows: i64 = Connection::open(fixture.database())
+        .unwrap()
+        .query_row("SELECT count(*) FROM cached_files", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 0);
 }
 
 #[tokio::test]

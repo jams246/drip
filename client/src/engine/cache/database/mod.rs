@@ -9,7 +9,12 @@ use std::path::{Path, PathBuf};
 use drip_core::{Blake3Digest, SourcePath, Timestamp};
 use rusqlite::{Connection, OpenFlags};
 
-use crate::{credentials::Pairing, settings::SavedSelection, source::Observation};
+use crate::{
+    credentials::Pairing,
+    engine::watcher::{ChangeEpoch, DirtySignal},
+    settings::SavedSelection,
+    source::Observation,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Binding {
@@ -162,10 +167,21 @@ impl CacheDatabase {
         files::save(&mut self.connection, selection, path, record)
     }
 
-    pub fn prune(&mut self, selection_id: &str, paths: &[String]) -> Result<(), DatabaseError> {
+    pub fn prune(
+        &mut self,
+        selection_id: &str,
+        paths: &[String],
+        signal: &DirtySignal,
+        epoch: ChangeEpoch,
+    ) -> Result<bool, DatabaseError> {
         recovery::prepare_journal(&self.path)?;
-        files::prune(&mut self.connection, selection_id, paths)
+        files::prune(&mut self.connection, selection_id, paths, signal, epoch)
     }
+}
+
+#[cfg(test)]
+pub(super) fn prepare_journal_for_test(path: &Path) -> Result<(), DatabaseError> {
+    recovery::prepare_journal(path)
 }
 
 #[derive(Debug, thiserror::Error)]

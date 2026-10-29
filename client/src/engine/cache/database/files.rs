@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use drip_core::{Blake3Digest, SourcePath, Timestamp};
 use rusqlite::{Connection, TransactionBehavior, types::Type};
 
+use crate::engine::watcher::{ChangeEpoch, DirtySignal};
 use crate::settings::SavedSelection;
 
 use super::{CacheRecord, DatabaseError, path_belongs_to_selection};
@@ -135,6 +136,13 @@ pub(super) fn save(
             i64::from(record.verified_at.nanos()),
         ),
     )?;
+    #[cfg(test)]
+    if std::env::var_os("DRIP_TEST_EXIT_BEFORE_CACHE_COMMIT").is_some_and(|target| {
+        drip_core::SourcePath::try_from_path(&std::path::PathBuf::from(target))
+            .is_ok_and(|target| target == *path)
+    }) {
+        std::process::exit(87);
+    }
     transaction.commit()?;
     Ok(())
 }
@@ -143,7 +151,9 @@ pub(super) fn prune(
     connection: &mut Connection,
     selection_id: &str,
     paths: &[String],
-) -> Result<(), DatabaseError> {
+    signal: &DirtySignal,
+    epoch: ChangeEpoch,
+) -> Result<bool, DatabaseError> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let existing = {
         let mut statement =
@@ -161,8 +171,11 @@ pub(super) fn prune(
             )?;
         }
     }
-    transaction.commit()?;
-    Ok(())
+    let Some(commit) = signal.while_unchanged(selection_id, epoch, || transaction.commit()) else {
+        return Ok(false);
+    };
+    commit?;
+    Ok(true)
 }
 
 fn decode(stored: StoredRecord, selection: &SavedSelection) -> Option<CacheRecord> {

@@ -3,6 +3,16 @@ use std::time::{Duration, Instant};
 pub(super) const DEBOUNCE: Duration = Duration::from_millis(500);
 pub(super) const FULL_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
+fn full_interval() -> Duration {
+    #[cfg(test)]
+    if let Some(milliseconds) = std::env::var_os("DRIP_TEST_SWEEP_INTERVAL_MS")
+        .and_then(|value| value.to_string_lossy().parse::<u64>().ok())
+    {
+        return Duration::from_millis(milliseconds.max(1));
+    }
+    FULL_INTERVAL
+}
+
 pub(super) fn backoff(attempt: u32) -> Result<Duration, super::EngineError> {
     let seconds = 1u64.checked_shl(attempt.min(6)).unwrap_or(60).min(60);
     let jitter = crate::source::random_id()?;
@@ -43,7 +53,7 @@ impl Schedule {
     pub fn begin(&mut self, now: Instant) -> bool {
         let periodic = now >= self.full_at;
         if periodic {
-            self.full_at = now + FULL_INTERVAL;
+            self.full_at = now + full_interval();
         }
         self.hinted_at = None;
         periodic

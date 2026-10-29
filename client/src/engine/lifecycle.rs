@@ -205,3 +205,7 @@ impl EventSink {
 #[cfg(test)]
 #[path = "lifecycle_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "lifecycle_status_tests.rs"]
+mod status_tests;

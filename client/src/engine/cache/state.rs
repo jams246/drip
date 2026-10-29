@@ -5,12 +5,18 @@ use std::{
 
 use drip_core::SourcePath;
 
-use crate::{settings::SavedSelection, source::Observation};
+use crate::{
+    engine::watcher::{ChangeEpoch, DirtySignal},
+    settings::SavedSelection,
+    source::Observation,
+};
 
 use super::{
     CacheLookup,
-    database::{Binding, CacheDatabase, CacheRecord, DatabaseError},
+    database::{Binding, CacheDatabase, CacheRecord},
 };
+
+mod fallback;
 
 #[derive(Default)]
 pub(super) struct CacheState {
@@ -21,6 +27,8 @@ pub(super) struct CacheState {
     memory: HashMap<(String, SourcePath), CacheRecord>,
     binding: Option<Binding>,
     selections: HashMap<String, SavedSelection>,
+    #[cfg(test)]
+    fail_next_save: bool,
 }
 
 impl CacheState {
@@ -121,6 +129,10 @@ impl CacheState {
         }
         self.memory
             .insert((selection.id.clone(), source_path.clone()), record.clone());
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_save) {
+            return self.database_failure("injected SQLITE_FULL capacity failure");
+        }
         if self.unavailable {
             return None;
         }
@@ -157,68 +169,57 @@ impl CacheState {
         None
     }
 
-    pub fn prune(&mut self, selection_id: &str, paths: &[String]) -> Option<String> {
+    pub fn prune(
+        &mut self,
+        selection_id: &str,
+        paths: &[String],
+        signal: &DirtySignal,
+        epoch: ChangeEpoch,
+    ) -> Option<String> {
         let keep: HashSet<_> = paths.iter().map(String::as_str).collect();
+        let result = if self.unavailable {
+            None
+        } else {
+            self.database
+                .as_mut()
+                .map(|database| database.prune(selection_id, paths, signal, epoch))
+        };
+        match result {
+            Some(Ok(true)) => {
+                self.prune_memory(selection_id, &keep);
+                None
+            }
+            Some(Ok(false)) => None,
+            Some(Err(error)) => {
+                let warning = self.handle_database_result(Err(error));
+                signal.while_unchanged(selection_id, epoch, || {
+                    self.prune_memory(selection_id, &keep)
+                });
+                warning
+            }
+            None => {
+                signal.while_unchanged(selection_id, epoch, || {
+                    self.prune_memory(selection_id, &keep)
+                });
+                None
+            }
+        }
+    }
+
+    fn prune_memory(&mut self, selection_id: &str, keep: &HashSet<&str>) {
         self.memory.retain(|(id, path), _| {
             id != selection_id
                 || serde_json::to_string(path).is_ok_and(|path| keep.contains(path.as_str()))
         });
-        if self.unavailable {
-            return None;
-        }
-        let database = self.database.as_mut()?;
-        let result = database.prune(selection_id, paths);
-        self.handle_database_result(result)
     }
 
     fn selection_is_current(&self, selection: &SavedSelection) -> bool {
         selection.active && self.selections.get(&selection.id) == Some(selection)
     }
 
-    fn handle_database_result(&mut self, result: Result<(), DatabaseError>) -> Option<String> {
-        match result {
-            Ok(()) => {
-                self.warning_reported = false;
-                None
-            }
-            Err(error) if error.is_corrupt() => self.recover_database(error),
-            Err(error) => self.database_failure(error),
-        }
-    }
-
-    fn recover_database(&mut self, error: DatabaseError) -> Option<String> {
-        self.database = None;
-        let Some(path) = self.path.clone() else {
-            return self.database_failure(error);
-        };
-        let selections = self.selections.values().cloned().collect::<Vec<_>>();
-        match CacheDatabase::recover(&path, self.binding.as_ref(), &selections) {
-            Ok(database) => {
-                self.database = Some(database);
-                self.warning_reported = false;
-                self.warn_once(format!(
-                    "persistent fingerprint store was corrupt and has been rebuilt; prior database preserved: {error}"
-                ))
-            }
-            Err(error) => self.database_failure(error),
-        }
-    }
-
-    fn database_failure(&mut self, error: impl std::fmt::Display) -> Option<String> {
-        self.database = None;
-        self.unavailable = true;
-        self.warn_once(format!(
-            "persistent fingerprint store disabled; this session keeps only newly verified in-memory records, and another content scan may be needed after restart: {error}"
-        ))
-    }
-
-    fn warn_once(&mut self, diagnostic: String) -> Option<String> {
-        if self.warning_reported {
-            None
-        } else {
-            self.warning_reported = true;
-            Some(diagnostic)
-        }
+    #[cfg(test)]
+    pub fn fail_next_save_for_test(&mut self) {
+        self.fail_next_save = true;
     }
 }
 

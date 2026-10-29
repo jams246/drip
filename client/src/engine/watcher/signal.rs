@@ -14,6 +14,7 @@ pub(crate) struct DirtyBatch {
     pub uncertain: HashSet<String>,
     pub full: bool,
     pub all: bool,
+    pub audit: bool,
 }
 
 #[derive(Default)]
@@ -77,6 +78,16 @@ impl DirtySignal {
         self.state().batch.all = true;
     }
 
+    pub fn audit(&self) {
+        let mut state = self.state();
+        state.batch.full = true;
+        state.batch.all = true;
+        state.batch.audit = true;
+        state.global_epoch = state.global_epoch.wrapping_add(1);
+        drop(state);
+        self.wake.notify_one();
+    }
+
     pub fn take(&self) -> DirtyBatch {
         let mut state = self.state();
         state.settings = false;
@@ -110,6 +121,21 @@ impl DirtySignal {
         self.epoch(selection) != epoch
     }
 
+    pub fn while_unchanged<R>(
+        &self,
+        selection: &str,
+        epoch: ChangeEpoch,
+        operation: impl FnOnce() -> R,
+    ) -> Option<R> {
+        let state = self.state();
+        let current = ChangeEpoch(
+            *state.epochs.get(selection).unwrap_or(&0),
+            state.settings_epoch,
+            state.global_epoch,
+        );
+        (current == epoch).then(operation)
+    }
+
     pub async fn changed(&self) {
         self.wake.notified().await;
     }
@@ -139,12 +165,12 @@ mod tests {
         assert!(signal.pending());
         assert!(!signal.full());
         let batch = signal.take();
-        assert!(batch.all && !batch.full);
+        assert!(batch.all && !batch.full && !batch.audit);
         signal.overflow();
         signal.sweep();
         assert!(signal.full());
         let batch = signal.take();
-        assert!(batch.all && batch.full);
+        assert!(batch.all && batch.full && !batch.audit);
         assert!(!signal.pending());
     }
 

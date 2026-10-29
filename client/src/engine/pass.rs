@@ -32,12 +32,20 @@ pub(super) struct PassContext<'a> {
     pub control: &'a watch::Receiver<RunControl>,
 }
 
+#[derive(Clone, Copy)]
+struct PassOptions {
+    complete_scan: bool,
+    audit: bool,
+    expected_entry: Option<drip_core::protocol::EntryPrecondition>,
+}
+
 impl PassContext<'_> {
     pub async fn root(
         &self,
         active: &ActiveSelection,
         saved: &SavedSelection,
         operation: &str,
+        audit: bool,
     ) -> Result<bool, EngineError> {
         let epoch = self.signal.epoch(&saved.id);
         self.emit(
@@ -53,9 +61,6 @@ impl PassContext<'_> {
             return self.delete_root(active, saved, operation, epoch).await;
         }
         let scan = scan_root(saved, self.store.directory())?;
-        if scan.complete {
-            self.cache.scanned(&saved.id, &scan.entries);
-        }
         let remote =
             mirror_api::inventory(self.transport, self.pairing.credential(), active).await?;
         let remote: HashMap<_, _> = remote
@@ -89,7 +94,11 @@ impl PassContext<'_> {
                     saved,
                     entry,
                     remote.get(&entry.source_path),
-                    scan.complete,
+                    PassOptions {
+                        complete_scan: scan.complete,
+                        audit,
+                        expected_entry: None,
+                    },
                     &entry_operation,
                 )
                 .await
@@ -135,6 +144,20 @@ impl PassContext<'_> {
             if after.complete && fingerprint(&after.entries) == fingerprint(&scan.entries) {
                 self.delete_extras(active, saved, Some(&scan), epoch)
                     .await?;
+                if !self.signal.changed_since(&saved.id, epoch) {
+                    if let Some(warning) = self
+                        .cache
+                        .prune(&saved.id, &scan.entries, self.signal.clone(), epoch)
+                        .await
+                    {
+                        let _ = self
+                            .events
+                            .emit(EventKind::Error, None, None, "local-cache", warning)
+                            .await;
+                    }
+                } else {
+                    successful = false;
+                }
             } else {
                 successful = false;
             }

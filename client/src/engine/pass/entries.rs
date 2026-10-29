@@ -5,7 +5,7 @@ use reqwest::Method;
 
 use crate::{settings::SavedSelection, source::ScannedEntry};
 
-use super::PassContext;
+use super::{PassContext, PassOptions};
 use crate::engine::{EngineError, EventKind, api, selection::ActiveSelection};
 
 impl PassContext<'_> {
@@ -15,7 +15,7 @@ impl PassContext<'_> {
         saved: &SavedSelection,
         entry: &ScannedEntry,
         remote: Option<&Entry>,
-        complete_scan: bool,
+        options: PassOptions,
         operation: &str,
     ) -> Result<(), EngineError> {
         self.emit(
@@ -35,7 +35,7 @@ impl PassContext<'_> {
         )
         .await?;
         let conflict = remote.filter(|remote| remote.kind != entry.kind);
-        if conflict.is_some() && !complete_scan {
+        if conflict.is_some() && !options.complete_scan {
             return Err(EngineError::InvalidResponse(
                 "incomplete source scan cannot authorize a type exchange",
             ));
@@ -45,6 +45,10 @@ impl PassContext<'_> {
             kind: entry.kind,
             revision: entry.revision,
         });
+        let options = PassOptions {
+            expected_entry,
+            ..options
+        };
         if entry.kind == EntryKind::Directory {
             if remote.is_some_and(|remote| remote.kind == EntryKind::Directory) {
                 return Ok(());
@@ -81,7 +85,7 @@ impl PassContext<'_> {
             .await?;
             return Ok(());
         }
-        self.file(active, saved, entry, remote, expected_entry, operation)
+        self.file(active, saved, entry, remote, options, operation)
             .await
     }
 }

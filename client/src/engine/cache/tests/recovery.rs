@@ -1,6 +1,59 @@
 use rusqlite::Connection;
+use std::process::Command;
 
 use super::support::Fixture;
+use crate::engine::cache::database::prepare_journal_for_test;
+
+#[tokio::test]
+async fn reparse_database_target_is_rejected_without_touching_target() {
+    let fixture = Fixture::new();
+    let target = fixture.directory.join("redirected-store");
+    std::fs::create_dir(&target).unwrap();
+    let sentinel = target.join("sentinel");
+    std::fs::write(&sentinel, b"outside state").unwrap();
+    let junction = fixture.database();
+    let command = format!(
+        "New-Item -ItemType Junction -Path '{}' -Target '{}' | Out-Null",
+        junction.display(),
+        target.display()
+    );
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let warning = fixture
+        .cache()
+        .reconcile(&fixture.pairing, std::slice::from_ref(&fixture.selection))
+        .await;
+
+    assert!(warning.is_some());
+    assert_eq!(std::fs::read(&sentinel).unwrap(), b"outside state");
+}
+
+#[tokio::test]
+async fn database_and_rollback_journal_use_the_existing_acl_protector() {
+    let fixture = Fixture::new();
+    let cache = fixture.cache();
+    assert!(
+        cache
+            .reconcile(&fixture.pairing, std::slice::from_ref(&fixture.selection))
+            .await
+            .is_none()
+    );
+
+    prepare_journal_for_test(&fixture.database()).unwrap();
+
+    let metadata = std::fs::metadata(fixture.database()).unwrap();
+    assert!(metadata.is_file());
+    let journal = fixture.directory.join("drip.state.sqlite3-journal");
+    assert!(std::fs::metadata(journal).unwrap().is_file());
+}
 
 #[tokio::test]
 async fn corrupt_database_and_journal_are_preserved_before_rebuild() {

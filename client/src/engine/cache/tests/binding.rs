@@ -60,6 +60,62 @@ async fn changed_selection_invalidates_only_its_rows() {
 }
 
 #[tokio::test]
+async fn changed_selection_definition_preserves_unrelated_rows() {
+    let fixture = Fixture::new();
+    let mut other = fixture.selection.clone();
+    other.id = crate::source::random_id().unwrap();
+    let cache = fixture.cache();
+    assert!(
+        cache
+            .reconcile(
+                &fixture.pairing,
+                &[fixture.selection.clone(), other.clone()],
+            )
+            .await
+            .is_none()
+    );
+    let source = fixture.source();
+    let (events, _received) = tokio::sync::mpsc::channel(8);
+    let digest = source.hash(&events).await.unwrap();
+    for selection in [&fixture.selection, &other] {
+        assert!(
+            cache
+                .remember(
+                    selection,
+                    source.protocol_path(),
+                    source.observation(),
+                    source.volume_identity(),
+                    digest,
+                )
+                .await
+                .is_none()
+        );
+    }
+    drop(cache);
+
+    let mut changed = fixture.selection.clone();
+    changed.volume_identity.push_str("-changed-root");
+    let reopened = fixture.cache();
+    assert!(
+        reopened
+            .reconcile(&fixture.pairing, &[changed.clone(), other.clone()])
+            .await
+            .is_none()
+    );
+    let rows: i64 = Connection::open(fixture.database())
+        .unwrap()
+        .query_row("SELECT count(*) FROM cached_files", [], |row| row.get(0))
+        .unwrap();
+
+    assert_eq!(rows, 1);
+    assert_eq!(
+        reopened.get(&other, &source, false).await.digest,
+        Some(digest)
+    );
+    assert_eq!(reopened.get(&changed, &source, false).await.digest, None);
+}
+
+#[tokio::test]
 async fn every_binding_field_invalidates_old_fingerprints() {
     for changed in 0..3 {
         let fixture = Fixture::new();

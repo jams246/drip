@@ -13,6 +13,7 @@ use drip_core::{Blake3Digest, SourcePath};
 
 use crate::{
     credentials::Pairing,
+    engine::watcher::{ChangeEpoch, DirtySignal},
     settings::{SavedSelection, SettingsStore},
     source::{Observation, ScannedEntry, SourceFile},
 };
@@ -125,7 +126,13 @@ impl FileCache {
         .unwrap_or_else(|error| Some(format!("persistent fingerprint write failed: {error}")))
     }
 
-    pub async fn prune(&self, selection_id: &str, entries: &[ScannedEntry]) -> Option<String> {
+    pub async fn prune(
+        &self,
+        selection_id: &str,
+        entries: &[ScannedEntry],
+        signal: DirtySignal,
+        epoch: ChangeEpoch,
+    ) -> Option<String> {
         let paths = match entries
             .iter()
             .map(|entry| serde_json::to_string(&entry.source_path))
@@ -136,9 +143,11 @@ impl FileCache {
         };
         let selection_id = selection_id.to_owned();
         let state = Arc::clone(&self.state);
-        tokio::task::spawn_blocking(move || lock(&state).prune(&selection_id, &paths))
-            .await
-            .unwrap_or_else(|error| Some(format!("persistent fingerprint pruning failed: {error}")))
+        tokio::task::spawn_blocking(move || {
+            lock(&state).prune(&selection_id, &paths, &signal, epoch)
+        })
+        .await
+        .unwrap_or_else(|error| Some(format!("persistent fingerprint pruning failed: {error}")))
     }
 }
 

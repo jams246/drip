@@ -2,6 +2,8 @@ use std::io::{Read, Seek, SeekFrom};
 
 use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
+#[cfg(test)]
+use super::super::read_metrics::CountedReader;
 use super::super::{
     error::SourceError,
     native::{self, file_info, is_disk_file, open_file},
@@ -10,8 +12,18 @@ use super::SourceFile;
 use crate::source::windows::root::file_volume_identity;
 
 impl SourceFile {
+    #[cfg(not(test))]
     pub(crate) fn chunk_reader(&self) -> Result<std::fs::File, SourceError> {
         self.open_reader()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn chunk_reader(&self) -> Result<CountedReader, SourceError> {
+        Ok(CountedReader::new(
+            self.open_reader()?,
+            self.protocol_path.clone(),
+            crate::engine::test_metrics::ReadKind::Chunking,
+        ))
     }
 
     pub(crate) async fn read_range(
@@ -45,15 +57,29 @@ impl SourceFile {
             return Err(SourceError::Changed);
         }
         self.verify().await?;
-        let mut file = self.open_reader()?;
+        let file = self.open_reader()?;
         let expected = self.initial;
         let length = usize::try_from(length).map_err(|_| SourceError::Changed)?;
+        #[cfg(test)]
+        let source_path = self.protocol_path.clone();
         let bytes = tokio::task::spawn_blocking(move || {
+            #[cfg(test)]
+            let mut file = CountedReader::new(
+                file,
+                source_path,
+                crate::engine::test_metrics::ReadKind::RangeReread,
+            );
+            #[cfg(not(test))]
+            let mut file = file;
             file.seek(SeekFrom::Start(offset))?;
             let mut bytes = vec![0; length];
             file.read_exact(&mut bytes)?;
             checkpoint();
-            if file_info(&file)?.observation()? != expected {
+            #[cfg(test)]
+            let current = file_info(file.inner())?.observation()?;
+            #[cfg(not(test))]
+            let current = file_info(&file)?.observation()?;
+            if current != expected {
                 return Err(SourceError::Changed);
             }
             Ok(bytes)
