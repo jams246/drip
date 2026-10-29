@@ -77,26 +77,6 @@ pub(super) fn message(id: &'static str, text: &str) -> impl IntoElement {
         .child(text.to_owned())
 }
 
-pub(super) fn page_header(title: &'static str, subtitle: Option<&'static str>) -> gpui::Div {
-    let heading = div()
-        .id(format!("page-heading-{}", title.to_lowercase()))
-        .text_size(px(32.))
-        .font_weight(gpui::FontWeight::BOLD)
-        .text_color(rgb(theme::TEXT))
-        .child(title);
-    let page = div().flex().flex_col().gap_2().child(heading);
-    if let Some(subtitle) = subtitle {
-        page.child(
-            div()
-                .text_size(px(14.))
-                .text_color(rgb(theme::MUTED))
-                .child(subtitle),
-        )
-    } else {
-        page
-    }
-}
-
 pub(super) fn card(id: impl Into<ElementId>) -> Stateful<gpui::Div> {
     div()
         .id(id)

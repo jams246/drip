@@ -5,6 +5,7 @@ mod input;
 mod model;
 mod native;
 mod runtime;
+mod scrollbar;
 mod theme;
 mod tray;
 mod update;

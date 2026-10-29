@@ -20,10 +20,6 @@ pub(super) fn render(
         .flex()
         .flex_col()
         .gap_6()
-        .child(components::page_header(
-            "Activity",
-            Some("Recent changes and connection details."),
-        ))
         .child(connection_details(shell));
     if let Some(feedback) = &shell.state.diagnostic {
         page = page.child(components::technical_feedback(

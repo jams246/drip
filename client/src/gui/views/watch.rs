@@ -18,10 +18,6 @@ pub(super) fn render(
         .flex()
         .flex_col()
         .gap_6()
-        .child(components::page_header(
-            "Watch",
-            Some("Choose the files and folders to send to your server."),
-        ))
         .child(
             div()
                 .flex()

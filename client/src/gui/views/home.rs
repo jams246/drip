@@ -21,16 +21,7 @@ pub(super) fn render(
         .iter()
         .filter(|item| item.active)
         .collect();
-    let mut page = div()
-        .id("drip-home")
-        .w_full()
-        .flex()
-        .flex_col()
-        .gap_6()
-        .child(components::page_header(
-            "Home",
-            Some("Your watched files and folders."),
-        ));
+    let mut page = div().id("drip-home").w_full().flex().flex_col().gap_6();
     if shell.control.borrow().paused
         && shell.state.status.connection != drip_client::ConnectionState::Paused
     {

@@ -78,7 +78,6 @@ pub(super) fn render(
         .flex()
         .flex_col()
         .gap_6()
-        .child(components::page_header("Settings", None))
         .child(server)
         .child(this_computer)
 }

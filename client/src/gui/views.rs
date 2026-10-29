@@ -40,6 +40,8 @@ impl Render for Shell {
         }
         let scroll = self.tab_scroll[tab.index()].clone();
         let panel_scroll = scroll.clone();
+        let scrollbar =
+            super::scrollbar::render(scroll.clone(), tab.index(), window, cx).into_any_element();
         let shell = cx.entity().downgrade();
         let panel = div()
             .on_children_prepainted(move |_, window, _cx| {
@@ -69,7 +71,8 @@ impl Render for Shell {
             .flex()
             .flex_col()
             .flex_1()
-            .h(px(0.))
+            .h_full()
+            .min_w_0()
             .min_h_0()
             .overflow_y_scroll()
             .track_scroll(&panel_scroll)
@@ -93,7 +96,15 @@ impl Render for Shell {
             .text_color(rgb(theme::TEXT))
             .child(heading::render())
             .child(navigation(self, cx))
-            .child(panel)
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .h(px(0.))
+                    .min_h_0()
+                    .child(panel)
+                    .child(scrollbar),
+            )
             .child(components::footer(self.footer_label(Instant::now())))
     }
 }
