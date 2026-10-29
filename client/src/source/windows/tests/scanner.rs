@@ -18,6 +18,12 @@ fn recursive_scan_keeps_unicode_empty_entries_and_excludes_app_state() {
     fs::write(app.join(".drip.json.1.0.tmp"), b"replacement").unwrap();
     fs::write(app.join("drip.settings.lock"), []).unwrap();
     fs::write(app.join("drip.run.lock"), []).unwrap();
+    fs::write(app.join("drip.state.sqlite3"), b"database").unwrap();
+    fs::write(app.join("drip.state.sqlite3-journal"), b"journal").unwrap();
+    fs::write(app.join("drip.state.sqlite3-wal"), b"wal").unwrap();
+    fs::write(app.join("drip.state.sqlite3-shm"), b"shm").unwrap();
+    fs::write(app.join("drip.state.corrupt.fixture.sqlite3"), b"backup").unwrap();
+    fs::write(app.join("drip.state.backup.sqlite3"), b"backup").unwrap();
     let saved = saved(&root);
 
     let scan = scan_root(&saved, &app).unwrap();
@@ -47,7 +53,7 @@ fn recursive_scan_keeps_unicode_empty_entries_and_excludes_app_state() {
             .is_some_and(|name| name == "empty")
             && entry.kind == EntryKind::Directory
     }));
-    assert_eq!(scan.protected_paths.len(), 4);
+    assert_eq!(scan.protected_paths.len(), 10);
 }
 
 #[test]

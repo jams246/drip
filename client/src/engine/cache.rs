@@ -1,88 +1,147 @@
+mod context;
+mod database;
+mod state;
+#[cfg(test)]
+mod tests;
+
 use std::{
-    collections::{HashMap, HashSet},
-    sync::{Mutex, MutexGuard},
+    path::PathBuf,
+    sync::{Arc, Mutex},
 };
 
 use drip_core::{Blake3Digest, SourcePath};
 
 use crate::{
-    settings::SavedSelection,
+    credentials::Pairing,
+    settings::{SavedSelection, SettingsStore},
     source::{Observation, ScannedEntry, SourceFile},
 };
 
-struct CachedFile {
-    observation: Observation,
-    volume_identity: String,
-    digest: Blake3Digest,
-}
+use self::{
+    context::{active_selections, verified_record},
+    database::Binding,
+    state::CacheState,
+};
 
 #[derive(Default)]
-pub(super) struct FileCache(Mutex<HashMap<(String, SourcePath), CachedFile>>);
+pub(super) struct FileCache {
+    path: Option<PathBuf>,
+    state: Arc<Mutex<CacheState>>,
+}
+
+pub(super) struct CacheLookup {
+    pub digest: Option<Blake3Digest>,
+    pub warning: Option<String>,
+}
 
 impl FileCache {
-    fn entries(&self) -> MutexGuard<'_, HashMap<(String, SourcePath), CachedFile>> {
-        self.0.lock().unwrap_or_else(|poisoned| {
-            let mut entries = poisoned.into_inner();
-            entries.clear();
-            entries
+    pub fn beside_settings(store: &SettingsStore) -> Self {
+        Self {
+            path: Some(store.directory().join("drip.state.sqlite3")),
+            state: Arc::default(),
+        }
+    }
+
+    pub async fn reconcile(
+        &self,
+        pairing: &Pairing,
+        selections: &[SavedSelection],
+    ) -> Option<String> {
+        let binding = Binding::from(pairing);
+        let selections = active_selections(selections);
+        let path = self.path.clone();
+        let state = Arc::clone(&self.state);
+        tokio::task::spawn_blocking(move || {
+            let mut state = lock(&state);
+            state.reconcile(path.as_deref(), binding, selections)
+        })
+        .await
+        .unwrap_or_else(|error| Some(format!("persistent fingerprint store failed: {error}")))
+    }
+
+    pub async fn get(
+        &self,
+        selection: &SavedSelection,
+        source: &SourceFile,
+        audit: bool,
+    ) -> CacheLookup {
+        let path_json = match serde_json::to_string(source.protocol_path()) {
+            Ok(path) => path,
+            Err(error) => {
+                return CacheLookup {
+                    digest: None,
+                    warning: Some(format!("could not encode cached source path: {error}")),
+                };
+            }
+        };
+        if audit || source.observation().change_time == 0 {
+            return CacheLookup {
+                digest: None,
+                warning: None,
+            };
+        }
+        let selection = selection.clone();
+        let source_path = source.protocol_path().clone();
+        let observation = source.observation();
+        let volume_identity = source.volume_identity().to_owned();
+        let state = Arc::clone(&self.state);
+        tokio::task::spawn_blocking(move || {
+            let mut state = lock(&state);
+            state.get(
+                &selection,
+                &source_path,
+                &path_json,
+                observation,
+                &volume_identity,
+            )
+        })
+        .await
+        .unwrap_or_else(|error| CacheLookup {
+            digest: None,
+            warning: Some(format!("persistent fingerprint lookup failed: {error}")),
         })
     }
 
-    pub fn get(&self, selection: &str, source: &SourceFile) -> Option<Blake3Digest> {
-        let observation = source.observation();
-        // shortcut: metadata cannot detect silent corruption, use a full rescan to audit contents.
-        if observation.change_time == 0 {
-            return None;
-        }
-        self.entries()
-            .get(&(selection.to_owned(), source.protocol_path().clone()))
-            .filter(|cached| {
-                cached.observation == observation
-                    && cached.volume_identity == source.volume_identity()
-            })
-            .map(|cached| cached.digest)
-    }
-
-    pub fn remember(
+    pub async fn remember(
         &self,
-        selection: &str,
+        selection: &SavedSelection,
         path: &SourcePath,
         observation: Observation,
         volume_identity: &str,
         digest: Blake3Digest,
-    ) {
-        self.entries().insert(
-            (selection.to_owned(), path.clone()),
-            CachedFile {
-                observation,
-                volume_identity: volume_identity.to_owned(),
-                digest,
-            },
-        );
+    ) -> Option<String> {
+        let record = match verified_record(path, observation, volume_identity, digest) {
+            Ok(record) => record,
+            Err(error) => return Some(error),
+        };
+        let database_path = self.path.clone();
+        let selection = selection.clone();
+        let source_path = record.path.clone();
+        let state = Arc::clone(&self.state);
+        tokio::task::spawn_blocking(move || {
+            lock(&state).remember(database_path.as_deref(), &selection, source_path, record)
+        })
+        .await
+        .unwrap_or_else(|error| Some(format!("persistent fingerprint write failed: {error}")))
     }
 
-    pub fn clear(&self) {
-        self.entries().clear();
-    }
-
-    pub fn forget(&self, selection: &str) {
-        self.entries().retain(|(id, _), _| id != selection);
-    }
-
-    pub fn selections(&self, previous: &[SavedSelection], latest: &[SavedSelection]) {
-        self.entries().retain(|(id, _), _| {
-            latest.iter().any(|selection| {
-                selection.id == *id && selection.active && previous.contains(selection)
-            })
-        });
-    }
-
-    pub fn scanned(&self, selection: &str, entries: &[ScannedEntry]) {
-        let paths: HashSet<_> = entries.iter().map(|entry| &entry.source_path).collect();
-        self.entries()
-            .retain(|(id, path), _| id != selection || paths.contains(path));
+    pub async fn prune(&self, selection_id: &str, entries: &[ScannedEntry]) -> Option<String> {
+        let paths = match entries
+            .iter()
+            .map(|entry| serde_json::to_string(&entry.source_path))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(paths) => paths,
+            Err(error) => return Some(format!("could not encode scanned source paths: {error}")),
+        };
+        let selection_id = selection_id.to_owned();
+        let state = Arc::clone(&self.state);
+        tokio::task::spawn_blocking(move || lock(&state).prune(&selection_id, &paths))
+            .await
+            .unwrap_or_else(|error| Some(format!("persistent fingerprint pruning failed: {error}")))
     }
 }
 
-#[cfg(test)]
-mod tests;
+fn lock(state: &Mutex<CacheState>) -> std::sync::MutexGuard<'_, CacheState> {
+    state.lock().unwrap_or_else(|error| error.into_inner())
+}

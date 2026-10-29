@@ -78,6 +78,12 @@ fn application_data_names_are_excluded_case_insensitively() {
         "drip.log.replacement",
         "drip.state",
         "DRIP.STATE.17.TMP",
+        "drip.state.sqlite3",
+        "DRIP.STATE.SQLITE3-JOURNAL",
+        "drip.state.sqlite3-wal",
+        "drip.state.sqlite3-shm",
+        "drip.state.corrupt.abc.sqlite3-journal",
+        "drip.state.backup.sqlite3",
         "drip.settings.lock",
         "DRIP.RUN.LOCK",
     ] {

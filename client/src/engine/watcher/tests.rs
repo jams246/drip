@@ -63,7 +63,15 @@ fn siblings_parent_metadata_access_and_internal_files_do_not_queue_work() {
     event(
         &signal,
         EventKind::Modify(ModifyKind::Any),
-        &[r"C:\app\.drip.json.42.tmp", r"C:\app\drip.log.1"],
+        &[
+            r"C:\app\.drip.json.42.tmp",
+            r"C:\app\drip.log.1",
+            r"C:\app\drip.state.sqlite3",
+            r"C:\app\drip.state.sqlite3-journal",
+            r"C:\app\drip.state.sqlite3-wal",
+            r"C:\app\drip.state.sqlite3-shm",
+            r"C:\app\drip.state.corrupt.id.sqlite3",
+        ],
     );
     assert!(!signal.pending());
 }

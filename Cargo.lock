@@ -864,6 +864,7 @@ dependencies = [
  "raw-window-handle",
  "reqwest",
  "rpassword",
+ "rusqlite",
  "serde",
  "serde_json",
  "thiserror",
