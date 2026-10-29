@@ -35,7 +35,8 @@ pub(super) fn route(
         EventKind::Create(_) | EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_))
     );
     for path in &event.paths {
-        if internal_event(path, app) {
+        // Child events carry content changes; app metadata includes our own state writes.
+        if internal_event(path, app) || (!structural && same_directory(path, app)) {
             continue;
         }
         if path
@@ -91,13 +92,16 @@ fn same_directory(left: &Path, right: &Path) -> bool {
 }
 
 pub(super) fn internal_event(path: &Path, app: &Path) -> bool {
-    path.parent()
-        .is_some_and(|parent| same_directory(parent, app))
+    let (Some(path), Some(app)) = (parse(path), parse(app)) else {
+        return false;
+    };
+    path.has_windows_prefix(&app)
         && path
-            .file_name()
-            .and_then(|name| name.to_str())
+            .components()
+            .get(app.components().len())
             .is_some_and(|name| {
-                !name.eq_ignore_ascii_case("drip.json")
+                !(name.eq_ignore_ascii_case("drip.json")
+                    && path.components().len() == app.components().len() + 1)
                     && crate::source::is_application_data_name(name)
             })
 }

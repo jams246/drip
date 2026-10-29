@@ -11,7 +11,15 @@ pub fn inspect(path: &std::path::Path, exists: bool) -> Result<(), DatabaseError
         return Ok(());
     }
     validate_header(path)?;
-    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    reject_nonempty_wal(path)?;
+    let mut uri = url::Url::from_file_path(path)
+        .map_err(|()| DatabaseError::UnsafePath(path.display().to_string()))?;
+    uri.query_pairs_mut().append_pair("immutable", "1");
+    // Compatibility inspection must not replay journals or checkpoint a future store.
+    let connection = Connection::open_with_flags(
+        uri.as_str(),
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+    )?;
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version > VERSION {
         return Err(DatabaseError::Unsupported(format!(
@@ -42,6 +50,21 @@ pub fn inspect(path: &std::path::Path, exists: bool) -> Result<(), DatabaseError
         }
     }
     Ok(())
+}
+
+fn reject_nonempty_wal(path: &Path) -> Result<(), DatabaseError> {
+    let mut wal = path.as_os_str().to_os_string();
+    wal.push("-wal");
+    match std::fs::metadata(wal) {
+        Ok(metadata) if metadata.len() != 0 => Err(DatabaseError::Unsupported(
+            "nonempty WAL store is incompatible with version 1 DELETE journaling".into(),
+        )),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(DatabaseError::Recovery(format!(
+            "could not inspect WAL: {error}"
+        ))),
+    }
 }
 
 fn validate_header(path: &Path) -> Result<(), DatabaseError> {

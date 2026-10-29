@@ -79,10 +79,7 @@ fn walk_open_directory(
             }
         };
         let reparse = metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0;
-        if same_path(source_path, &app_dir.source)
-            && native::is_application_data_name(&name)
-            && (metadata.is_file() || reparse)
-        {
+        if same_path(source_path, &app_dir.source) && native::is_application_data_name(&name) {
             scan.protected_paths.push(child_source);
             continue;
         }

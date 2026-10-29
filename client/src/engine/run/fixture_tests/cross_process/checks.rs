@@ -192,11 +192,29 @@ pub fn corrupt_server_copy(source: &Path, bytes: &[u8]) {
 pub fn assert_remote_file_matches(source: &Path) {
     let pairing = pairing();
     let path = remote_path(&pairing, source);
-    let remote = docker(&["exec", &env("DRIP_TEST_CONTAINER"), "cat", &path]);
-    assert!(remote.status.success(), "synthetic mirror file is missing");
-    let local = fs::read(source).unwrap();
-    let remote = remote.stdout;
-    assert_eq!(blake3::hash(&local), blake3::hash(&remote));
+    let mut remote = Command::new("wsl")
+        .args([
+            "-d",
+            "Docker",
+            "--",
+            "docker",
+            "exec",
+            &env("DRIP_TEST_CONTAINER"),
+            "cat",
+            &path,
+        ])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut remote_hash = blake3::Hasher::new();
+    std::io::copy(&mut remote.stdout.take().unwrap(), &mut remote_hash).unwrap();
+    assert!(
+        remote.wait().unwrap().success(),
+        "synthetic mirror file is missing"
+    );
+    let mut local_hash = blake3::Hasher::new();
+    std::io::copy(&mut fs::File::open(source).unwrap(), &mut local_hash).unwrap();
+    assert_eq!(local_hash.finalize(), remote_hash.finalize());
 }
 
 fn pairing() -> crate::credentials::Pairing {

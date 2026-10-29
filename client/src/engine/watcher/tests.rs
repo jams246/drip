@@ -1,4 +1,5 @@
 use super::*;
+mod application_data;
 use notify::{
     Event, EventKind,
     event::{AccessKind, CreateKind, ModifyKind, RemoveKind, RenameMode},

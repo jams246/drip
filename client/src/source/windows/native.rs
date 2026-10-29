@@ -49,21 +49,18 @@ pub(super) fn validate_drive(drive: char) -> Result<(), SourceError> {
 }
 
 pub(super) fn reject_application_data(path: &SourcePath) -> Result<(), SourceError> {
-    let Some(name) = path.components().last() else {
-        return Ok(());
-    };
-    let parent = SourcePath::new(
-        path.drive(),
-        path.components()[..path.components().len() - 1].to_vec(),
-    )
-    .map_err(|_| SourceError::InvalidPath)?;
     let executable = std::env::current_exe()?;
     let directory = executable.parent().ok_or(SourceError::InvalidPath)?;
     let directory = std::fs::canonicalize(directory)?;
     let directory = directory.to_str().ok_or(SourceError::InvalidPath)?;
     let directory = directory.strip_prefix(r"\\?\").unwrap_or(directory);
     let directory = SourcePath::parse_absolute(directory).map_err(|_| SourceError::InvalidPath)?;
-    if same_path(&parent, &directory) && is_application_data_name(name) {
+    if path.has_windows_prefix(&directory)
+        && path
+            .components()
+            .get(directory.components().len())
+            .is_some_and(|name| is_application_data_name(name))
+    {
         return Err(SourceError::ExcludedApplicationData);
     }
     Ok(())

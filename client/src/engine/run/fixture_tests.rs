@@ -146,6 +146,26 @@ async fn real_watch_events_isolate_roots_and_periodic_checks_reuse_verified_cont
     assert_eq!(cached_file_count(&fixture), rows_before_lock);
     drop(locked);
     fixture.pass(false, false).await;
+
+    let before_incomplete = cached_file_count(&fixture);
+    fs::remove_file(folder.join("file-19.txt")).unwrap();
+    let locked_child = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(folder.join("file-18.txt"))
+        .unwrap();
+    fixture.signal.mark(&a, false);
+    assert!(!fixture.attempt(false, false).await.0);
+    assert_eq!(cached_file_count(&fixture), before_incomplete);
+    drop(locked_child);
+    fixture.pass(false, false).await;
+    assert_eq!(cached_file_count(&fixture), before_incomplete - 1);
+
+    let before_offline = cached_file_count(&fixture);
+    assert!(!matches!(fixture.pass_while_offline().await, Ok(true)));
+    assert_eq!(cached_file_count(&fixture), before_offline);
+    fixture.restart_worker();
+    assert!(!content(&fixture.pass(true, false).await));
 }
 
 fn cached_file_count(fixture: &Fixture) -> i64 {

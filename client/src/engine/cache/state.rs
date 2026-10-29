@@ -155,13 +155,7 @@ impl CacheState {
         };
         if let Err(error) = result {
             if error.is_corrupt() {
-                let warning = self.recover_database(error);
-                let retry = self
-                    .database
-                    .as_mut()
-                    .map(|database| database.save(selection, &source_path, &record))
-                    .unwrap_or(Ok(()));
-                return warning.or_else(|| self.handle_database_result(retry));
+                return self.recover_save(error, selection, &source_path, &record);
             }
             return self.database_failure(error);
         }

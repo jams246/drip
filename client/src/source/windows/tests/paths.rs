@@ -94,3 +94,22 @@ fn application_data_names_are_excluded_case_insensitively() {
         "report.txt"
     ));
 }
+
+#[test]
+fn source_rejects_descendants_of_reserved_application_state_names() {
+    let executable = std::env::current_exe().unwrap();
+    let app = executable.parent().unwrap();
+    for name in [
+        r"drip.state.backup.folder\private.bin",
+        r"DRIP.STATE.corrupt.set\nested\private.bin",
+    ] {
+        assert!(matches!(
+            SourceFile::open(&app.join(name)),
+            Err(SourceError::ExcludedApplicationData)
+        ));
+    }
+    assert!(!matches!(
+        SourceFile::open(&app.join("drip.stateful.user.txt")),
+        Err(SourceError::ExcludedApplicationData)
+    ));
+}

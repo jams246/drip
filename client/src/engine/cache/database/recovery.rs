@@ -11,6 +11,17 @@ use windows::Win32::Storage::FileSystem::{
 
 use super::DatabaseError;
 
+pub fn preflight_database(path: &Path) -> Result<bool, DatabaseError> {
+    let exists = preflight(path)?;
+    for suffix in ["-journal", "-wal", "-shm"] {
+        let artifact = sidecar(path, suffix)?;
+        if preflight(&artifact)? {
+            secure_existing_sidecar(&artifact)?;
+        }
+    }
+    Ok(exists)
+}
+
 pub fn preflight(path: &Path) -> Result<bool, DatabaseError> {
     validate_parent(path)?;
     match fs::symlink_metadata(path) {

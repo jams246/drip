@@ -19,6 +19,7 @@ use crate::{
     transport::HttpTransport,
 };
 
+mod failure;
 mod server;
 
 pub(super) struct Fixture {

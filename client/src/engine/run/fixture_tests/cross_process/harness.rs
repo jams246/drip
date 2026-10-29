@@ -52,6 +52,7 @@ pub async fn run() {
     let db_size = fs::metadata(root.join("drip.state.sqlite3")).unwrap().len();
     let mut summary = serde_json::json!({
         "profile": profile,
+        "optimized_build": !cfg!(debug_assertions),
         "generator": deterministic::GENERATOR,
         "file_count": sizes.len(),
         "dataset_bytes": sizes.values().sum::<u64>(),
@@ -62,6 +63,10 @@ pub async fn run() {
         "warm_metrics": warm_metrics
     });
     if profile == "routine" {
+        let queued = run_stage("queued-audit", None);
+        let metrics = read_metrics("queued-audit");
+        assert_file_metrics(&source_root, &sizes, &metrics, true, false);
+        summary["queued_audit"] = serde_json::json!({"result": queued, "metrics": metrics});
         run_routine_scenarios(&source_root, &sizes, &mut summary);
     } else {
         release::run_release_scenarios(&source_root, &sizes, &mut summary);
@@ -164,7 +169,8 @@ fn run_routine_scenarios(
         false,
     );
     run_precommit_exit(&precommit_file);
-    assert_eq!(cache_row_count(), sizes.len() as u64 - 1);
+    let rows_after_exit = cache_row_count();
+    assert_eq!(rows_after_exit, sizes.len() as u64 - 1);
     assert!(!cache_contains_path(&precommit_file));
     let precommit_retry = run_stage("transaction-exit-retry", Some(&precommit_file));
     assert!(precommit_retry.target_file_checked);
@@ -210,7 +216,7 @@ fn run_routine_scenarios(
     });
     summary["transaction_before_commit_exit"] = serde_json::json!({
         "target": precommit_file,
-        "rows_after_exit": cache_row_count(),
+        "rows_after_exit": rows_after_exit,
         "retry": precommit_retry,
         "retry_metrics": precommit_metrics
     });

@@ -55,7 +55,10 @@ pub async fn run(stage: &str) {
     let (sender, mut events) = mpsc::channel(4096);
     let (progress, _) = watch::channel(None);
     let sink = EventSink::new(sender, progress);
-    let (commands, control) = watch::channel(RunControl::default());
+    let (commands, control) = watch::channel(RunControl {
+        reconcile: u64::from(stage == "queued-audit"),
+        ..RunControl::default()
+    });
     let worker = tokio::spawn(async move { engine.run(control, sink).await });
     let deadline = tokio::time::Instant::now() + Duration::from_secs(4 * 60 * 60);
     let mut event_counts = BTreeMap::new();

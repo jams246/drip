@@ -94,15 +94,15 @@ impl CacheDatabase {
     }
 
     fn open_once(path: &Path) -> Result<Self, DatabaseError> {
-        let exists = recovery::preflight(path)?;
-        schema::inspect(path, exists)?;
+        let exists = recovery::preflight_database(path)?;
         if !exists {
             recovery::create_empty(path)?;
         }
         recovery::secure_database(path)?;
         let file_guard = recovery::open_guard(path)?;
+        schema::inspect(path, exists)?;
         let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-        recovery::preflight(path)?;
+        recovery::preflight_database(path)?;
         schema::configure(&connection)?;
         let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
         if version == 0 {

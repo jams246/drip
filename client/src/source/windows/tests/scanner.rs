@@ -24,6 +24,10 @@ fn recursive_scan_keeps_unicode_empty_entries_and_excludes_app_state() {
     fs::write(app.join("drip.state.sqlite3-shm"), b"shm").unwrap();
     fs::write(app.join("drip.state.corrupt.fixture.sqlite3"), b"backup").unwrap();
     fs::write(app.join("drip.state.backup.sqlite3"), b"backup").unwrap();
+    for name in ["drip.state.backup.folder", "DRIP.STATE.corrupt.set"] {
+        fs::create_dir(app.join(name)).unwrap();
+        fs::write(app.join(name).join("private.bin"), b"state contents").unwrap();
+    }
     let saved = saved(&root);
 
     let scan = scan_root(&saved, &app).unwrap();
@@ -53,7 +57,14 @@ fn recursive_scan_keeps_unicode_empty_entries_and_excludes_app_state() {
             .is_some_and(|name| name == "empty")
             && entry.kind == EntryKind::Directory
     }));
-    assert_eq!(scan.protected_paths.len(), 10);
+    assert_eq!(scan.protected_paths.len(), 12);
+    assert!(!scan.entries.iter().any(|entry| {
+        entry
+            .source_path
+            .components()
+            .iter()
+            .any(|name| name.to_ascii_lowercase().starts_with("drip.state."))
+    }));
 }
 
 #[test]

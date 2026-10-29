@@ -27,6 +27,7 @@ pub struct RunControl {
     pub paused: bool,
     pub stop: bool,
     /// Increment to request full reconciliation without waiting for its timer.
+    /// This explicit audit bypasses saved fingerprints for every active selection.
     pub reconcile: u64,
     /// Increment to synchronize selection changes without a full content rescan.
     pub refresh_selections: u64,
@@ -63,7 +64,7 @@ impl Engine {
         let mut acknowledged_failure_epoch = 0;
         let mut attempts = 0u32;
         let mut closed = false;
-        let mut reconciled_request = control.borrow().reconcile;
+        let mut reconciled_request = 0;
         let mut refreshed_request = 0;
         #[cfg(test)]
         let mut inject_test_overflow = std::env::var_os("DRIP_TEST_OVERFLOW_AFTER_SYNC").is_some();
