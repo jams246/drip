@@ -2,7 +2,7 @@ use std::{
     fs::{self, File},
     io::{BufRead, BufReader},
     path::PathBuf,
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
 };
 
 use drip_client::credentials::Pairing;
@@ -20,8 +20,6 @@ pub struct Fixture {
     pub source: PathBuf,
     pub size: u64,
     container: String,
-    mirror_volume: String,
-    hash_image: String,
     traffic_file: PathBuf,
     run_id: String,
 }
@@ -60,9 +58,13 @@ impl Fixture {
             serde_json::from_slice(&docker(&["inspect", &container]).stdout).unwrap();
         let label = inspection[0]["Config"]["Labels"]["drip.verification"].as_str();
         assert!(
-            matches!(label, Some("phase02" | "phase03")),
+            matches!(label, Some("phase02" | "phase03" | "persistent-cache")),
             "not an owned fixture"
         );
+        if label == Some("persistent-cache") {
+            let expected = std::env::var("DRIP_TEST_SERVER_IMAGE_ID").unwrap();
+            assert_eq!(inspection[0]["Image"], expected);
+        }
         assert!(
             inspection[0]["Mounts"]
                 .as_array()
@@ -72,12 +74,6 @@ impl Fixture {
                     mount["Name"] == mirror_volume && mount["Destination"] == "/mirror"
                 })
         );
-        let hash_image = docker(&["image", "inspect", "drip:hash", "--format={{.Id}}"]);
-        let hash_image = String::from_utf8(hash_image.stdout)
-            .unwrap()
-            .trim()
-            .to_owned();
-        assert!(hash_image.starts_with("sha256:"));
         let directory = root.join("large-fixture");
         fs::create_dir_all(&directory).unwrap();
         let run_id = format!("large-delta-{size}-{}", std::process::id());
@@ -91,8 +87,6 @@ impl Fixture {
             source: directory.join(format!("fixture-{size}.bin")),
             size,
             container,
-            mirror_volume,
-            hash_image,
             traffic_file,
             run_id,
         }
@@ -173,45 +167,38 @@ impl Fixture {
             source.drive(),
             source.components().join("/")
         );
-        let mount = format!(
-            "type=volume,source={},target=/mirror,readonly",
-            self.mirror_volume
+        let mut remote = Command::new("wsl.exe")
+            .args([
+                "-d",
+                "Docker",
+                "--",
+                "docker",
+                "exec",
+                &self.container,
+                "cat",
+                &mirror,
+            ])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut actual = blake3::Hasher::new();
+        let actual_size = std::io::copy(&mut remote.stdout.take().unwrap(), &mut actual).unwrap();
+        assert!(
+            remote.wait().unwrap().success(),
+            "synthetic mirror read failed"
         );
-        let output = docker(&["run", "--rm", "--mount", &mount, &self.hash_image, &mirror]);
-        let actual = String::from_utf8(output.stdout).unwrap();
-        assert_eq!(
-            actual.split_whitespace().next(),
-            Some(digest.to_hex().as_str())
-        );
-        let output = docker(&[
-            "run",
-            "--rm",
-            "--mount",
-            &mount,
-            "--entrypoint",
-            "stat",
-            &self.hash_image,
-            "--format=%s",
-            &mirror,
-        ]);
-        assert_eq!(
-            String::from_utf8(output.stdout)
-                .unwrap()
-                .trim()
-                .parse::<u64>()
-                .unwrap(),
-            size
-        );
+        assert_eq!(actual_size, size);
+        assert_eq!(Blake3Digest::new(*actual.finalize().as_bytes()), digest);
     }
 }
 
 fn docker(arguments: &[&str]) -> Output {
     let mut command = Command::new("wsl.exe");
-    command.args(["-d", "Docker", "--", "docker", arguments[0]]);
-    if arguments[0] == "run" {
-        command.arg("--pull=never");
-    }
-    let output = command.args(&arguments[1..]).output().unwrap();
+    let output = command
+        .args(["-d", "Docker", "--", "docker"])
+        .args(arguments)
+        .output()
+        .unwrap();
     assert!(
         output.status.success(),
         "synthetic Docker fixture command failed"
