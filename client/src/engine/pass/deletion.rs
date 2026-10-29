@@ -20,6 +20,7 @@ impl PassContext<'_> {
         active: &ActiveSelection,
         saved: &SavedSelection,
         scan: &SourceScan,
+        epoch: crate::engine::watcher::ChangeEpoch,
     ) -> Result<(), EngineError> {
         let source_paths: HashSet<_> = scan
             .entries
@@ -39,7 +40,7 @@ impl PassContext<'_> {
                 continue;
             }
             self.check(active, saved)?;
-            if self.signal.is_dirty() {
+            if self.signal.changed_since(&saved.id, epoch) {
                 return Err(EngineError::SelectionChanged);
             }
             selection::require_current(self.transport, self.pairing.credential(), active).await?;
@@ -63,7 +64,7 @@ impl PassContext<'_> {
                 return Err(EngineError::SelectionChanged);
             }
             self.check(active, saved)?;
-            if self.signal.is_dirty() {
+            if self.signal.changed_since(&saved.id, epoch) {
                 return Err(EngineError::SelectionChanged);
             }
             let operation = crate::source::random_id()?;

@@ -40,9 +40,17 @@ impl Schedule {
             .map_or(self.full_at, |hint| hint.min(self.full_at))
     }
 
-    pub fn completed(&mut self, now: Instant) {
-        self.full_at = now + FULL_INTERVAL;
+    pub fn begin(&mut self, now: Instant) -> bool {
+        let periodic = now >= self.full_at;
+        if periodic {
+            self.full_at = now + FULL_INTERVAL;
+        }
         self.hinted_at = None;
+        periodic
+    }
+
+    pub fn retry(&mut self, now: Instant) {
+        self.hinted_at = Some(now);
     }
 }
 
@@ -67,7 +75,7 @@ mod tests {
         let now = Instant::now();
         let mut schedule = Schedule::new(now);
         assert_eq!(schedule.due(), now);
-        schedule.completed(now);
+        schedule.begin(now);
         schedule.hint(now + Duration::from_millis(1));
         schedule.hint(now + Duration::from_millis(400));
         assert_eq!(schedule.due(), now + Duration::from_millis(900));
@@ -79,9 +87,22 @@ mod tests {
     fn dropped_hints_still_get_periodic_reconciliation() {
         let now = Instant::now();
         let mut schedule = Schedule::new(now);
-        schedule.completed(now);
+        schedule.begin(now);
         assert_eq!(schedule.due(), now + FULL_INTERVAL);
         schedule.force(now + Duration::from_secs(1));
         assert_eq!(schedule.due(), now + Duration::from_secs(1));
+    }
+
+    #[test]
+    fn targeted_passes_and_retries_do_not_postpone_the_periodic_deadline() {
+        let now = Instant::now();
+        let mut schedule = Schedule::new(now);
+        assert!(schedule.begin(now));
+        schedule.hint(now + Duration::from_secs(10));
+        assert!(!schedule.begin(now + Duration::from_secs(11)));
+        schedule.retry(now + Duration::from_secs(12));
+        assert!(!schedule.begin(now + Duration::from_secs(12)));
+        assert_eq!(schedule.due(), now + FULL_INTERVAL);
+        assert!(schedule.begin(now + FULL_INTERVAL));
     }
 }

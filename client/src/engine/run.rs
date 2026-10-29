@@ -1,4 +1,5 @@
 mod passes;
+mod setup;
 
 #[cfg(test)]
 mod tests;
@@ -17,7 +18,7 @@ use super::{
     pass::auth_failure,
     saved,
     schedule::{Schedule, backoff},
-    watcher::{DirtySignal, SourceWatcher},
+    watcher::DirtySignal,
 };
 use crate::{source::random_id, transport::HttpTransport};
 
@@ -28,6 +29,8 @@ pub struct RunControl {
     pub stop: bool,
     /// Increment to request full reconciliation without waiting for its timer.
     pub reconcile: u64,
+    /// Increment to synchronize selection changes without a full content rescan.
+    pub refresh_selections: u64,
 }
 
 impl Engine {
@@ -52,8 +55,7 @@ impl Engine {
         );
         let mut connection = events.subscribe_status();
         let signal = DirtySignal::default();
-        let mut watcher: Option<SourceWatcher> = None;
-        let mut seen_selections = Vec::new();
+        let mut state = setup::PassState::default();
         let mut schedule = Schedule::new(Instant::now());
         let mut barrier = true;
         let mut paused = false;
@@ -61,11 +63,17 @@ impl Engine {
         let mut attempts = 0u32;
         let mut closed = false;
         let mut reconciled_request = 0;
+        let mut refreshed_request = 0;
         loop {
             let desired = *control.borrow_and_update();
             if desired.reconcile != reconciled_request {
                 reconciled_request = desired.reconcile;
                 schedule.force(Instant::now());
+            }
+            if desired.refresh_selections != refreshed_request {
+                refreshed_request = desired.refresh_selections;
+                signal.refresh();
+                schedule.hint(Instant::now());
             }
             if pristine_stop(&self.settings, &control, closed) {
                 return Ok(());
@@ -121,7 +129,7 @@ impl Engine {
                             }
                         }
                     }
-                    watcher = None;
+                    state.watcher = None;
                     events
                         .emit(
                             EventKind::Paused,
@@ -164,23 +172,22 @@ impl Engine {
             tokio::select! {
                 changed = control.changed() => {
                     closed = changed.is_err();
-                    schedule.force(Instant::now());
                 }
                 _ = signal.changed() => {
-                    let (dirty, overflow) = signal.take();
-                    if overflow { schedule.force(Instant::now()); }
-                    else if dirty { schedule.hint(Instant::now()); }
+                    if signal.full() { schedule.force(Instant::now()); }
+                    else if signal.pending() { schedule.hint(Instant::now()); }
                 }
                 _ = tokio::time::sleep_until(due) => {
+                    let all = schedule.begin(Instant::now());
                     let context = super::pass::PassContext { store: &self.settings,
                         transport: &transport, pairing: &pairing, events: &events, signal: &signal, control: &control };
-                    let result = self.continuous_pass(&context, &mut watcher, &mut seen_selections, barrier).await;
+                    let result = self.continuous_pass(&context, &mut state, barrier, all).await;
                     if let Err(error) = &result { reachability.observe_error(error); }
                     match result {
                         Ok(true) => {
                             barrier = false;
                             attempts = 0;
-                            schedule.completed(Instant::now());
+                            if signal.pending() { schedule.hint(Instant::now()); }
                         }
                         Err(EngineError::Cancelled) => continue,
                         Err(error) if auth_failure(&error) => {
@@ -201,7 +208,7 @@ impl Engine {
                                 _ = tokio::time::sleep(backoff(attempts)?) => {}
                             }
                             attempts = attempts.saturating_add(1);
-                            schedule.force(Instant::now());
+                            schedule.retry(Instant::now());
                         }
                     }
                 }

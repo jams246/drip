@@ -35,6 +35,7 @@ impl PassContext<'_> {
         saved: &SavedSelection,
         operation: &str,
     ) -> Result<bool, EngineError> {
+        let epoch = self.signal.epoch(&saved.id);
         self.emit(
             EventKind::Scanning,
             active,
@@ -118,11 +119,11 @@ impl PassContext<'_> {
                 .await?;
             }
         }
-        if successful && !self.signal.is_dirty() {
+        if successful && !self.signal.changed_since(&saved.id, epoch) {
             self.check(active, saved)?;
             let after = scan_root(saved, self.store.directory())?;
             if after.complete && fingerprint(&after.entries) == fingerprint(&scan.entries) {
-                self.delete_extras(active, saved, &scan).await?;
+                self.delete_extras(active, saved, &scan, epoch).await?;
             } else {
                 successful = false;
             }
@@ -130,7 +131,7 @@ impl PassContext<'_> {
             successful = false;
         }
         self.check(active, saved)?;
-        if successful && !self.signal.is_dirty() {
+        if successful && !self.signal.changed_since(&saved.id, epoch) {
             self.emit(
                 EventKind::Synced,
                 active,

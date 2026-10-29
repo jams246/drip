@@ -89,6 +89,7 @@ impl RequestHandler<'_> {
             Err(error) => feedback::add_selection(&error),
         };
         self.reload().await;
+        self.refresh_selections();
         let _ = self
             .events
             .send(Event::Message {
@@ -109,6 +110,7 @@ impl RequestHandler<'_> {
             Err(error) => feedback::remove_selection(&error),
         };
         self.reload().await;
+        self.refresh_selections();
         let _ = self
             .events
             .send(Event::Message {
@@ -156,7 +158,11 @@ impl RequestHandler<'_> {
                     .await;
             }
         }
-        self.control
-            .send_modify(|desired| desired.reconcile = desired.reconcile.wrapping_add(1));
+    }
+
+    fn refresh_selections(&self) {
+        self.control.send_modify(|desired| {
+            desired.refresh_selections = desired.refresh_selections.wrapping_add(1);
+        });
     }
 }
