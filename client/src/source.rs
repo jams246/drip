@@ -11,7 +11,7 @@ pub use windows::{
 };
 
 #[cfg(windows)]
-pub(crate) use windows::{SourceError, random_id, same_path};
+pub(crate) use windows::{Observation, SourceError, random_id, same_path};
 
 #[cfg(windows)]
 pub(crate) use windows::is_application_data_name;

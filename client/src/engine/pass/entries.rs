@@ -3,13 +3,10 @@ use drip_core::protocol::{
 };
 use reqwest::Method;
 
-use crate::{
-    settings::SavedSelection,
-    source::{ScannedEntry, SourceFile},
-};
+use crate::{settings::SavedSelection, source::ScannedEntry};
 
-use super::{PassContext, upload_events};
-use crate::engine::{EngineError, EventKind, api, selection::ActiveSelection, upload};
+use super::PassContext;
+use crate::engine::{EngineError, EventKind, api, selection::ActiveSelection};
 
 impl PassContext<'_> {
     pub(super) async fn entry(
@@ -84,125 +81,7 @@ impl PassContext<'_> {
             .await?;
             return Ok(());
         }
-        let source = SourceFile::open(&entry.local_path)?;
-        if source.protocol_path() != &entry.source_path
-            || source.volume_identity() != saved.volume_identity
-        {
-            return Err(crate::source::SourceError::Replaced.into());
-        }
-        let (sender, report) = upload_events::start(
-            self.events.clone(),
-            active.selection.id.clone(),
-            operation.to_owned(),
-        );
-        let _ = sender
-            .send(crate::engine::ActivityEvent::Progress(
-                crate::engine::ProgressSnapshot {
-                    phase: crate::engine::UploadPhase::Hashing,
-                    source_path: entry.source_path.clone(),
-                    processed_bytes: 0,
-                    total_bytes: Some(source.size()),
-                    source_hashed_bytes: 0,
-                    source_chunked_bytes: 0,
-                    chunk_count: 0,
-                    planned_payload_bytes: 0,
-                    file_payload_sent: 0,
-                },
-            ))
-            .await;
-        let work = async {
-            let digest = source.hash(&sender).await;
-            match digest {
-                Ok(digest)
-                    if remote.is_some_and(|remote| {
-                        remote.kind == EntryKind::File
-                            && remote.size == source.size()
-                            && remote.digest == Some(digest)
-                            && remote.last_write == Some(source.last_write())
-                    }) =>
-                {
-                    Ok(true)
-                }
-                Ok(digest) => {
-                    self.check(active, saved)?;
-                    self.fresh_kind(saved, entry)?;
-                    upload::upload_selected(
-                        self.transport,
-                        self.pairing,
-                        source,
-                        active,
-                        expected_entry,
-                        Some(digest),
-                        &sender,
-                    )
-                    .await
-                    .map(|_| false)
-                }
-                Err(error) => Err(error.into()),
-            }
-        };
-        let result = tokio::select! {
-            result = work => result,
-            () = cancelled(self.control.clone()) => Err(EngineError::Cancelled),
-        };
-        drop(sender);
-        report
+        self.file(active, saved, entry, remote, expected_entry, operation)
             .await
-            .map_err(|error| std::io::Error::other(error.to_string()))??;
-        match result {
-            Ok(true) => {
-                self.emit(
-                    EventKind::FileChecked,
-                    active,
-                    &entry.source_path,
-                    operation,
-                    "source hash and metadata match the actual mirror",
-                )
-                .await
-            }
-            Ok(false) => Ok(()),
-            Err(error) => Err(error),
-        }
-    }
-}
-
-async fn cancelled(mut control: tokio::sync::watch::Receiver<crate::engine::RunControl>) {
-    loop {
-        let current = *control.borrow_and_update();
-        if current.paused || current.stop || control.changed().await.is_err() {
-            return;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::cancelled;
-    use crate::engine::RunControl;
-    use tokio::sync::watch;
-
-    #[tokio::test]
-    async fn rescan_does_not_cancel_inflight_work_but_pause_does() {
-        let (commands, control) = watch::channel(RunControl::default());
-        let pending = tokio::spawn(cancelled(control));
-        commands.send_modify(|current| current.reconcile += 1);
-        tokio::task::yield_now().await;
-        assert!(!pending.is_finished());
-        commands.send_modify(|current| current.paused = true);
-        tokio::time::timeout(std::time::Duration::from_secs(1), pending)
-            .await
-            .unwrap()
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn stop_cancels_inflight_work() {
-        let (commands, control) = watch::channel(RunControl::default());
-        let pending = tokio::spawn(cancelled(control));
-        commands.send_modify(|current| current.stop = true);
-        tokio::time::timeout(std::time::Duration::from_secs(1), pending)
-            .await
-            .unwrap()
-            .unwrap();
     }
 }

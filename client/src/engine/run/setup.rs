@@ -40,6 +40,7 @@ impl PassState {
         )
         .await?;
         let latest = engine.settings.load()?;
+        context.cache.selections(&self.seen, &latest.selections);
         for selection in &latest.selections {
             if !self.seen.contains(selection) {
                 if selection.active {

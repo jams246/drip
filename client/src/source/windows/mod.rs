@@ -5,6 +5,7 @@ mod root;
 mod scan;
 
 pub use error::SourceError;
+pub(crate) use file::Observation;
 pub use file::SourceFile;
 pub(crate) use native::is_application_data_name;
 pub(crate) use native::{random_id, same_path};

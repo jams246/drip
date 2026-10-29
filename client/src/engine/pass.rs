@@ -1,5 +1,6 @@
 mod deletion;
 mod entries;
+mod file;
 mod upload_events;
 
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ use super::{
 };
 
 pub(super) struct PassContext<'a> {
+    pub cache: &'a super::cache::FileCache,
     pub store: &'a SettingsStore,
     pub transport: &'a HttpTransport,
     pub pairing: &'a Pairing,
@@ -46,6 +48,9 @@ impl PassContext<'_> {
         .await?;
         self.check(active, saved)?;
         let scan = scan_root(saved, self.store.directory())?;
+        if scan.complete {
+            self.cache.scanned(&saved.id, &scan.entries);
+        }
         let remote =
             mirror_api::inventory(self.transport, self.pairing.credential(), active).await?;
         let remote: HashMap<_, _> = remote

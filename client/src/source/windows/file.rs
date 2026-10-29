@@ -82,6 +82,10 @@ impl SourceFile {
         &self.volume_identity
     }
 
+    pub(crate) fn observation(&self) -> Observation {
+        self.initial
+    }
+
     /// Hashes the opened file using bounded memory and restores its position.
     pub async fn hash(
         &self,
@@ -174,12 +178,12 @@ impl SourceFile {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Observation {
-    volume: u64,
-    file_id: [u8; 16],
-    size: u64,
-    last_write: Timestamp,
-    change_time: i64,
+pub(crate) struct Observation {
+    pub(crate) volume: u64,
+    pub(crate) file_id: [u8; 16],
+    pub(crate) size: u64,
+    pub(crate) last_write: Timestamp,
+    pub(crate) change_time: i64,
 }
 
 impl HandleInfo {

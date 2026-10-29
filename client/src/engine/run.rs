@@ -1,15 +1,11 @@
+mod locking;
 mod passes;
 mod setup;
 
 #[cfg(test)]
 mod tests;
 
-use std::{
-    fs::{File, OpenOptions},
-    os::windows::fs::OpenOptionsExt,
-    sync::Arc,
-    time::Instant,
-};
+use std::{sync::Arc, time::Instant};
 
 use tokio::sync::watch;
 
@@ -21,6 +17,7 @@ use super::{
     watcher::DirtySignal,
 };
 use crate::{source::random_id, transport::HttpTransport};
+use locking::{pristine_stop, worker_lock};
 
 /// Desired worker controls. Paused is acknowledged only by a lifecycle barrier event.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -55,6 +52,8 @@ impl Engine {
         );
         let mut connection = events.subscribe_status();
         let signal = DirtySignal::default();
+        let cache = super::cache::FileCache::default();
+        let mut force_hash = true;
         let mut state = setup::PassState::default();
         let mut schedule = Schedule::new(Instant::now());
         let mut barrier = true;
@@ -68,6 +67,7 @@ impl Engine {
             let desired = *control.borrow_and_update();
             if desired.reconcile != reconciled_request {
                 reconciled_request = desired.reconcile;
+                force_hash = true;
                 schedule.force(Instant::now());
             }
             if desired.refresh_selections != refreshed_request {
@@ -156,6 +156,7 @@ impl Engine {
             }
             if paused {
                 paused = false;
+                force_hash = true;
                 barrier = true;
                 schedule.force(Instant::now());
                 events
@@ -179,9 +180,10 @@ impl Engine {
                 }
                 _ = tokio::time::sleep_until(due) => {
                     let all = schedule.begin(Instant::now());
-                    let context = super::pass::PassContext { store: &self.settings,
+                    let context = super::pass::PassContext { cache: &cache, store: &self.settings,
                         transport: &transport, pairing: &pairing, events: &events, signal: &signal, control: &control };
-                    let result = self.continuous_pass(&context, &mut state, barrier, all).await;
+                    let result = self.continuous_pass(&context, &mut state, barrier, all, force_hash).await;
+                    if result.is_ok() { force_hash = false; }
                     if let Err(error) = &result { reachability.observe_error(error); }
                     match result {
                         Ok(true) => {
@@ -190,6 +192,10 @@ impl Engine {
                             if signal.pending() { schedule.hint(Instant::now()); }
                         }
                         Err(EngineError::Cancelled) => continue,
+                        Err(EngineError::SelectionChanged) => {
+                            barrier = true;
+                            schedule.retry(Instant::now());
+                        }
                         Err(error) if auth_failure(&error) => {
                             events.emit(EventKind::Error, None, None, "authentication", "registration rejected; repair pairing before retrying").await?;
                             return Err(error);
@@ -215,32 +221,4 @@ impl Engine {
             }
         }
     }
-}
-
-fn worker_lock(directory: &std::path::Path) -> Result<File, EngineError> {
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .share_mode(0)
-        .open(directory.join("drip.run.lock"))
-        .map_err(|error| {
-            std::io::Error::new(
-                error.kind(),
-                format!(
-                    "another sync worker may be running, or drip.run.lock is inaccessible: {error}"
-                ),
-            )
-        })
-        .map_err(EngineError::Io)
-}
-
-fn pristine_stop(
-    store: &crate::settings::SettingsStore,
-    control: &watch::Receiver<RunControl>,
-    closed: bool,
-) -> bool {
-    let stopping = control.borrow().stop || closed;
-    stopping && store.pristine_shutdown_state().unwrap_or(false)
 }
