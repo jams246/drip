@@ -6,6 +6,7 @@ use crate::gui::{focus, input::Input, model::Shell, theme};
 pub(in crate::gui::views) enum ButtonKind {
     Primary,
     Secondary,
+    Danger,
 }
 
 pub(in crate::gui::views) fn button(
@@ -20,7 +21,11 @@ pub(in crate::gui::views) fn button(
     let id = id.into();
     let label = label.into();
 
-    let primary = matches!(kind, ButtonKind::Primary);
+    let (border, background, text, hover) = match kind {
+        ButtonKind::Primary => (theme::ACCENT, theme::ACCENT, theme::PAGE, 0xb5c6f7),
+        ButtonKind::Secondary => (theme::BORDER, theme::PANEL, theme::TEXT, 0x282c34),
+        ButtonKind::Danger => (theme::ERROR, theme::ERROR, theme::PAGE, 0xf5c2c2),
+    };
     let focus = focus::handle(&id, enabled, window, cx);
     let button = focus::reveal(div(), &id, focus.clone(), window, cx)
         .track_focus(&focus)
@@ -34,15 +39,11 @@ pub(in crate::gui::views) fn button(
         .px_4()
         .rounded(px(6.))
         .border_1()
-        .border_color(rgb(if primary {
-            theme::ACCENT
-        } else {
-            theme::BORDER
-        }))
-        .bg(rgb(if primary { theme::ACCENT } else { theme::PANEL }))
-        .text_color(rgb(if primary { theme::PAGE } else { theme::TEXT }))
+        .border_color(rgb(border))
+        .bg(rgb(background))
+        .text_color(rgb(text))
         .focus(|style| style.border_color(rgb(theme::TEXT)))
-        .hover(|style| style.bg(rgb(if primary { 0xb5c6f7 } else { 0x282c34 })))
+        .hover(move |style| style.bg(rgb(hover)))
         .child(label);
     if enabled {
         button.on_click(cx.listener(on_click)).cursor_pointer()

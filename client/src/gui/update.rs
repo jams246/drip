@@ -121,9 +121,9 @@ impl Shell {
                     self.state.connecting = false;
                 }
                 if settings {
-                    self.state.settings_feedback = Some(feedback);
+                    self.state.settings_feedback = feedback;
                 } else {
-                    self.state.watch_feedback = Some(feedback);
+                    self.state.watch_feedback = feedback;
                 }
             }
             Event::Diagnostic(feedback) => self.state.diagnostic = Some(feedback),

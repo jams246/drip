@@ -46,7 +46,7 @@ pub(super) enum Event {
     Paired(Binding),
     Message {
         settings: bool,
-        feedback: Feedback,
+        feedback: Option<Feedback>,
         busy: bool,
     },
     Diagnostic(Feedback),

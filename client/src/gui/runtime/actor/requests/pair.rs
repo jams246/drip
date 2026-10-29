@@ -19,11 +19,11 @@ impl RequestHandler<'_> {
                 .events
                 .send(Event::Message {
                     settings: true,
-                    feedback: feedback::action(
+                    feedback: Some(feedback::action(
                         "Connecting... Waiting for the existing connection to stop safely.",
                         FeedbackSeverity::Info,
                         None,
-                    ),
+                    )),
                     busy: true,
                 })
                 .await;
@@ -53,11 +53,11 @@ impl RequestHandler<'_> {
                         .send(Event::Message {
                             settings: true,
                             busy: false,
-                            feedback: feedback::action(
+                            feedback: Some(feedback::action(
                                 "Connected. Computer name could not be saved.",
                                 FeedbackSeverity::Warning,
                                 Some(detail),
-                            ),
+                            )),
                         })
                         .await;
                 }
@@ -67,7 +67,7 @@ impl RequestHandler<'_> {
                     .events
                     .send(Event::Message {
                         settings: true,
-                        feedback: feedback::pairing(&error),
+                        feedback: Some(feedback::pairing(&error)),
                         busy: false,
                     })
                     .await;

@@ -69,7 +69,7 @@ pub(super) fn render(
                 window,
                 format!("watch-remove-{}", selection.id),
                 "Remove",
-                ButtonKind::Secondary,
+                ButtonKind::Danger,
                 enabled,
                 move |shell, _, window, cx| shell.remove(path.clone(), window, cx),
             )),

@@ -94,21 +94,19 @@ impl RequestHandler<'_> {
             .events
             .send(Event::Message {
                 settings: false,
-                feedback: message,
+                feedback: Some(message),
                 busy: false,
             })
             .await;
     }
 
     async fn remove(&mut self, path: std::path::PathBuf) {
-        let message = match self.engine.remove(&path).await {
-            Ok(()) => feedback::action(
-                "Stopped watching. Your server copy is kept.",
-                FeedbackSeverity::Success,
-                Some("Server confirmed the selection change.".into()),
-            ),
-            Err(error) => feedback::remove_selection(&error),
-        };
+        let message = self
+            .engine
+            .remove(&path)
+            .await
+            .err()
+            .map(|error| feedback::remove_selection(&error));
         self.reload().await;
         self.refresh_selections();
         let _ = self
@@ -140,7 +138,7 @@ impl RequestHandler<'_> {
             .events
             .send(Event::Message {
                 settings: true,
-                feedback: message,
+                feedback: Some(message),
                 busy: false,
             })
             .await;
