@@ -7,11 +7,15 @@ use super::components::{self, ButtonKind};
 use super::theme;
 
 pub(super) fn render(
-    shell: &Shell,
+    shell: &mut Shell,
     window: &mut Window,
     cx: &mut Context<Shell>,
 ) -> impl IntoElement {
     let enabled = !shell.state.loading && !shell.state.busy && !shell.state.quitting;
+    if std::mem::take(&mut shell.restore_watch_focus) {
+        let focus = crate::gui::focus::handle("watch-add-folder", enabled, window, cx);
+        window.focus(&focus, cx);
+    }
     let mut page = div()
         .id("drip-watch")
         .w_full()

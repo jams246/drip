@@ -91,7 +91,16 @@ impl Shell {
         .detach();
     }
 
-    pub(super) fn remove(&mut self, path: PathBuf, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn remove(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.busy || self.state.loading || self.state.quitting {
+            return;
+        }
+        self.pending_removal_focus = window.focused(cx).and_then(|focus| {
+            self.state
+                .active_selections()
+                .find(|item| item.source.to_windows_path() == path)
+                .map(|item| (item.id.clone(), focus))
+        });
         self.request(Request::Remove(path), false, false, cx);
     }
 

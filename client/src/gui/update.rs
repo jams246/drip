@@ -84,25 +84,15 @@ impl Shell {
                 .progress(generation, progress.map(|progress| *progress)),
             Event::Activity(row) => self.state.activity(*row),
             Event::Settings(settings) => {
-                let removed_focus = self.tab == Tab::Watch
-                    && self.state.active_selections().any(|selection| {
-                        !settings
+                if let Some((id, focus)) = self.pending_removal_focus.take() {
+                    self.restore_watch_focus = self.tab == Tab::Watch
+                        && focus.is_focused(window)
+                        && !settings
                             .selections
                             .iter()
-                            .any(|next| next.id == selection.id && next.active)
-                            && super::focus::handle(
-                                &format!("watch-remove-{}", selection.id),
-                                false,
-                                window,
-                                cx,
-                            )
-                            .is_focused(window)
-                    });
-                self.state.settings = settings;
-                if removed_focus {
-                    let focus = super::focus::handle("watch-add-folder", true, window, cx);
-                    window.focus(&focus, cx);
+                            .any(|item| item.id == id && item.active);
                 }
+                self.state.settings = settings;
             }
             Event::Paired(binding) => {
                 self.server
