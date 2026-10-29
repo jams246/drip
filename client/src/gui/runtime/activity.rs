@@ -91,4 +91,31 @@ mod tests {
         assert!(offset.starts_with(['+', '-']));
         assert_eq!(&offset[3..4], ":");
     }
+
+    #[tokio::test]
+    async fn worker_selection_changes_refresh_visible_watches_before_activity() {
+        let engine = Arc::new(drip_client::Engine::beside_executable().unwrap());
+        let expected = engine.status().unwrap();
+        let (sender, receiver) = mpsc::channel(1);
+        let (events, mut received) = mpsc::channel(2);
+        sender
+            .send(LifecycleEvent {
+                timestamp: drip_core::Timestamp::new(1, 0).unwrap(),
+                kind: EventKind::SelectionChanged,
+                selection_id: Some("deleted-root".into()),
+                source_path: None,
+                operation_id: "root-deletion".into(),
+                message: "source deletion confirmed on server; watch removed".into(),
+                progress: None,
+            })
+            .await
+            .unwrap();
+        drop(sender);
+        forward(receiver, 1, events, engine).await;
+        let Event::Settings(settings) = received.recv().await.unwrap() else {
+            panic!("selection change did not refresh settings");
+        };
+        assert_eq!(settings, expected);
+        assert!(matches!(received.recv().await, Some(Event::Activity(_))));
+    }
 }
