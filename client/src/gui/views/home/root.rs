@@ -2,7 +2,7 @@ mod status;
 
 use std::time::Instant;
 
-use drip_client::{RootStatus, SelectionProgress};
+use drip_client::RootStatus;
 use gpui::{Context, IntoElement, Window, div, prelude::*, px, rgb};
 
 use crate::gui::{
@@ -11,14 +11,10 @@ use crate::gui::{
     views::components::{self, Glyph},
 };
 
-pub(super) use status::visible_progress;
-
 pub(super) fn card(
     shell: &Shell,
     selection: &drip_client::settings::SavedSelection,
     root_status: Option<&RootStatus>,
-    current: Option<&SelectionProgress>,
-    progress_view: impl IntoElement,
     window: &mut Window,
     cx: &mut Context<Shell>,
 ) -> impl IntoElement {
@@ -36,8 +32,6 @@ pub(super) fn card(
         shell.control.borrow().paused,
         shell.state.quitting,
         root_status,
-        current,
-        shell.state.last_file.get(&selection.id),
     );
 
     let (glyph, color) = status::icon(label);
@@ -86,20 +80,10 @@ pub(super) fn card(
                     .child(label),
             ),
     );
-    if let Some(current) = current {
-        let current_path = current.file.source_path.to_windows_path();
-        card = card.child(
-            div()
-                .id(format!("home-current-file-{}", selection.id))
-                .text_sm()
-                .pt_2()
-                .child(format!(
-                    "Current file: {}",
-                    components::breakable_path(&current_path)
-                )),
-        );
-        card = card.child(progress_view);
-    }
+    card = card.child(super::progress::render(
+        &selection.id,
+        label == "Processing",
+    ));
     if matches!(label, "Needs attention" | "File or folder unavailable") {
         card = card.child(components::activity_link(
             cx,

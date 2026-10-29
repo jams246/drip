@@ -5,8 +5,6 @@ mod logs;
 mod settings;
 mod watch;
 
-pub(super) use home::progress::ProgressView;
-
 use std::time::Instant;
 
 use gpui::{Context, Render, Window, div, prelude::*, px, relative, rgb};

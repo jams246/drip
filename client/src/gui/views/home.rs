@@ -1,8 +1,6 @@
 pub(super) mod progress;
 mod root;
 
-use std::time::Instant;
-
 use gpui::{Context, Window, div, prelude::*, rgb};
 
 use super::super::{
@@ -23,9 +21,6 @@ pub(super) fn render(
         .iter()
         .filter(|item| item.active)
         .collect();
-    shell
-        .progress_views
-        .retain(|id, _| active.iter().any(|selection| selection.id == *id));
     let mut page = div()
         .id("drip-home")
         .w_full()
@@ -53,32 +48,7 @@ pub(super) fn render(
             .roots
             .iter()
             .find(|root| root.selection_id == selection.id);
-        let progress = shell.state.progress.as_ref();
-        let current = progress.filter(|_| {
-            root::visible_progress(
-                shell.state.connection_at(Instant::now()),
-                shell.control.borrow().paused,
-                shell.state.quitting,
-                progress,
-                &selection.id,
-                status,
-            )
-        });
-        let progress_view = shell
-            .progress_views
-            .entry(selection.id.clone())
-            .or_insert_with(|| cx.new(|_| progress::ProgressView::default()))
-            .clone();
-        progress_view.update(cx, |view, cx| view.set_progress(current.cloned(), cx));
-        page = page.child(root::card(
-            shell,
-            selection,
-            status,
-            current,
-            progress_view,
-            window,
-            cx,
-        ));
+        page = page.child(root::card(shell, selection, status, window, cx));
     }
     if !has_rows {
         page = page.child(
