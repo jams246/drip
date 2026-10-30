@@ -80,6 +80,22 @@ fn matching_labels_get_distinct_mirror_directories() {
     assert_ne!(first.mirror_directory, second.mirror_directory);
 }
 
+#[test]
+fn invalid_enrollment_does_not_wait_for_the_writer_lock() {
+    let fixture = Fixture::new();
+    let mut connection =
+        rusqlite::Connection::open(fixture._root.join("state/drip.sqlite3")).unwrap();
+    let _writer = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    for token in ["malformed".to_owned(), "0".repeat(64)] {
+        assert!(matches!(
+            fixture.store.enroll(request(token, "Rejected")),
+            Err(StoreError::InvalidCredential)
+        ));
+    }
+}
+
 fn enroll(fixture: &Fixture, label: &str) -> drip_core::protocol::EnrollmentResponse {
     let token = fixture.store.create_enrollment_token().unwrap();
     fixture.store.enroll(request(token, label)).unwrap()

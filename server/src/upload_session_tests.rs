@@ -77,6 +77,33 @@ fn daemon_startup_cleans_only_staging_and_store_open_does_not() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn terminal_history_is_bounded_without_evicting_active_sessions() {
+    let root = test_root("history");
+    let mirror = Arc::new(Dir::open_ambient_dir(&root, ambient_authority()).unwrap());
+    let sessions = UploadSessions::new(mirror);
+    let mut active = session("active", 1, 100, String::new());
+    active.pc_id = "active-device".to_owned();
+    sessions.reserve(active).unwrap();
+    for index in 0..1024 {
+        let mut terminal = session(&format!("{index:032x}"), 1, 100, String::new());
+        terminal.state = UploadState::Committed;
+        sessions.reserve(terminal).unwrap();
+    }
+    assert!(matches!(
+        sessions.get(&format!("{:032x}", 0), "device", 100),
+        Err(crate::StoreError::NotFound)
+    ));
+    assert!(sessions.get("active", "active-device", 100).is_ok());
+    assert!(
+        sessions
+            .get(&format!("{:032x}", 1023), "device", 100)
+            .is_ok()
+    );
+    drop(sessions);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn session(id: &str, generation: u64, now: i64, stage_name: String) -> UploadSession {
     UploadSession {
         id: id.to_owned(),

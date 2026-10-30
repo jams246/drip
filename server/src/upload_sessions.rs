@@ -10,6 +10,7 @@ use drip_core::{Blake3Digest, SourcePath, Timestamp};
 use crate::{StoreError, StoreResult};
 
 const MAX_ACTIVE: usize = 8;
+const MAX_RETAINED: usize = 1024;
 const SESSION_TTL: i64 = 30 * 60;
 
 pub(crate) struct UploadSessions {
@@ -112,6 +113,18 @@ impl UploadSessions {
             } else if sessions.contains_key(&session.id) {
                 Err(StoreError::Conflict)
             } else {
+                if sessions.len() >= MAX_RETAINED {
+                    let oldest = sessions
+                        .iter()
+                        .filter_map(|(id, current)| {
+                            let current = lock(current);
+                            (current.state != UploadState::Active)
+                                .then(|| (current.last_progress, id.clone()))
+                        })
+                        .min()
+                        .ok_or(StoreError::CapacityExhausted)?;
+                    sessions.remove(&oldest.1);
+                }
                 sessions.insert(session.id.clone(), Arc::new(Mutex::new(session)));
                 Ok(())
             }

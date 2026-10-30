@@ -109,6 +109,36 @@ fn selection_noop_still_advances_generation() {
     assert_eq!(result.generation, 1);
 }
 
+#[test]
+fn retained_selections_cannot_exceed_the_aggregate_budget() {
+    let fixture = Fixture::new();
+    let device = enroll(&fixture, "Selection budget");
+    let credential = device.device_credential.expose_secret();
+    let first = selection("a", &"a".repeat(140 * 1024), false);
+    fixture
+        .store
+        .update_selections(
+            credential,
+            SelectionUpdate {
+                expected_generation: 0,
+                selections: vec![first],
+            },
+        )
+        .unwrap();
+    let before = fixture.store.get_selections(credential).unwrap();
+    assert!(matches!(
+        fixture.store.update_selections(
+            credential,
+            SelectionUpdate {
+                expected_generation: 1,
+                selections: vec![selection("b", &"b".repeat(140 * 1024), false)],
+            }
+        ),
+        Err(StoreError::InvalidInput)
+    ));
+    assert_eq!(fixture.store.get_selections(credential).unwrap(), before);
+}
+
 fn selection(id: &str, name: &str, active: bool) -> Selection {
     Selection {
         id: format!("{}{}", "a".repeat(32 - id.len()), id),

@@ -157,6 +157,19 @@ fn apply_selection_update(
 }
 
 fn validate_selections(selections: &[Selection]) -> StoreResult<()> {
+    #[derive(serde::Serialize)]
+    struct BoundedSelectionSet<'a> {
+        generation: u64,
+        selections: &'a [Selection],
+    }
+    let encoded = serde_json::to_vec(&BoundedSelectionSet {
+        generation: u64::MAX,
+        selections,
+    })
+    .map_err(StoreError::Serialization)?;
+    if encoded.len() > 256 * 1024 {
+        return Err(StoreError::InvalidInput);
+    }
     let mut active_count = 0;
     for (index, selection) in selections.iter().enumerate() {
         if !auth::is_lower_hex(&selection.id, 32) {

@@ -35,14 +35,14 @@ impl Store {
     /// Atomically consumes a token, registers its device, and creates the isolated mirror directory.
     pub fn enroll(&self, request: EnrollmentRequest) -> StoreResult<EnrollmentResponse> {
         let token = request.token.expose_secret();
+        if !crate::auth::is_lower_hex(token, 64) {
+            return Err(StoreError::InvalidCredential);
+        }
         let label = validate_label(&request.label)?;
         let token_digest = blake3::hash(token.as_bytes()).to_hex().to_string();
         let mut connection = self.connect()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database::sql_error)?;
         let now = self.now()?;
-        let token_state = transaction
+        let token_state = connection
             .query_row(
                 "SELECT expires_at, consumed_at FROM enrollment_tokens WHERE digest = ?1",
                 [&token_digest],
@@ -56,6 +56,10 @@ impl Store {
         if consumed_at.is_some() || now >= expires_at {
             return Err(StoreError::InvalidCredential);
         }
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database::sql_error)?;
+        let now = self.now()?;
         let consumed = transaction
             .execute(
                 "UPDATE enrollment_tokens SET consumed_at = ?1 \
