@@ -9,15 +9,15 @@ license.workspace = true
 name = "drip_server"
 
 [dependencies]
-anyhow = "=1.0.103"
-axum = { version = "=0.8.8", default-features = false, features = ["http1", "json", "tokio"] }
-cap-std = "=3.4.5"
-cap-fs-ext = "=3.4.5"
+anyhow = "=1.0.104"
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
+cap-std = "=4.0.3"
+cap-fs-ext = "=4.0.3"
 blake3.workspace = true
 clap.workspace = true
 drip_core = { package = "core", path = "../core" }
-getrandom = "=0.3.4"
-rusqlite = { version = "=0.37.0", features = ["bundled"] }
+getrandom = "=0.4.3"
+rusqlite = { version = "=0.41.1", features = ["bundled"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

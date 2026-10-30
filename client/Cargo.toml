@@ -31,11 +31,11 @@ url = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 chrono = "=0.4.45"
-gpui = { git = "https://github.com/zed-industries/zed", rev = "37faef81f74fc1bb08be9939c4cffc8ede6ced2f", default-features = false }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "37faef81f74fc1bb08be9939c4cffc8ede6ced2f", default-features = false }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "14b7b0ef3764d62a85070c8b5ccea105a2ad3235", default-features = false }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "14b7b0ef3764d62a85070c8b5ccea105a2ad3235", default-features = false }
 notify = "=8.2.1"
 raw-window-handle = "=0.6.2"
-rusqlite = { version = "=0.37.0", features = ["bundled"] }
+rusqlite = { version = "=0.41.1", features = ["bundled"] }
 tray-icon = { version = "=0.26.1", default-features = false }
 unicode-segmentation = "=1.13.3"
 windows = { workspace = true, features = [
