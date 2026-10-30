@@ -49,3 +49,20 @@ async fn malformed_json_returns_a_safe_error_without_body_contents() {
     assert!(matches!(error, EngineError::ResponseJson(_)));
     assert!(!error.to_string().contains("private-sentinel"));
 }
+
+#[test]
+fn api_error_messages_are_sanitized_and_bounded() {
+    let message = format!("bad\u{202E}{}", "x".repeat(10_000));
+    let body = serde_json::to_vec(&drip_core::protocol::ApiError {
+        code: drip_core::protocol::ApiErrorCode::InvalidInput,
+        message,
+        retryable: false,
+    })
+    .unwrap();
+    let EngineError::Api { message, .. } = api_error(StatusCode::BAD_REQUEST, body) else {
+        panic!("expected an API error");
+    };
+    assert!(message.chars().count() <= MESSAGE_LIMIT);
+    assert!(!message.contains('\u{202E}'));
+    assert!(message.starts_with("badx"));
+}
