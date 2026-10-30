@@ -45,7 +45,12 @@ fn walk_open_directory(
             return Ok(());
         }
     };
-    for entry in entries {
+    for (index, entry) in entries.enumerate() {
+        let depth = source_path
+            .components()
+            .len()
+            .saturating_sub(selection.source.components().len());
+        scan.budget.visit(depth + 1, index.saturating_add(1))?;
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
@@ -80,7 +85,7 @@ fn walk_open_directory(
         };
         let reparse = metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0;
         if same_path(source_path, &app_dir.source) && native::is_application_data_name(&name) {
-            scan.protected_paths.push(child_source);
+            scan.protect(child_source);
             continue;
         }
         if reparse {
@@ -97,7 +102,7 @@ fn walk_open_directory(
                         scan.issue(Some(child_source), error.to_string());
                         continue;
                     }
-                    scan.entries.push(ScannedEntry {
+                    scan.entry(ScannedEntry {
                         source_path: child_source.clone(),
                         local_path: child_path.clone(),
                         kind: EntryKind::Directory,
@@ -112,6 +117,9 @@ fn walk_open_directory(
                         child,
                         scan,
                     ) {
+                        if matches!(error, SourceError::ScanLimit) {
+                            return Err(error);
+                        }
                         scan.issue(Some(child_source), error.to_string());
                     }
                 }
@@ -129,7 +137,7 @@ fn walk_open_directory(
     if directory_observation(&directory)? != before {
         scan.issue(Some(source_path.clone()), "directory changed during scan");
     }
-    Ok(())
+    scan.budget.check()
 }
 
 fn scan_file(
@@ -146,7 +154,7 @@ fn scan_file(
                     "opened file resolved to a different source path",
                 );
             } else {
-                scan.entries.push(ScannedEntry {
+                scan.entry(ScannedEntry {
                     source_path: source_path.clone(),
                     local_path: path.to_owned(),
                     kind: EntryKind::File,

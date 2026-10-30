@@ -1,3 +1,4 @@
+mod budget;
 mod walk;
 
 use std::path::{Path, PathBuf};
@@ -36,6 +37,7 @@ pub struct SourceScan {
     pub entries: Vec<ScannedEntry>,
     pub issues: Vec<ScanIssue>,
     pub protected_paths: Vec<SourcePath>,
+    budget: budget::ScanBudget,
 }
 
 /// Scans a selected file or directory without traversing reparse points.
@@ -56,6 +58,7 @@ pub fn scan_root(selection: &SavedSelection, exe_dir: &Path) -> Result<SourceSca
         entries: Vec::new(),
         issues: Vec::new(),
         protected_paths: Vec::new(),
+        budget: budget::ScanBudget::default(),
     };
     if current.kind != selection.root_kind {
         scan.issue(
@@ -70,7 +73,7 @@ pub fn scan_root(selection: &SavedSelection, exe_dir: &Path) -> Result<SourceSca
             scan_file(selection, &root_path, &selection.source, &mut scan)?;
         }
         EntryKind::Directory => {
-            scan.entries.push(ScannedEntry {
+            scan.entry(ScannedEntry {
                 source_path: selection.source.clone(),
                 local_path: root_path.clone(),
                 kind: EntryKind::Directory,
@@ -94,6 +97,7 @@ pub fn scan_root(selection: &SavedSelection, exe_dir: &Path) -> Result<SourceSca
         ),
         Err(error) => scan.issue(Some(selection.source.clone()), error.to_string()),
     }
+    scan.budget.check()?;
     Ok(scan)
 }
 
@@ -111,7 +115,7 @@ fn scan_file(
                     "opened file resolved to a different source path",
                 );
             } else {
-                scan.entries.push(ScannedEntry {
+                scan.entry(ScannedEntry {
                     source_path: source_path.clone(),
                     local_path: path.to_owned(),
                     kind: EntryKind::File,
@@ -136,9 +140,38 @@ fn same_root(selection: &SavedSelection, current: &SourceRoot) -> bool {
 impl SourceScan {
     pub(super) fn issue(&mut self, path: Option<SourcePath>, message: impl Into<String>) {
         self.complete = false;
+        let message = message.into();
+        let bytes = std::mem::size_of::<ScanIssue>() * 2
+            + message.capacity()
+            + path.as_ref().map_or(0, budget::path_bytes);
+        if !self.budget.reserve(bytes) {
+            return;
+        }
         self.issues.push(ScanIssue {
             source_path: path,
-            message: message.into(),
+            message,
         });
+    }
+
+    pub(super) fn entry(&mut self, entry: ScannedEntry) {
+        let bytes = std::mem::size_of::<ScannedEntry>() * 2
+            + budget::path_bytes(&entry.source_path)
+            + entry.local_path.as_os_str().len() * 2;
+        if self.budget.reserve(bytes) {
+            self.entries.push(entry);
+        } else {
+            self.complete = false;
+        }
+    }
+
+    pub(super) fn protect(&mut self, path: SourcePath) {
+        if self
+            .budget
+            .reserve(budget::path_bytes(&path) + std::mem::size_of::<SourcePath>() * 2)
+        {
+            self.protected_paths.push(path);
+        } else {
+            self.complete = false;
+        }
     }
 }

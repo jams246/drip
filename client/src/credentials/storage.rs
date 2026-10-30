@@ -26,6 +26,11 @@ pub(super) fn replace_with(
     ciphertext: &[u8],
     mut checkpoint: impl FnMut(Stage),
 ) -> Result<(), CredentialError> {
+    if ciphertext.len() > 64 * 1024 {
+        return Err(CredentialError::InvalidPairing(
+            "credentials exceed the 64 KiB size limit",
+        ));
+    }
     let _parents = crate::private_file::parents(path)
         .map_err(|source| path_error("inspect directory", path, source))?;
     let temporary = write_temporary(path, ciphertext)?;

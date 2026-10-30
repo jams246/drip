@@ -15,6 +15,8 @@ pub enum SourceError {
     CaseSensitiveDirectory(PathBuf),
     #[error("Drip application data cannot be uploaded")]
     ExcludedApplicationData,
+    #[error("source scan exceeds its safety limits; reduce the selected tree")]
+    ScanLimit,
     #[error("source path resolves through a different path")]
     PathResolution,
     #[error("source file changed during upload")]
