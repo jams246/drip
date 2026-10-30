@@ -76,6 +76,8 @@ pub enum InstanceError {
     Windows(#[source] windows::core::Error),
     #[error("Windows named pipe failed: {0}")]
     Pipe(#[source] io::Error),
+    #[error("app directory must be private to the current Windows account: {0}")]
+    UnsafeDirectory(#[source] io::Error),
 }
 
 /// Acquires the engine mutex or asks an existing GUI instance to open.
@@ -84,6 +86,12 @@ pub async fn acquire(
     mode: InstanceMode,
 ) -> Result<InstanceAcquire, InstanceError> {
     let key = identity::instance_key(directory)?;
+    // The directory holds credentials, settings and the executable; refuse to run if any of
+    // them can be read or replaced by another local account.
+    crate::credentials::acl::secure_directory(directory).map_err(InstanceError::UnsafeDirectory)?;
+    let executable = std::env::current_exe().map_err(InstanceError::UnsafeDirectory)?;
+    crate::credentials::acl::secure_executable(&executable)
+        .map_err(InstanceError::UnsafeDirectory)?;
     let name: Vec<u16> = key.mutex_name.encode_utf16().chain(Some(0)).collect();
     // SAFETY: `name` is a live, NUL-terminated Windows object name.
     let mutex = unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) }

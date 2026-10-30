@@ -3,10 +3,19 @@
     reason = "Windows ACL APIs require audited pointer boundaries"
 )]
 
-use std::{fs::File, io, os::windows::io::AsRawHandle, path::Path, ptr};
+use std::{
+    fs::{File, OpenOptions},
+    io,
+    os::windows::{
+        fs::{MetadataExt, OpenOptionsExt},
+        io::AsRawHandle,
+    },
+    path::Path,
+    ptr,
+};
 
 use windows::Win32::{
-    Foundation::{HANDLE, HLOCAL, LocalFree},
+    Foundation::{GENERIC_READ, HANDLE, HLOCAL, LocalFree},
     Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
         GetSecurityInfo, SDDL_REVISION_1, SE_FILE_OBJECT, SetSecurityInfo,
@@ -16,6 +25,10 @@ use windows::Win32::{
         OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
         PSID, SE_DACL_PROTECTED,
     },
+    Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, WRITE_DAC,
+    },
 };
 use windows::core::{BOOL, PCWSTR, PWSTR};
 
@@ -24,10 +37,57 @@ pub(crate) fn secure_file(path: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn secure_handle(file: &File) -> io::Result<()> {
+    apply_private_dacl(file, "D:P(A;;FA;;;OW)(A;;FA;;;SY)(A;;FA;;;BA)")
+}
+
+/// Restricts the app directory itself to the current user, SYSTEM and Administrators.
+pub(crate) fn secure_directory(path: &Path) -> io::Result<()> {
+    let directory = open_unaliased(path, FILE_FLAG_BACKUP_SEMANTICS.0)?;
+    if !directory.metadata()?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "app directory is not a real directory",
+        ));
+    }
+    let user = crate::windows_integration::current_user_sid()?;
+    // SetSecurityInfo rewrites inherited ACEs on existing children, so the entries must be
+    // inheritable or every unprotected file in the directory ends up with an empty DACL.
+    let sddl = format!("D:P(A;OICI;FA;;;{user})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
+    apply_private_dacl(&directory, &sddl)
+}
+
+/// Protects the running executable. Unlike private state, hard links are allowed because cargo
+/// links `target/debug/drip.exe` to its `deps/` artifact and links share one security descriptor.
+pub(crate) fn secure_executable(path: &Path) -> io::Result<()> {
+    let file = open_unaliased(path, 0)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "executable is not a regular file",
+        ));
+    }
+    secure_handle(&file)
+}
+
+fn open_unaliased(path: &Path, flags: u32) -> io::Result<File> {
+    let file = OpenOptions::new()
+        .read(true)
+        .access_mode(GENERIC_READ.0 | WRITE_DAC.0)
+        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
+        .custom_flags(flags | FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)?;
+    if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private path is a reparse point",
+        ));
+    }
+    Ok(file)
+}
+
+fn apply_private_dacl(file: &File, sddl: &str) -> io::Result<()> {
     validate_owner(file)?;
-    let sddl: Vec<u16> = "D:P(A;;FA;;;OW)(A;;FA;;;SY)(A;;FA;;;BA)\0"
-        .encode_utf16()
-        .collect();
+    let sddl: Vec<u16> = sddl.encode_utf16().chain(Some(0)).collect();
     let mut descriptor = SecurityDescriptor(PSECURITY_DESCRIPTOR(ptr::null_mut()));
     // SAFETY: the SDDL string is NUL terminated and the output pointer is writable.
     unsafe {
@@ -162,12 +222,4 @@ impl Drop for SecurityDescriptor {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn private_state_accepts_only_current_user_and_system_administration_owners() {
-        for owner in ["S-1-5-21-1", "S-1-5-18", "S-1-5-32-544"] {
-            assert!(super::trusted_owner(owner, "S-1-5-21-1"));
-        }
-        assert!(!super::trusted_owner("S-1-5-21-2", "S-1-5-21-1"));
-    }
-}
+mod tests;
