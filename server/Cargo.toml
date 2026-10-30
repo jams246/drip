@@ -9,7 +9,7 @@ license.workspace = true
 name = "drip_server"
 
 [dependencies]
-anyhow = "=1.0.100"
+anyhow = "=1.0.103"
 axum = { version = "=0.8.8", default-features = false, features = ["http1", "json", "tokio"] }
 cap-std = "=3.4.5"
 cap-fs-ext = "=3.4.5"
@@ -25,10 +25,11 @@ tokio.workspace = true
 http-body-util = "=0.1.5"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-rustix = { version = "=1.1.6", features = ["fs"] }
+rustix = { version = "=1.1.6", features = ["fs", "process"] }
 
 [dev-dependencies]
 futures-util.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 tower = { version = "=0.5.3", features = ["util"] }
 
 [lints]
