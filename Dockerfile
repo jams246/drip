@@ -10,8 +10,11 @@ RUN cargo fmt --all -- --check \
 FROM verify AS build
 RUN cargo build --release -p server --locked
 
-FROM debian:bookworm-slim@sha256:ec31d744f83f4a73447ba045aaab9409997efe5cc706eca4890c1be36cc1606a AS runtime
-RUN mkdir -p /var/lib/drip /mirror && chown -R 10001:10001 /var/lib/drip /mirror
+FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata=2026f-0+deb12u1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d -m 0700 -o 10001 -g 10001 /var/lib/drip /mirror
 COPY --from=build /workspace/target/release/server /usr/local/bin/server
 USER 10001:10001
 VOLUME ["/var/lib/drip", "/mirror"]

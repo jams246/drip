@@ -1,0 +1,13 @@
+{
+	admin off
+	servers {
+		timeouts {
+			read_header 10s
+			idle 2m
+		}
+	}
+}
+
+drip.example.com {
+	reverse_proxy drip-production-server:8080
+}
