@@ -95,3 +95,37 @@ async fn cancelled_server_keeps_storage_owned_until_its_worker_finishes() {
     drop(store);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+async fn idle_connection_is_closed_while_health_is_served() {
+    let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../.verification/security-audit/http-daemon");
+    let root =
+        crate::upload_test_support::create_test_dir(&parent, "header-timeout", &AtomicU64::new(0));
+    let store = crate::Store::open(root.join("state"), root.join("mirror")).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let serving = tokio::spawn(super::serve(listener, store.clone()));
+    let mut idle = TcpStream::connect(address).await.unwrap();
+    let mut health = TcpStream::connect(address).await.unwrap();
+    health
+        .write_all(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), health.read_to_end(&mut response))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(response.starts_with(b"HTTP/1.1 200"));
+    let mut buffer = [0; 16];
+    let read = tokio::time::timeout(Duration::from_secs(20), idle.read(&mut buffer))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(read, 0);
+    serving.abort();
+    let _ = serving.await;
+    drop(store);
+    std::fs::remove_dir_all(root).unwrap();
+}

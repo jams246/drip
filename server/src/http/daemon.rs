@@ -38,14 +38,19 @@ pub async fn serve(listener: TcpListener, store: Store) -> io::Result<()> {
     });
     let mut state = super::HttpState::new(store);
     state.lease = Some(lease);
-    let result = axum::serve(listener, super::router_with_state(state.clone()))
-        .with_graceful_shutdown(shutdown_signal())
-        .await;
+    let result = accept::run(
+        listener,
+        super::router_with_state(state.clone()),
+        shutdown_signal(),
+    )
+    .await;
     let _ = stop.send(true);
     let _ = reaper.await;
     state.drain().await;
     result
 }
+
+mod accept;
 
 #[cfg(test)]
 mod tests;
