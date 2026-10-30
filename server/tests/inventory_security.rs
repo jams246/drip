@@ -1,36 +1,41 @@
 mod common;
 
-use common::{Fixture, enroll, select_kind};
-use drip_core::{SourcePath, protocol::EntryKind};
+use common::{Fixture, enroll};
+use drip_core::{
+    SourcePath,
+    protocol::{EntryKind, Selection, SelectionUpdate},
+};
 use drip_server::StoreError;
 
 #[test]
-fn overdeep_inventory_fails_without_changing_mirror() {
+fn overdeep_root_is_rejected_at_selection_time() {
     let fixture = Fixture::new();
     let device = enroll(&fixture.store, "Inventory depth limit");
     let credential = device.device_credential.expose_secret();
-    let id = "a".repeat(32);
     let path = SourcePath::new('C', vec!["x".into(); 257]).unwrap();
-    select_kind(&fixture.store, credential, &id, path, EntryKind::Directory);
-    let sentinel = fixture
-        ._root
-        .join("mirror")
-        .join(&device.mirror_directory)
-        .join("sentinel");
-    std::fs::write(&sentinel, b"synthetic retained mirror").unwrap();
+    let update = SelectionUpdate {
+        expected_generation: 0,
+        selections: vec![Selection {
+            id: "a".repeat(32),
+            source: path,
+            root_kind: EntryKind::Directory,
+            active: true,
+        }],
+    };
     assert!(matches!(
-        fixture.store.list_entries(credential, &id, None),
-        Err(StoreError::UnsupportedEntry)
+        fixture.store.update_selections(credential, update),
+        Err(StoreError::InvalidInput)
     ));
     assert_eq!(
-        std::fs::read(sentinel).unwrap(),
-        b"synthetic retained mirror"
+        fixture.store.get_selections(credential).unwrap().generation,
+        0
     );
 }
 
 #[cfg(unix)]
 #[test]
 fn excessive_case_aliases_return_no_partial_inventory() {
+    use common::select_kind;
     let fixture = Fixture::new();
     let device = enroll(&fixture.store, "Inventory alias limit");
     let credential = device.device_credential.expose_secret();

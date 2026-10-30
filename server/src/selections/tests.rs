@@ -55,3 +55,14 @@ fn active_root_overlap_matches_simple_unicode_uppercase_rules() {
         SourcePath::new('C', vec!["SS".to_owned(), "child".to_owned()]).unwrap();
     assert!(validate_selections(&[sharp_s, double_s_child]).is_ok());
 }
+
+#[test]
+fn selection_roots_respect_the_scan_depth_limit() {
+    let deep = |depth: usize| Selection {
+        source: SourcePath::new('C', vec!["x".to_owned(); depth]).unwrap(),
+        root_kind: EntryKind::Directory,
+        ..selection(&"a".repeat(32), true)
+    };
+    assert!(validate_selections(&[deep(256)]).is_ok());
+    assert!(validate_selections(&[deep(257)]).is_err());
+}

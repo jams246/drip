@@ -175,6 +175,9 @@ fn validate_selections(selections: &[Selection]) -> StoreResult<()> {
         if !auth::is_lower_hex(&selection.id, 32) {
             return Err(StoreError::InvalidInput);
         }
+        crate::directory_scan::Budget::default()
+            .path(&selection.source)
+            .map_err(|_| StoreError::InvalidInput)?;
         active_count += usize::from(selection.active);
         if selection.active
             && selection.root_kind == EntryKind::File
