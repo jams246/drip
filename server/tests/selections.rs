@@ -114,14 +114,17 @@ fn retained_selections_cannot_exceed_the_aggregate_budget() {
     let fixture = Fixture::new();
     let device = enroll(&fixture, "Selection budget");
     let credential = device.device_credential.expose_secret();
-    let first = selection("a", &"a".repeat(140 * 1024), false);
+    let wide = |id: &str| Selection {
+        source: SourcePath::new('C', vec![id.repeat(255); 256]).unwrap(),
+        ..selection(id, "unused", false)
+    };
     fixture
         .store
         .update_selections(
             credential,
             SelectionUpdate {
                 expected_generation: 0,
-                selections: vec![first],
+                selections: vec![wide("a"), wide("b"), wide("c")],
             },
         )
         .unwrap();
@@ -131,7 +134,7 @@ fn retained_selections_cannot_exceed_the_aggregate_budget() {
             credential,
             SelectionUpdate {
                 expected_generation: 1,
-                selections: vec![selection("b", &"b".repeat(140 * 1024), false)],
+                selections: vec![wide("d")],
             }
         ),
         Err(StoreError::InvalidInput)

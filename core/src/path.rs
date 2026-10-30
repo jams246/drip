@@ -134,8 +134,17 @@ fn validate_component(component: &str) -> Result<(), SourcePathError> {
     if component.contains(':') {
         return Err(SourcePathError::ColonInComponent);
     }
+    if component.chars().any(char::is_control) {
+        return Err(SourcePathError::ControlInComponent);
+    }
+    if component.len() > MAX_COMPONENT_BYTES {
+        return Err(SourcePathError::ComponentTooLong);
+    }
     Ok(())
 }
+
+/// NTFS limits a name to 255 UTF-16 units; 255 bytes is the stricter bound for every encoding.
+const MAX_COMPONENT_BYTES: usize = 255;
 
 /// Source-path validation failures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -161,6 +170,12 @@ pub enum SourcePathError {
     /// A component contained a colon.
     #[error("path component contains a colon")]
     ColonInComponent,
+    /// A component contained a control character.
+    #[error("path component contains a control character")]
+    ControlInComponent,
+    /// A component was longer than 255 bytes.
+    #[error("path component exceeds 255 bytes")]
+    ComponentTooLong,
     /// Native path could not be represented as Unicode.
     #[error("path cannot be represented losslessly as Unicode")]
     NonUnicodePath,

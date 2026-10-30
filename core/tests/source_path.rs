@@ -92,3 +92,24 @@ fn deserialize_canonicalizes_drive_letter() {
 
     assert_eq!(path.drive(), 'C');
 }
+
+#[test]
+fn component_rejects_control_characters() {
+    assert_eq!(
+        SourcePath::new('C', vec!["bad\u{7}name".to_owned()]),
+        Err(SourcePathError::ControlInComponent)
+    );
+}
+
+#[test]
+fn component_rejects_more_than_255_bytes() {
+    assert_eq!(
+        SourcePath::new('C', vec!["x".repeat(256)]),
+        Err(SourcePathError::ComponentTooLong)
+    );
+}
+
+#[test]
+fn component_accepts_exactly_255_bytes() {
+    assert!(SourcePath::new('C', vec!["x".repeat(255)]).is_ok());
+}

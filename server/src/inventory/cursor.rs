@@ -96,12 +96,13 @@ mod tests {
 
     #[test]
     fn cursor_hashes_long_paths_and_rejects_oversized_records() {
-        let long = SourcePath::new('C', vec!["x".repeat(3000)]).unwrap();
+        let long = SourcePath::new('C', vec!["x".repeat(255); 12]).unwrap();
         let cursor = encode(&long).unwrap();
         assert!(cursor.starts_with("b3-"));
         assert!(cursor.len() <= 4096);
 
-        let oversized = SourcePath::new('C', vec!["x".repeat(MAX_PATH_RECORD_BYTES)]).unwrap();
+        let oversized =
+            SourcePath::new('C', vec!["x".repeat(255); MAX_PATH_RECORD_BYTES / 255 + 1]).unwrap();
         assert!(matches!(
             encode(&oversized),
             Err(StoreError::UnsupportedEntry)
