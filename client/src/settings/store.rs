@@ -140,7 +140,8 @@ impl SettingsStore {
 
     fn lock(&self) -> Result<File, SettingsError> {
         let path = self.directory.join("drip.settings.lock");
-        loop {
+        // 500 x 10 ms: a holder that never releases must surface as an error, not a hang.
+        for attempt in 1..=500 {
             match OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -160,12 +161,13 @@ impl SettingsStore {
                     }
                     return Ok(file);
                 }
-                Err(error) if matches!(error.raw_os_error(), Some(32 | 33)) => {
+                Err(error) if matches!(error.raw_os_error(), Some(32 | 33)) && attempt < 500 => {
                     thread::sleep(Duration::from_millis(10))
                 }
                 Err(source) => return Err(path_error("lock", &path, source)),
             }
         }
+        unreachable!("the final attempt returns")
     }
 }
 
