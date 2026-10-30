@@ -140,3 +140,15 @@ fn open_state_handle_prevents_path_replacement() {
     assert!(fs::rename(&path, directory.join("renamed")).is_err());
     assert_eq!(read_open(file, 8).unwrap(), b"sentinel");
 }
+
+#[test]
+fn newly_created_private_state_stays_exclusive_until_initialization_finishes() {
+    let path = directory().join("initializing");
+    let mut file = open(&path, true, true).unwrap();
+    assert!(File::open(&path).is_err());
+    assert!(OpenOptions::new().write(true).open(&path).is_err());
+    file.write_all(b"private").unwrap();
+    drop(file);
+    assert_private(&path);
+    assert_eq!(read(&path, 7).unwrap(), b"private");
+}

@@ -9,13 +9,24 @@ const MAX_ENTRIES: usize = 1_000_000;
 const MAX_METADATA: usize = 128 * 1024 * 1024;
 
 #[derive(Default)]
-pub(super) struct InventoryBudget {
+pub(in crate::engine) struct InventoryBudget {
+    pages: usize,
     entries: usize,
     metadata: usize,
 }
 
 impl InventoryBudget {
-    pub(super) fn accept(&mut self, page: &EntryPage) -> Result<(), EngineError> {
+    pub(in crate::engine) fn begin_page(&mut self) -> Result<(), EngineError> {
+        self.pages += 1;
+        if self.pages > 1024 {
+            return Err(EngineError::InvalidResponse(
+                "inventory exceeds the 1024-page limit",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(in crate::engine) fn accept(&mut self, page: &EntryPage) -> Result<(), EngineError> {
         self.entries = self.entries.saturating_add(page.entries.len());
         for entry in &page.entries {
             let path = &entry.source_path;
@@ -68,12 +79,14 @@ mod tests {
         let mut count = InventoryBudget {
             entries: MAX_ENTRIES - 1,
             metadata: 0,
+            ..InventoryBudget::default()
         };
         assert!(count.accept(&page()).is_ok());
         assert!(count.accept(&page()).is_err());
         let mut memory = InventoryBudget {
             entries: 0,
             metadata: MAX_METADATA,
+            ..InventoryBudget::default()
         };
         assert!(memory.accept(&page()).is_err());
     }
@@ -84,5 +97,17 @@ mod tests {
         budget.accept(&page()).unwrap();
         assert_eq!(budget.entries, 1);
         assert!(budget.metadata > std::mem::size_of::<Entry>());
+    }
+
+    #[test]
+    fn pagination_stops_before_requesting_an_excess_page() {
+        let mut budget = InventoryBudget::default();
+        for _ in 0..1024 {
+            budget.begin_page().unwrap();
+        }
+        assert!(matches!(
+            budget.begin_page(),
+            Err(EngineError::InvalidResponse(_))
+        ));
     }
 }

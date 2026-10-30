@@ -149,3 +149,37 @@ async fn unsupported_fingerprint_format_stays_intact_and_disables_reuse() {
     assert!(warning.is_some());
     assert_eq!(std::fs::read(fixture.database()).unwrap(), original);
 }
+
+#[tokio::test]
+async fn cache_keeps_its_parent_stable_until_the_connection_is_closed() {
+    let fixture = Fixture::new();
+    let cache = fixture.cache();
+    fixture.seed(&cache, &fixture.selection).await;
+    let moved = fixture.directory.with_extension("moved");
+    let blocked = std::fs::rename(&fixture.directory, &moved).is_err();
+    if !blocked {
+        std::fs::rename(&moved, &fixture.directory).unwrap();
+    }
+    drop(cache);
+    std::fs::rename(&fixture.directory, &moved).unwrap();
+    std::fs::rename(&moved, &fixture.directory).unwrap();
+    assert!(blocked);
+}
+
+#[tokio::test]
+async fn hardlinked_cache_database_is_rejected_without_changing_either_name() {
+    let fixture = Fixture::new();
+    let initial = fixture.cache();
+    fixture.seed(&initial, &fixture.selection).await;
+    drop(initial);
+    let original = std::fs::read(fixture.database()).unwrap();
+    let alias = fixture.directory.join("database-alias");
+    std::fs::hard_link(fixture.database(), &alias).unwrap();
+    let warning = fixture
+        .cache()
+        .reconcile(&fixture.pairing, std::slice::from_ref(&fixture.selection))
+        .await;
+    assert!(warning.is_some());
+    assert_eq!(std::fs::read(fixture.database()).unwrap(), original);
+    assert_eq!(std::fs::read(alias).unwrap(), original);
+}

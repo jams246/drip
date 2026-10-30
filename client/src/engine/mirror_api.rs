@@ -11,6 +11,7 @@ use crate::transport::HttpTransport;
 use super::{EngineError, api, selection::ActiveSelection};
 
 mod budget;
+pub(super) use budget::InventoryBudget;
 
 pub(super) async fn inventory(
     transport: &HttpTransport,
@@ -21,9 +22,10 @@ pub(super) async fn inventory(
     let mut cursor: Option<String> = None;
     let mut cursors = HashSet::new();
     let mut paths = HashSet::new();
-    let mut budget = budget::InventoryBudget::default();
+    let mut budget = InventoryBudget::default();
     let generation = active.generation.to_string();
-    for _ in 0..1024 {
+    loop {
+        budget.begin_page()?;
         let mut query = vec![
             ("selection_id", active.selection.id.as_str()),
             ("generation", generation.as_str()),
@@ -66,9 +68,6 @@ pub(super) async fn inventory(
         }
         cursor = Some(next);
     }
-    Err(EngineError::InvalidResponse(
-        "inventory exceeds the 1024-page limit",
-    ))
 }
 
 pub(super) fn contains(parent: &SourcePath, child: &SourcePath) -> bool {

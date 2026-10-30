@@ -84,7 +84,9 @@ async fn inventory_matches(
     let mut cursor: Option<String> = None;
     let mut seen = HashSet::new();
     let mut found = false;
+    let mut budget = super::super::mirror_api::InventoryBudget::default();
     loop {
+        budget.begin_page()?;
         let page = if let Some(cursor_value) = cursor.as_deref() {
             let query = [
                 ("selection_id", active.selection.id.as_str()),
@@ -100,6 +102,7 @@ async fn inventory_matches(
                 "inventory page has invalid selection or size",
             ));
         }
+        budget.accept(&page)?;
         for entry in &page.entries {
             if entry.source_path != *source.protocol_path() {
                 continue;

@@ -1,13 +1,11 @@
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io,
-    os::windows::{fs::MetadataExt, fs::OpenOptionsExt},
+    os::windows::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 
-use windows::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE,
-};
+use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 use super::DatabaseError;
 
@@ -42,17 +40,8 @@ pub fn preflight(path: &Path) -> Result<bool, DatabaseError> {
 }
 
 pub fn create_empty(path: &Path) -> Result<(), DatabaseError> {
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
-        .open(path)
-    {
+    match crate::private_file::open(path, true, true) {
         Ok(file) => {
-            validate_handle(&file, path)?;
-            crate::credentials::acl::secure_file(path).map_err(|error| {
-                DatabaseError::Recovery(format!("could not protect {}: {error}", path.display()))
-            })?;
             file.sync_all().map_err(|error| {
                 DatabaseError::Recovery(format!("could not sync {}: {error}", path.display()))
             })?;
@@ -94,35 +83,16 @@ pub fn open_guard(path: &Path) -> Result<File, DatabaseError> {
             path.display()
         )));
     }
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
-        .open(path)
-        .map_err(|error| {
-            DatabaseError::Recovery(format!("could not open {} safely: {error}", path.display()))
-        })?;
-    validate_handle(&file, path)?;
-    Ok(file)
+    crate::private_file::open(path, true, false).map_err(|error| {
+        DatabaseError::Recovery(format!("could not open {} safely: {error}", path.display()))
+    })
 }
 
 pub fn prepare_journal(path: &Path) -> Result<(), DatabaseError> {
     let _ = preflight(path)?;
     let journal = sidecar(path, "-journal")?;
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
-        .open(&journal)
-    {
-        Ok(file) => {
-            validate_handle(&file, &journal)?;
-            crate::credentials::acl::secure_file(&journal).map_err(|error| {
-                DatabaseError::Recovery(format!("could not protect {}: {error}", journal.display()))
-            })?;
-            Ok(())
-        }
+    match crate::private_file::open(&journal, true, true) {
+        Ok(_) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
             secure_existing_sidecar(&journal)
         }
@@ -211,14 +181,10 @@ fn validate_parent(path: &Path) -> Result<(), DatabaseError> {
     Ok(())
 }
 
-fn validate_handle(file: &File, path: &Path) -> Result<(), DatabaseError> {
-    let metadata = file.metadata().map_err(|error| {
-        DatabaseError::Recovery(format!("could not inspect {}: {error}", path.display()))
-    })?;
-    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
-        return Err(unsafe_path(path));
-    }
-    Ok(())
+pub(super) fn hold_parents(path: &Path) -> Result<Vec<File>, DatabaseError> {
+    crate::private_file::parents(path).map_err(|error| {
+        DatabaseError::Recovery(format!("could not hold database directory safely: {error}"))
+    })
 }
 
 fn sidecar(path: &Path, suffix: &str) -> Result<PathBuf, DatabaseError> {

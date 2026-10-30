@@ -67,6 +67,7 @@ pub(super) struct CacheDatabase {
     path: PathBuf,
     connection: Connection,
     _file_guard: File,
+    _parents: Vec<File>,
 }
 
 impl CacheDatabase {
@@ -85,6 +86,7 @@ impl CacheDatabase {
         binding: Option<&Binding>,
         selections: &[SavedSelection],
     ) -> Result<Self, DatabaseError> {
+        let _parents = recovery::hold_parents(path)?;
         recovery::preserve(path)?;
         let mut database = Self::open_fresh(path)?;
         if let Some(binding) = binding {
@@ -94,6 +96,7 @@ impl CacheDatabase {
     }
 
     fn open_once(path: &Path) -> Result<Self, DatabaseError> {
+        let parents = recovery::hold_parents(path)?;
         let exists = recovery::preflight_database(path)?;
         if !exists {
             recovery::create_empty(path)?;
@@ -114,10 +117,12 @@ impl CacheDatabase {
             path: path.to_owned(),
             connection,
             _file_guard: file_guard,
+            _parents: parents,
         })
     }
 
     fn open_fresh(path: &Path) -> Result<Self, DatabaseError> {
+        let parents = recovery::hold_parents(path)?;
         recovery::create_empty(path)?;
         let file_guard = recovery::open_guard(path)?;
         let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
@@ -129,6 +134,7 @@ impl CacheDatabase {
             path: path.to_owned(),
             connection,
             _file_guard: file_guard,
+            _parents: parents,
         })
     }
 

@@ -57,7 +57,11 @@ pub(crate) fn open(path: &Path, write: bool, create_new: bool) -> io::Result<Fil
         .write(write)
         .access_mode(access)
         .create_new(create_new)
-        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+        .share_mode(if create_new {
+            0
+        } else {
+            FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0
+        })
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
         .open(path)?;
     validate(&file)?;
