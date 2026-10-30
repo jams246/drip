@@ -20,4 +20,4 @@ USER 10001:10001
 VOLUME ["/var/lib/drip", "/mirror"]
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/server"]
-CMD ["serve"]
+CMD ["serve", "--listen", "0.0.0.0:8080"]
