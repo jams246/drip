@@ -25,6 +25,8 @@ use crate::{
 const MAX_ATTEMPTS: usize = 3;
 const BODY_CHUNK_BYTES: usize = 64 * 1024;
 const REPORT_INTERVAL: Duration = Duration::from_millis(200);
+/// Chunk bodies are at most 1 MiB; whole-file streaming PUTs stay bounded by the read timeout.
+const CHUNK_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Clone)]
 pub(super) struct ChunkProgress {
@@ -137,6 +139,7 @@ pub(super) async fn chunk(
             .header(CONTENT_TYPE, "application/octet-stream")
             .header(CONTENT_LENGTH, bytes.len().to_string())
             .body(reqwest::Body::wrap_stream(body))
+            .timeout(CHUNK_TIMEOUT)
             .build()
             .map_err(TransportError::Build)?;
         let result = report_while_waiting(

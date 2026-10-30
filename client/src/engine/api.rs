@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use futures_util::TryStreamExt;
 use reqwest::{Method, Response, StatusCode, header::CONTENT_TYPE};
 use serde::{Serialize, de::DeserializeOwned};
@@ -9,6 +11,8 @@ use crate::{
 
 const CONTROL_LIMIT: usize = 256 * 1024;
 const RESPONSE_LIMIT: usize = 4 * 1024 * 1024;
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(120);
+const MESSAGE_LIMIT: usize = 512;
 
 pub(super) async fn json<T, B>(
     transport: &HttpTransport,
@@ -58,7 +62,10 @@ where
             .header(CONTENT_TYPE, "application/json")
             .body(encoded);
     }
-    let request = request.build().map_err(TransportError::Build)?;
+    let request = request
+        .timeout(CONTROL_TIMEOUT)
+        .build()
+        .map_err(TransportError::Build)?;
     let response = transport.send(request).await?;
     decode_json_with_status(response).await
 }
@@ -72,6 +79,7 @@ pub(super) async fn status(
     let request = transport
         .request(method, path)?
         .bearer_auth(credential)
+        .timeout(CONTROL_TIMEOUT)
         .build()
         .map_err(TransportError::Build)?;
     ensure_success(transport.send(request).await?).await
@@ -122,9 +130,25 @@ fn api_error(status: StatusCode, body: Vec<u8>) -> EngineError {
     EngineError::Api {
         status,
         code: error.code,
-        message: error.message,
+        message: sanitize_message(&error.message),
         retryable: error.retryable,
     }
+}
+
+/// Keeps server-supplied text safe to show in the GUI: no control, bidi or zero-width
+/// characters, and at most 512 characters.
+fn sanitize_message(message: &str) -> String {
+    message
+        .chars()
+        .filter(|character| {
+            !character.is_control()
+                && !matches!(
+                    character,
+                    '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+                )
+        })
+        .take(MESSAGE_LIMIT)
+        .collect()
 }
 
 #[cfg(test)]
