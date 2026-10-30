@@ -1,35 +1,61 @@
+use std::sync::Arc;
+
 use axum::{
-    Router,
-    body::{Body, Bytes, to_bytes},
-    extract::{DefaultBodyLimit, State, rejection::BytesRejection},
+    Extension, Router,
+    body::Bytes,
+    extract::{DefaultBodyLimit, rejection::BytesRejection},
     http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post, put},
 };
 use drip_core::protocol::{EnrollmentRequest, SelectionRelocationRequest};
-use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
 
 use crate::{ApiFailure, Store};
 
+mod daemon;
 mod entries;
 mod uploads;
+mod work;
+
+pub use daemon::serve;
+use work::ControlWork;
 
 const CONTROL_LIMIT: usize = 256 * 1024;
 
 #[derive(Clone)]
 struct HttpState {
     store: Store,
+    controls: Arc<Semaphore>,
+    workers: Arc<Semaphore>,
+    streams: Arc<Semaphore>,
+}
+
+impl HttpState {
+    fn new(store: Store) -> Self {
+        Self {
+            store,
+            controls: Arc::new(Semaphore::new(32)),
+            workers: Arc::new(Semaphore::new(8)),
+            streams: Arc::new(Semaphore::new(8)),
+        }
+    }
+
+    async fn drain(&self) {
+        let _controls = self.controls.acquire_many(32).await;
+        let _streams = self.streams.acquire_many(8).await;
+    }
 }
 
 /// Builds health and capped control routes. Add streamed upload routes outside the control router.
 pub fn router(store: Store) -> Router {
-    let state = HttpState { store };
-    let health = Router::new()
-        .route("/healthz", get(health))
-        .layer(DefaultBodyLimit::max(CONTROL_LIMIT))
-        .with_state(state.clone());
+    router_with_state(HttpState::new(store))
+}
+
+fn router_with_state(state: HttpState) -> Router {
     let control = Router::new()
+        .route("/healthz", get(health))
         .route("/v1/enroll", post(enroll))
         .route("/v1/selections", get(get_selections).put(put_selections))
         .route("/v1/uploads", post(uploads::prepare_upload))
@@ -45,7 +71,7 @@ pub fn router(store: Store) -> Router {
         .route("/v1/entries", get(entries::list_entries))
         .route("/v1/directories", post(entries::create_directory))
         .route("/v1/entries/delete", post(entries::delete_entry))
-        .layer(middleware::from_fn(require_control_body_limit))
+        .layer(middleware::from_fn_with_state(state.clone(), work::control))
         .layer(DefaultBodyLimit::max(CONTROL_LIMIT))
         .with_state(state.clone());
     let binary = Router::new()
@@ -54,32 +80,12 @@ pub fn router(store: Store) -> Router {
             "/v1/uploads/{upload_id}/chunks/{ordinal}",
             put(uploads::upload_chunk),
         )
+        .layer(middleware::from_fn_with_state(state.clone(), work::binary))
         .layer(DefaultBodyLimit::disable())
         .with_state(state);
-    health
-        .merge(control)
+    control
         .merge(binary)
         .layer(middleware::from_fn(normalize_api_rejections))
-}
-
-/// Serves the router and stops on process termination signals.
-pub async fn serve(listener: TcpListener, store: Store) -> std::io::Result<()> {
-    store
-        .prepare_daemon()
-        .map_err(|error| std::io::Error::other(error.to_string()))?;
-    let expiry_store = store.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-        loop {
-            interval.tick().await;
-            if let Ok(now) = expiry_store.now() {
-                let _ = expiry_store.reap_uploads(now);
-            }
-        }
-    });
-    axum::serve(listener, router(store))
-        .with_graceful_shutdown(shutdown_signal())
-        .await
 }
 
 async fn health(body: Result<Bytes, BytesRejection>) -> Result<impl IntoResponse, ApiFailure> {
@@ -88,43 +94,39 @@ async fn health(body: Result<Bytes, BytesRejection>) -> Result<impl IntoResponse
 }
 
 async fn enroll(
-    State(state): State<HttpState>,
+    Extension(work): Extension<ControlWork>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<axum::Json<drip_core::protocol::EnrollmentResponse>, ApiFailure> {
     let request: EnrollmentRequest = parse_json(body)?;
-    state
-        .store
-        .enroll(request)
+    work.run(move |store| store.enroll(request))
+        .await
         .map(axum::Json)
-        .map_err(Into::into)
 }
 
 async fn get_selections(
-    State(state): State<HttpState>,
+    Extension(work): Extension<ControlWork>,
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<axum::Json<drip_core::protocol::SelectionSet>, ApiFailure> {
     read_control_body(body)?;
-    let credential = crate::auth::credential(&headers)?;
-    state
-        .store
-        .get_selections(credential)
+    let credential = crate::auth::credential(&headers)?.to_owned();
+    work.run(move |store| store.get_selections(&credential))
+        .await
         .map(axum::Json)
-        .map_err(Into::into)
 }
 
 async fn put_selections(
-    State(state): State<HttpState>,
+    Extension(work): Extension<ControlWork>,
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<axum::Json<drip_core::protocol::SelectionUpdateResponse>, ApiFailure> {
-    let credential = crate::auth::credential(&headers)?;
+    let credential = crate::auth::credential(&headers)?.to_owned();
     let request: SelectionRelocationRequest = parse_json(body)?;
-    state
-        .store
-        .update_selections_relocating(credential, request.update, &request.root_moves)
-        .map(axum::Json)
-        .map_err(Into::into)
+    work.run(move |store| {
+        store.update_selections_relocating(&credential, request.update, &request.root_moves)
+    })
+    .await
+    .map(axum::Json)
 }
 
 fn parse_json<T: serde::de::DeserializeOwned>(
@@ -144,23 +146,6 @@ fn read_control_body(body: Result<Bytes, BytesRejection>) -> Result<Bytes, ApiFa
     }
 }
 
-async fn require_control_body_limit(request: axum::extract::Request, next: Next) -> Response {
-    let (parts, body) = request.into_parts();
-    match to_bytes(body, CONTROL_LIMIT).await {
-        Ok(body) => normalize_response(
-            next.run(axum::extract::Request::from_parts(parts, Body::from(body)))
-                .await,
-        ),
-        Err(error)
-            if std::error::Error::source(&error)
-                .is_some_and(|source| source.is::<http_body_util::LengthLimitError>()) =>
-        {
-            ApiFailure::payload_too_large().into_response()
-        }
-        Err(_) => ApiFailure::invalid_input().into_response(),
-    }
-}
-
 async fn normalize_api_rejections(request: axum::extract::Request, next: Next) -> Response {
     normalize_response(next.run(request).await)
 }
@@ -175,20 +160,4 @@ fn normalize_response(response: Response) -> Response {
         StatusCode::PAYLOAD_TOO_LARGE => ApiFailure::payload_too_large().into_response(),
         _ => response,
     }
-}
-
-async fn shutdown_signal() {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{SignalKind, signal};
-        let terminate = signal(SignalKind::terminate());
-        if let Ok(mut terminate) = terminate {
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {},
-                _ = terminate.recv() => {},
-            }
-            return;
-        }
-    }
-    let _ = tokio::signal::ctrl_c().await;
 }

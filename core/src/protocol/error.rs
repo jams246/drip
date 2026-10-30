@@ -20,6 +20,8 @@ pub enum ApiErrorCode {
     RetryableIo,
     /// Control body exceeds the configured limit.
     PayloadTooLarge,
+    /// Control request body did not arrive within its deadline.
+    RequestTimeout,
     /// Staging filesystem lacks space.
     InsufficientStagingSpace,
     /// Upload capacity is temporarily exhausted.

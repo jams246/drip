@@ -36,6 +36,15 @@ impl ApiFailure {
         )
     }
 
+    pub(crate) fn request_timeout() -> Self {
+        Self::new(
+            StatusCode::REQUEST_TIMEOUT,
+            ApiErrorCode::RequestTimeout,
+            "control request timed out",
+            true,
+        )
+    }
+
     pub(crate) fn not_found() -> Self {
         Self::new(
             StatusCode::NOT_FOUND,

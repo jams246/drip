@@ -1,4 +1,5 @@
 use axum::{
+    Extension,
     body::{Body, Bytes},
     extract::{Path, State, rejection::BytesRejection},
     http::{HeaderMap, StatusCode},
@@ -8,20 +9,18 @@ use drip_core::protocol::UploadPrepareRequest;
 
 use crate::ApiFailure;
 
-use super::{HttpState, parse_json, read_control_body};
+use super::{ControlWork, HttpState, parse_json, read_control_body};
 
 pub(super) async fn prepare_upload(
-    State(state): State<HttpState>,
+    Extension(work): Extension<ControlWork>,
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<axum::Json<drip_core::protocol::UploadPrepareResponse>, ApiFailure> {
-    let credential = crate::auth::credential(&headers)?;
+    let credential = crate::auth::credential(&headers)?.to_owned();
     let request: UploadPrepareRequest = parse_json(body)?;
-    state
-        .store
-        .prepare_upload(credential, request)
+    work.run(move |store| store.prepare_upload(&credential, request))
+        .await
         .map(axum::Json)
-        .map_err(Into::into)
 }
 
 pub(super) async fn upload_data(
@@ -39,18 +38,16 @@ pub(super) async fn upload_data(
 }
 
 pub(super) async fn plan_upload(
-    State(state): State<HttpState>,
+    Extension(work): Extension<ControlWork>,
     Path(upload_id): Path<String>,
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<axum::Json<drip_core::protocol::UploadPlanResponse>, ApiFailure> {
-    let credential = crate::auth::credential(&headers)?;
+    let credential = crate::auth::credential(&headers)?.to_owned();
     let request: UploadPlanRequest = parse_json(body)?;
-    state
-        .store
-        .plan_upload(credential, &upload_id, request)
+    work.run(move |store| store.plan_upload(&credential, &upload_id, request))
+        .await
         .map(axum::Json)
-        .map_err(Into::into)
 }
 
 pub(super) async fn upload_chunk(
@@ -68,46 +65,40 @@ pub(super) async fn upload_chunk(
 }
 
 pub(super) async fn commit_upload(
-    State(state): State<HttpState>,
+    Extension(work): Extension<ControlWork>,
     Path(upload_id): Path<String>,
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<axum::Json<drip_core::protocol::UploadCommitResponse>, ApiFailure> {
     read_control_body(body)?;
-    let credential = crate::auth::credential(&headers)?;
-    state
-        .store
-        .commit_upload(credential, &upload_id)
+    let credential = crate::auth::credential(&headers)?.to_owned();
+    work.run(move |store| store.commit_upload(&credential, &upload_id))
+        .await
         .map(axum::Json)
-        .map_err(Into::into)
 }
 
 pub(super) async fn get_upload_state(
-    State(state): State<HttpState>,
+    Extension(work): Extension<ControlWork>,
     Path(upload_id): Path<String>,
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<axum::Json<drip_core::protocol::UploadStateResponse>, ApiFailure> {
     read_control_body(body)?;
-    let credential = crate::auth::credential(&headers)?;
-    state
-        .store
-        .get_upload_state(credential, &upload_id)
+    let credential = crate::auth::credential(&headers)?.to_owned();
+    work.run(move |store| store.get_upload_state(&credential, &upload_id))
+        .await
         .map(axum::Json)
-        .map_err(Into::into)
 }
 
 pub(super) async fn abort_upload(
-    State(state): State<HttpState>,
+    Extension(work): Extension<ControlWork>,
     Path(upload_id): Path<String>,
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<StatusCode, ApiFailure> {
     read_control_body(body)?;
-    let credential = crate::auth::credential(&headers)?;
-    state
-        .store
-        .abort_upload(credential, &upload_id)
-        .map_err(ApiFailure::from)?;
+    let credential = crate::auth::credential(&headers)?.to_owned();
+    work.run(move |store| store.abort_upload(&credential, &upload_id))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
