@@ -111,6 +111,27 @@ fn private_state_rejects_directory_targets() {
 }
 
 #[test]
+fn private_state_rejects_ancestor_junctions_before_reading_or_writing() {
+    let directory = directory();
+    let target = directory.join("target");
+    let alias = directory.join("junction");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("state"), b"sentinel").unwrap();
+    let command = format!(
+        "New-Item -ItemType Junction -Path '{}' -Target '{}' | Out-Null",
+        alias.display(),
+        target.display()
+    );
+    let result = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    assert!(open(&alias.join("state"), true, false).is_err());
+    assert_eq!(fs::read(target.join("state")).unwrap(), b"sentinel");
+}
+
+#[test]
 fn open_state_handle_prevents_path_replacement() {
     let directory = directory();
     let path = directory.join("state");

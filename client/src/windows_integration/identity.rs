@@ -46,7 +46,7 @@ fn wide_bytes(value: &std::ffi::OsStr) -> Vec<u8> {
     value.encode_wide().flat_map(u16::to_le_bytes).collect()
 }
 
-pub(super) fn current_user_sid() -> io::Result<String> {
+pub(crate) fn current_user_sid() -> io::Result<String> {
     let mut token = HANDLE::default();
     // SAFETY: the current process pseudo-handle is valid and the output handle is writable.
     unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }

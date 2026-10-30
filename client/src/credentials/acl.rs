@@ -8,21 +8,22 @@ use std::{fs::File, io, os::windows::io::AsRawHandle, path::Path, ptr};
 use windows::Win32::{
     Foundation::{HANDLE, HLOCAL, LocalFree},
     Security::Authorization::{
-        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1, SE_FILE_OBJECT,
-        SetSecurityInfo,
+        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+        GetSecurityInfo, SDDL_REVISION_1, SE_FILE_OBJECT, SetSecurityInfo,
     },
     Security::{
-        ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl,
-        PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+        ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, OWNER_SECURITY_INFORMATION,
+        PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
     },
 };
-use windows::core::{BOOL, PCWSTR};
+use windows::core::{BOOL, PCWSTR, PWSTR};
 
 pub(crate) fn secure_file(path: &Path) -> io::Result<()> {
     crate::private_file::open(path, false, false).map(drop)
 }
 
 pub(crate) fn secure_handle(file: &File) -> io::Result<()> {
+    validate_owner(file)?;
     let sddl: Vec<u16> = "D:P(A;;FA;;;OW)(A;;FA;;;SY)(A;;FA;;;BA)\0"
         .encode_utf16()
         .collect();
@@ -68,6 +69,48 @@ pub(crate) fn secure_handle(file: &File) -> io::Result<()> {
     Ok(())
 }
 
+fn validate_owner(file: &File) -> io::Result<()> {
+    let mut descriptor = SecurityDescriptor(PSECURITY_DESCRIPTOR::default());
+    let mut owner = PSID::default();
+    // SAFETY: the live file handle is readable and both output pointers are writable.
+    unsafe {
+        GetSecurityInfo(
+            HANDLE(file.as_raw_handle()),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            Some(&mut owner),
+            None,
+            None,
+            None,
+            Some(&mut descriptor.0),
+        )
+    }
+    .ok()
+    .map_err(io::Error::other)?;
+    let mut owner_text = PWSTR::null();
+    // SAFETY: GetSecurityInfo returned a SID owned by the live descriptor.
+    unsafe { ConvertSidToStringSidW(owner, &mut owner_text) }.map_err(io::Error::other)?;
+    // SAFETY: Windows returned a NUL-terminated allocation; it is released after copying.
+    let owner = unsafe {
+        let owner = PCWSTR(owner_text.0).to_string();
+        let _ = LocalFree(Some(HLOCAL(owner_text.0.cast())));
+        owner
+    }
+    .map_err(io::Error::other)?;
+    let current_user = crate::windows_integration::current_user_sid()?;
+    if !trusted_owner(&owner, &current_user) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "private state belongs to another Windows account",
+        ));
+    }
+    Ok(())
+}
+
+fn trusted_owner(owner: &str, current_user: &str) -> bool {
+    owner == current_user || matches!(owner, "S-1-5-18" | "S-1-5-32-544")
+}
+
 struct SecurityDescriptor(PSECURITY_DESCRIPTOR);
 
 impl Drop for SecurityDescriptor {
@@ -78,5 +121,16 @@ impl Drop for SecurityDescriptor {
                 let _ = LocalFree(Some(HLOCAL((self.0).0)));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn private_state_accepts_only_current_user_and_system_administration_owners() {
+        for owner in ["S-1-5-21-1", "S-1-5-18", "S-1-5-32-544"] {
+            assert!(super::trusted_owner(owner, "S-1-5-21-1"));
+        }
+        assert!(!super::trusted_owner("S-1-5-21-2", "S-1-5-21-1"));
     }
 }

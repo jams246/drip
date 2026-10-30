@@ -24,6 +24,7 @@ use windows::{
     core::PCWSTR,
 };
 
+pub(crate) use identity::current_user_sid;
 pub use ipc::OpenListener;
 
 /// Binary role that requests process-wide ownership.
