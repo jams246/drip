@@ -39,6 +39,27 @@ fn timestamp_deserialization_rejects_out_of_range_nanoseconds() {
 }
 
 #[test]
+fn timestamp_matches_stored_should_accept_dropped_fractional_second() {
+    let source = Timestamp::new(1_745_186_106, 123_456_700).unwrap();
+
+    assert!(source.matches_stored(Timestamp::new(1_745_186_106, 0).unwrap()));
+}
+
+#[test]
+fn timestamp_matches_stored_should_reject_different_second() {
+    let source = Timestamp::new(1_745_186_106, 123_456_700).unwrap();
+
+    assert!(!source.matches_stored(Timestamp::new(1_745_186_107, 0).unwrap()));
+}
+
+#[test]
+fn timestamp_matches_stored_should_reject_different_fraction() {
+    let source = Timestamp::new(1_745_186_106, 123_456_700).unwrap();
+
+    assert!(!source.matches_stored(Timestamp::new(1_745_186_106, 5).unwrap()));
+}
+
+#[test]
 fn protocol_version_rejects_unsupported_values() {
     assert!(ProtocolVersion::new(2).validate().is_err());
 }

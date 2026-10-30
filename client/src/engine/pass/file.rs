@@ -183,7 +183,9 @@ fn matches_remote(remote: Option<&Entry>, source: &SourceFile, digest: Blake3Dig
         remote.kind == EntryKind::File
             && remote.size == source.size()
             && remote.digest == Some(digest)
-            && remote.last_write == Some(source.last_write())
+            && remote
+                .last_write
+                .is_some_and(|stored| source.last_write().matches_stored(stored))
     })
 }
 

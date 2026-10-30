@@ -177,7 +177,9 @@ pub(super) fn verify_entry(
         || entry.source_path != *expected_path
         || entry.size != size
         || entry.digest != Some(digest)
-        || entry.last_write != Some(last_write)
+        || !entry
+            .last_write
+            .is_some_and(|stored| last_write.matches_stored(stored))
     {
         return Err(EngineError::DestinationMismatch);
     }

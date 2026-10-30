@@ -29,6 +29,12 @@ impl Timestamp {
     pub const fn nanos(self) -> u32 {
         self.nanos
     }
+
+    /// Returns whether `stored` is this timestamp as kept by storage that may
+    /// drop the fractional second, such as SFTP-backed mirrors.
+    pub fn matches_stored(self, stored: Self) -> bool {
+        stored == self || (stored.nanos == 0 && stored.unix_seconds == self.unix_seconds)
+    }
 }
 
 impl<'de> Deserialize<'de> for Timestamp {
