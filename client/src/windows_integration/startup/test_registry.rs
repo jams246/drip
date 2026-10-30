@@ -32,6 +32,31 @@ pub(crate) fn remove_key(key: &str) -> io::Result<()> {
 }
 
 pub(crate) fn create_readonly_key(key: &str) -> io::Result<()> {
+    // RegCreateKeyExW applies the restrictive DACL to every missing ancestor as well, which
+    // would poison the shared verification parent for every later test.
+    if let Some((parent, _)) = key.rsplit_once('\\') {
+        let path = super::wide(parent);
+        let mut handle = HKEY::default();
+        // SAFETY: the path stays live and the output handle is writable.
+        let status = unsafe {
+            RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                PCWSTR(path.as_ptr()),
+                None,
+                PCWSTR::null(),
+                REG_OPTION_NON_VOLATILE,
+                KEY_QUERY_VALUE,
+                None,
+                &mut handle,
+                None,
+            )
+        };
+        super::check(status)?;
+        // SAFETY: this wrapper owns the key returned by RegCreateKeyExW.
+        unsafe {
+            let _ = RegCloseKey(handle);
+        }
+    }
     let sid = super::super::identity::current_user_sid()?;
     let sddl = super::wide(&format!("D:P(A;;KR;;;{sid})(A;;SD;;;{sid})"));
     let mut descriptor = SecurityDescriptor(PSECURITY_DESCRIPTOR(ptr::null_mut()));
