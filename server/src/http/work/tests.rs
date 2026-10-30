@@ -20,6 +20,7 @@ async fn disconnected_control_keeps_admission_until_blocking_work_finishes() {
         store,
         workers: Arc::clone(&workers),
         admission: Arc::new(Arc::clone(&controls).try_acquire_owned().unwrap()),
+        lease: None,
     };
     let (started, entered) = oneshot::channel();
     let (release, wait) = std::sync::mpsc::channel();

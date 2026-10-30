@@ -17,6 +17,7 @@ pub(super) struct ControlWork {
     store: Store,
     workers: Arc<Semaphore>,
     admission: Arc<OwnedSemaphorePermit>,
+    lease: Option<Arc<crate::store::DaemonLease>>,
 }
 
 impl ControlWork {
@@ -30,8 +31,9 @@ impl ControlWork {
             .map_err(|_| StoreError::Busy)?;
         let store = self.store.clone();
         let admission = Arc::clone(&self.admission);
+        let lease = self.lease.clone();
         tokio::task::spawn_blocking(move || {
-            let _permits = (worker, admission);
+            let _permits = (worker, admission, lease);
             operation(store)
         })
         .await
@@ -63,6 +65,7 @@ async fn control_request(
         store: state.store,
         workers: state.workers,
         admission: Arc::new(admission),
+        lease: state.lease,
     };
     if !matches!(request.uri().path(), "/healthz" | "/v1/enroll") {
         let credential = crate::auth::credential(request.headers())?.to_owned();
@@ -96,7 +99,7 @@ pub(super) async fn binary(
     };
     // The task owns admission until streaming and any blocking cleanup have finished.
     match tokio::spawn(async move {
-        let _permit = permit;
+        let _lifetime = (permit, state.lease);
         next.run(request).await
     })
     .await

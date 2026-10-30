@@ -11,6 +11,7 @@ use rusqlite::{Connection, Transaction, TransactionBehavior};
 use crate::database;
 
 mod daemon;
+pub(crate) use daemon::DaemonLease;
 mod error;
 pub(crate) mod security;
 pub use error::{StoreError, StoreResult};

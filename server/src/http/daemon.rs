@@ -1,4 +1,4 @@
-use std::{io, time::Duration};
+use std::{io, sync::Arc, time::Duration};
 
 use tokio::{net::TcpListener, sync::watch};
 
@@ -7,16 +7,17 @@ use crate::Store;
 /// Serves the router and stops on process termination signals.
 pub async fn serve(listener: TcpListener, store: Store) -> io::Result<()> {
     let startup = store.clone();
-    let _lease = tokio::task::spawn_blocking(move || {
+    let lease = tokio::task::spawn_blocking(move || {
         let lease = startup.take_daemon_lease()?;
         startup.prepare_daemon()?;
-        Ok::<_, crate::StoreError>(lease)
+        Ok::<_, crate::StoreError>(Arc::new(lease))
     })
     .await
     .map_err(io::Error::other)?
     .map_err(io::Error::other)?;
     let (stop, mut stopped) = watch::channel(false);
     let expiry_store = store.clone();
+    let expiry_lease = Arc::clone(&lease);
     let reaper = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
@@ -25,7 +26,9 @@ pub async fn serve(listener: TcpListener, store: Store) -> io::Result<()> {
                 _ = interval.tick() => {}
             }
             let store = expiry_store.clone();
+            let lease = Arc::clone(&expiry_lease);
             let _ = tokio::task::spawn_blocking(move || {
+                let _lease = lease;
                 if let Ok(now) = store.now() {
                     let _ = store.reap_uploads(now);
                 }
@@ -33,7 +36,8 @@ pub async fn serve(listener: TcpListener, store: Store) -> io::Result<()> {
             .await;
         }
     });
-    let state = super::HttpState::new(store);
+    let mut state = super::HttpState::new(store);
+    state.lease = Some(lease);
     let result = axum::serve(listener, super::router_with_state(state.clone()))
         .with_graceful_shutdown(shutdown_signal())
         .await;
@@ -42,6 +46,9 @@ pub async fn serve(listener: TcpListener, store: Store) -> io::Result<()> {
     state.drain().await;
     result
 }
+
+#[cfg(test)]
+mod tests;
 
 async fn shutdown_signal() {
     #[cfg(unix)]

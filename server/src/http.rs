@@ -27,6 +27,7 @@ const CONTROL_LIMIT: usize = 256 * 1024;
 #[derive(Clone)]
 struct HttpState {
     store: Store,
+    lease: Option<Arc<crate::store::DaemonLease>>,
     controls: Arc<Semaphore>,
     workers: Arc<Semaphore>,
     streams: Arc<Semaphore>,
@@ -36,6 +37,7 @@ impl HttpState {
     fn new(store: Store) -> Self {
         Self {
             store,
+            lease: None,
             controls: Arc::new(Semaphore::new(32)),
             workers: Arc::new(Semaphore::new(8)),
             streams: Arc::new(Semaphore::new(8)),
