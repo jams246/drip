@@ -88,7 +88,6 @@ impl RequestHandler<'_> {
             .send(Event::Message {
                 settings: false,
                 feedback: message,
-                busy: false,
             })
             .await;
     }
@@ -107,7 +106,6 @@ impl RequestHandler<'_> {
             .send(Event::Message {
                 settings: false,
                 feedback: message,
-                busy: false,
             })
             .await;
     }
@@ -115,24 +113,12 @@ impl RequestHandler<'_> {
     async fn startup(&mut self, enabled: bool) {
         let result = SettingsStore::open(self.directory).set_start_at_sign_in(enabled);
         self.reload().await;
-        let message = match result {
-            Ok(()) => feedback::action(
-                if enabled {
-                    "Start at sign-in enabled."
-                } else {
-                    "Start at sign-in disabled."
-                },
-                FeedbackSeverity::Success,
-                Some("Windows sign-in preference saved.".into()),
-            ),
-            Err(error) => feedback::startup(&error),
-        };
+        let message = result.err().map(|error| feedback::startup(&error));
         let _ = self
             .events
             .send(Event::Message {
                 settings: true,
-                feedback: Some(message),
-                busy: false,
+                feedback: message,
             })
             .await;
     }

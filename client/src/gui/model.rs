@@ -16,7 +16,6 @@ use super::{input::Input, runtime::Request};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum FeedbackSeverity {
     Info,
-    Success,
     Warning,
     Error,
 }

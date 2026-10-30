@@ -146,7 +146,6 @@ fn start(
                         control.send_modify(|desired| desired.stop = true);
                         let _ = window.update(cx, |shell, _, cx| {
                             shell.state.quitting = true;
-                            shell.state.diagnostic = Some(feedback::stopping());
                             cx.notify();
                         });
                         if requests.send(runtime::Request::Quit).await.is_err() { cx.update(|cx| cx.quit()); break; }

@@ -45,14 +45,6 @@ pub(super) fn render(
                     |shell, _, window, cx| shell.add_file(window, cx),
                 )),
         );
-    if let Some(feedback) = &shell.state.watch_feedback {
-        page = page.child(components::feedback_summary(
-            cx,
-            window,
-            "watch-message",
-            feedback,
-        ));
-    }
     let mut list = components::watched_list("watch-watched-list");
     let mut has_rows = false;
     for (index, selection) in shell.state.active_selections().enumerate() {

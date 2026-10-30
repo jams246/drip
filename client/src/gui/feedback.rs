@@ -115,14 +115,6 @@ pub(super) fn diagnostic(detail: impl Into<String>) -> Feedback {
     )
 }
 
-pub(super) fn stopping() -> Feedback {
-    Feedback::new(
-        "Stopping Drip safely. Please wait.",
-        FeedbackSeverity::Info,
-        Some("Waiting for safe engine shutdown and the server mutation barrier.".into()),
-    )
-}
-
 pub(super) fn action(
     summary: impl Into<String>,
     severity: FeedbackSeverity,

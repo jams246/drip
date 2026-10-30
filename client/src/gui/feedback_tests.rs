@@ -56,15 +56,6 @@ fn uncertain_upload_outcome_asks_user_to_check_activity_and_server() {
 }
 
 #[test]
-fn stopping_summary_hides_barrier_details_for_activity_routing() {
-    let feedback = stopping();
-    assert_eq!(feedback.summary, "Stopping Drip safely. Please wait.");
-    assert_eq!(feedback.severity, FeedbackSeverity::Info);
-    assert!(!feedback.summary.contains("mutation barrier"));
-    assert!(feedback.detail.unwrap().contains("server mutation barrier"));
-}
-
-#[test]
 fn pending_removal_keeps_the_server_copy_after_confirmation_too() {
     let feedback = remove_selection(&EngineError::CommitUncertain);
     assert_eq!(

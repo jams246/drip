@@ -6,26 +6,6 @@ use crate::gui::{
     theme,
 };
 
-pub(in crate::gui::views) fn summary(
-    cx: &mut Context<Shell>,
-    window: &mut Window,
-    id: &'static str,
-    feedback: &Feedback,
-) -> impl IntoElement {
-    let color = color(feedback.severity);
-    let mut view = div()
-        .id(id)
-        .flex()
-        .flex_col()
-        .gap_2()
-        .text_color(rgb(color))
-        .child(feedback.summary.clone());
-    if needs_activity_link(feedback) {
-        view = view.child(activity_link(cx, window, id, "View Activity"));
-    }
-    view
-}
-
 pub(in crate::gui::views) fn technical(
     id: &'static str,
     heading: &'static str,
@@ -89,31 +69,7 @@ pub(in crate::gui::views) fn activity_link(
 fn color(severity: FeedbackSeverity) -> u32 {
     match severity {
         FeedbackSeverity::Info => theme::MUTED,
-        FeedbackSeverity::Success => theme::SUCCESS,
         FeedbackSeverity::Warning => theme::WARNING,
         FeedbackSeverity::Error => theme::ERROR,
-    }
-}
-
-fn needs_activity_link(feedback: &Feedback) -> bool {
-    feedback.severity == FeedbackSeverity::Error
-        || (feedback.severity == FeedbackSeverity::Warning && feedback.detail.is_some())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn warning_failures_link_to_their_technical_details() {
-        let feedback =
-            crate::gui::feedback::remove_selection(&drip_client::EngineError::CommitUncertain);
-        assert!(needs_activity_link(&feedback));
-    }
-
-    #[test]
-    fn errors_without_local_detail_still_link_to_activity_diagnostics() {
-        let feedback = Feedback::new("Could not load settings.", FeedbackSeverity::Error, None);
-        assert!(needs_activity_link(&feedback));
     }
 }

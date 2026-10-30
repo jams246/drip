@@ -118,17 +118,11 @@ impl Shell {
             Ok(()) => {
                 self.state.busy = true;
                 self.state.connecting = connecting;
-                let (summary, page_feedback) = if connecting {
-                    ("Connecting...", &mut self.state.settings_feedback)
-                } else if settings {
-                    (
-                        "Saving sign-in preference...",
-                        &mut self.state.settings_feedback,
-                    )
+                if settings {
+                    self.state.settings_feedback = None;
                 } else {
-                    ("Updating Watch...", &mut self.state.watch_feedback)
-                };
-                *page_feedback = Some(feedback::action(summary, FeedbackSeverity::Info, None));
+                    self.state.watch_feedback = None;
+                }
             }
             Err(_) => {
                 self.state.connecting = false;

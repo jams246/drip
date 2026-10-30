@@ -10,7 +10,7 @@ pub(super) fn render(
     cx: &mut Context<Shell>,
 ) -> impl IntoElement {
     let enabled = !shell.state.loading && !shell.state.busy && !shell.state.quitting;
-    let mut server = components::card(
+    let server = components::card(
         "settings-server-card")
     .child(components::card_heading("Your server"))
     .child(
@@ -56,14 +56,6 @@ pub(super) fn render(
         enabled,
         |shell, _, window, cx| shell.pair(window, cx),
     )));
-    if let Some(feedback) = &shell.state.settings_feedback {
-        server = server.child(components::feedback_summary(
-            cx,
-            window,
-            "settings-message",
-            feedback,
-        ));
-    }
     let this_computer = components::card("settings-computer-card")
         .child(components::card_heading("This computer"))
         .child(components::startup_checkbox(

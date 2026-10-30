@@ -15,14 +15,6 @@ pub(super) fn render(
     cx: &mut Context<Shell>,
 ) -> impl IntoElement {
     let mut page = div().id("drip-home").w_full().flex().flex_col().gap_6();
-    if shell.control.borrow().paused
-        && shell.state.status.connection != drip_client::ConnectionState::Paused
-    {
-        page = page.child(components::message("home-pausing", "Pausing..."));
-    }
-    if shell.state.quitting {
-        page = page.child(components::message("home-stopping", "Stopped"));
-    }
     let mut has_rows = false;
     let mut list = components::watched_list("home-watched-list");
     for (index, selection) in shell.state.active_selections().enumerate() {

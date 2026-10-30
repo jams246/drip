@@ -28,11 +28,6 @@ impl Shell {
                     }
                     Err(error) => {
                         self.state.diagnostic = Some(error);
-                        self.state.settings_feedback = Some(Feedback::new(
-                            "Settings could not be loaded. Preserve drip.json and open Activity for details.",
-                            FeedbackSeverity::Error,
-                            None,
-                        ));
                     }
                 }
                 match initial.logs {
@@ -50,14 +45,6 @@ impl Shell {
                                 input.set_value(binding.server.clone(), cx)
                             });
                         }
-                        self.state.settings_feedback = Some(Feedback::new(
-                            "Saved registration loaded. Current reachability appears in the footer.",
-                            FeedbackSeverity::Info,
-                            Some(format!(
-                                "Computer ID: {}. Server folder: /mirror/{}. Credential stored with user-scoped Windows DPAPI.",
-                                binding.pc_id, binding.mirror_directory
-                            )),
-                        ));
                         self.state.binding = Some(binding);
                         self.tab = Tab::Home;
                         window.focus(&self.tab_focus[self.tab.index()], cx);
@@ -98,28 +85,14 @@ impl Shell {
                 self.server
                     .update(cx, |input, cx| input.set_value(binding.server.clone(), cx));
                 self.token.update(cx, |input, cx| input.clear(cx));
-                self.state.settings_feedback = Some(Feedback::new(
-                    "Computer registration saved. Current reachability appears in the footer.",
-                    FeedbackSeverity::Success,
-                    Some(format!(
-                        "Computer ID: {}. Server folder: /mirror/{}. Credential stored with user-scoped Windows DPAPI.",
-                        binding.pc_id, binding.mirror_directory
-                    )),
-                ));
                 self.state.binding = Some(binding);
                 self.state.busy = false;
                 self.state.connecting = false;
                 self.select_tab(Tab::Home, window, cx);
             }
-            Event::Message {
-                settings,
-                feedback,
-                busy,
-            } => {
-                self.state.busy = busy;
-                if !busy {
-                    self.state.connecting = false;
-                }
+            Event::Message { settings, feedback } => {
+                self.state.busy = false;
+                self.state.connecting = false;
                 if settings {
                     self.state.settings_feedback = feedback;
                 } else {
@@ -128,12 +101,7 @@ impl Shell {
             }
             Event::Diagnostic(feedback) => self.state.diagnostic = Some(feedback),
             Event::Fatal(feedback) => {
-                self.state.diagnostic = Some(feedback.clone());
-                self.state.settings_feedback = Some(Feedback::new(
-                    "Drip could not start. Open Activity for technical details.",
-                    FeedbackSeverity::Error,
-                    None,
-                ));
+                self.state.diagnostic = Some(feedback);
                 self.state.loading = false;
                 self.state.busy = false;
                 self.state.connecting = false;

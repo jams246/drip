@@ -15,29 +15,12 @@ use super::{NextFocus, Pause, PreviousFocus, Quit, theme};
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tab = self.tab;
-        let mut content = match tab {
+        let content = match tab {
             Tab::Home => home::render(self, window, cx).into_any_element(),
             Tab::Watch => watch::render(self, window, cx).into_any_element(),
             Tab::Activity => logs::render(self, window, cx).into_any_element(),
             Tab::Settings => settings::render(self, window, cx).into_any_element(),
         };
-        if tab != Tab::Activity
-            && let Some(diagnostic) = &self.state.diagnostic
-        {
-            content = div()
-                .w_full()
-                .flex()
-                .flex_col()
-                .gap_4()
-                .child(content)
-                .child(components::feedback_summary(
-                    cx,
-                    window,
-                    "drip-diagnostic-summary",
-                    diagnostic,
-                ))
-                .into_any_element();
-        }
         let scroll = self.tab_scroll[tab.index()].clone();
         let panel_scroll = scroll.clone();
         let scrollbar =

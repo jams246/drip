@@ -47,7 +47,6 @@ pub(super) enum Event {
     Message {
         settings: bool,
         feedback: Option<Feedback>,
-        busy: bool,
     },
     Diagnostic(Feedback),
     Fatal(Feedback),

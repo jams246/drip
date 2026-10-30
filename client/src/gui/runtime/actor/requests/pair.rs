@@ -14,22 +14,10 @@ impl RequestHandler<'_> {
         label: String,
         token: drip_core::SensitiveString,
     ) -> bool {
-        if let Some(running) = self.worker.take() {
-            let _ = self
-                .events
-                .send(Event::Message {
-                    settings: true,
-                    feedback: Some(feedback::action(
-                        "Connecting... Waiting for the existing connection to stop safely.",
-                        FeedbackSeverity::Info,
-                        None,
-                    )),
-                    busy: true,
-                })
-                .await;
-            if let Some(error) = running.stop(self.control).await {
-                let _ = self.events.send(Event::Diagnostic(error)).await;
-            }
+        if let Some(running) = self.worker.take()
+            && let Some(error) = running.stop(self.control).await
+        {
+            let _ = self.events.send(Event::Diagnostic(error)).await;
         }
         if *self.quit.borrow() {
             return true;
@@ -52,7 +40,6 @@ impl RequestHandler<'_> {
                         .events
                         .send(Event::Message {
                             settings: true,
-                            busy: false,
                             feedback: Some(feedback::action(
                                 "Connected. Computer name could not be saved.",
                                 FeedbackSeverity::Warning,
@@ -68,7 +55,6 @@ impl RequestHandler<'_> {
                     .send(Event::Message {
                         settings: true,
                         feedback: Some(feedback::pairing(&error)),
-                        busy: false,
                     })
                     .await;
             }

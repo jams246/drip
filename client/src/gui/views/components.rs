@@ -8,9 +8,7 @@ use gpui::{ElementId, IntoElement, Stateful, div, prelude::*, px, rgb};
 use super::super::theme;
 
 pub(super) use controls::{ButtonKind, button, field, startup_checkbox};
-pub(super) use feedback::{
-    activity_link, summary as feedback_summary, technical as technical_feedback,
-};
+pub(super) use feedback::{activity_link, technical as technical_feedback};
 pub(super) use icons::{Glyph, icon};
 pub(super) use watched::{list as watched_list, row as watched_row};
 
@@ -69,14 +67,6 @@ pub(super) fn footer(connection: &str) -> impl IntoElement {
                 .child("DRIP")
                 .child(env!("CARGO_PKG_VERSION")),
         )
-}
-
-pub(super) fn message(id: &'static str, text: &str) -> impl IntoElement {
-    div()
-        .id(id)
-        .text_sm()
-        .text_color(rgb(theme::MUTED))
-        .child(text.to_owned())
 }
 
 pub(super) fn card(id: impl Into<ElementId>) -> Stateful<gpui::Div> {
