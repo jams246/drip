@@ -64,14 +64,7 @@ impl RequestHandler<'_> {
                         .await;
                 }
                 if added.authority_over.is_empty() {
-                    feedback::action(
-                        "File or folder added to Watch.",
-                        FeedbackSeverity::Success,
-                        Some(
-                            "Selection saved. Existing server copies remain until sync confirms changes."
-                                .into(),
-                        ),
-                    )
+                    None
                 } else {
                     let retained = added
                         .authority_over
@@ -79,14 +72,14 @@ impl RequestHandler<'_> {
                         .map(|path| path.to_windows_path())
                         .collect::<Vec<_>>()
                         .join(", ");
-                    feedback::action(
+                    Some(feedback::action(
                         "This folder now controls retained items, including their changes and deletions.",
                         FeedbackSeverity::Warning,
                         Some(format!("Affected retained items: {retained}")),
-                    )
+                    ))
                 }
             }
-            Err(error) => feedback::add_selection(&error),
+            Err(error) => Some(feedback::add_selection(&error)),
         };
         self.reload().await;
         self.refresh_selections();
@@ -94,7 +87,7 @@ impl RequestHandler<'_> {
             .events
             .send(Event::Message {
                 settings: false,
-                feedback: Some(message),
+                feedback: message,
                 busy: false,
             })
             .await;
