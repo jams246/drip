@@ -126,3 +126,6 @@ fn api_error(status: StatusCode, body: Vec<u8>) -> EngineError {
         retryable: error.retryable,
     }
 }
+
+#[cfg(test)]
+mod tests;
