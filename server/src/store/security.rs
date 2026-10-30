@@ -86,14 +86,17 @@ fn secure(file: &std::fs::File, directory: bool) -> StoreResult<()> {
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        // SQLite may unlink a sidecar after it has been opened for validation.
         if metadata.uid() != rustix::process::geteuid().as_raw()
-            || (!directory && metadata.nlink() != 1)
+            || (!directory && metadata.nlink() > 1)
         {
             return Err(invalid_storage());
         }
         let mode = if directory { 0o700 } else { 0o600 };
-        file.set_permissions(std::fs::Permissions::from_mode(mode))
-            .map_err(database::io_error)?;
+        if metadata.mode() & 0o7777 != mode {
+            file.set_permissions(std::fs::Permissions::from_mode(mode))
+                .map_err(database::io_error)?;
+        }
     }
     Ok(())
 }
@@ -103,4 +106,18 @@ fn invalid_storage() -> crate::StoreError {
         io::ErrorKind::PermissionDenied,
         "server storage must use private, service-owned ordinary files and directories",
     ))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    #[tokio::test]
+    async fn removed_sidecar_does_not_fail_storage_validation() {
+        let fixture = crate::upload_race_test_common::Fixture::new().await;
+        let directory = &fixture.store.state_directory;
+        let file = super::private_file(directory, "synthetic-sidecar", true)
+            .unwrap()
+            .unwrap();
+        directory.remove_file("synthetic-sidecar").unwrap();
+        assert!(super::secure(&file, false).is_ok());
+    }
 }
