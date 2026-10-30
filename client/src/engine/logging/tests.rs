@@ -1,4 +1,5 @@
 use super::*;
+use std::fs;
 
 fn directory() -> PathBuf {
     let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -74,6 +75,7 @@ fn append_rotates_before_either_log_exceeds_five_mib() {
     assert!(directory.join("drip.log.1").is_file());
     for name in ["drip.log", "drip.log.1"] {
         let path = directory.join(name);
+        crate::private_file::tests::assert_private(&path);
         assert!(fs::metadata(&path).unwrap().len() <= MAX_BYTES);
         for line in fs::read_to_string(path).unwrap().lines() {
             serde_json::from_str::<serde_json::Value>(line).unwrap();

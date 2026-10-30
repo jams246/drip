@@ -1,6 +1,4 @@
-use std::{fs, io, os::windows::fs::MetadataExt};
-
-use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+use std::{fs, io};
 
 use super::{SettingsError, SettingsStore, path_error};
 use crate::settings::ClientSettings;
@@ -28,15 +26,8 @@ impl SettingsStore {
     }
 
     fn load_existing_unlocked(&self) -> Result<ClientSettings, SettingsError> {
-        let metadata = fs::symlink_metadata(&self.path)
-            .map_err(|source| path_error("inspect", &self.path, source))?;
-        if !metadata.file_type().is_file()
-            || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
-        {
-            return Err(SettingsError::InvalidTarget(self.path.clone()));
-        }
-        let bytes =
-            fs::read(&self.path).map_err(|source| path_error("read", &self.path, source))?;
+        let bytes = crate::private_file::read(&self.path, 4 * 1024 * 1024)
+            .map_err(|source| path_error("read", &self.path, source))?;
         let settings: ClientSettings =
             serde_json::from_slice(&bytes).map_err(SettingsError::Decode)?;
         super::super::validation::validate(&settings)?;

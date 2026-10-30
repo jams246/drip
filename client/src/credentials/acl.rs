@@ -3,13 +3,13 @@
     reason = "Windows ACL APIs require audited pointer boundaries"
 )]
 
-use std::{io, os::windows::ffi::OsStrExt, path::Path, ptr};
+use std::{fs::File, io, os::windows::io::AsRawHandle, path::Path, ptr};
 
 use windows::Win32::{
-    Foundation::{HLOCAL, LocalFree},
+    Foundation::{HANDLE, HLOCAL, LocalFree},
     Security::Authorization::{
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1, SE_FILE_OBJECT,
-        SetNamedSecurityInfoW,
+        SetSecurityInfo,
     },
     Security::{
         ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl,
@@ -19,7 +19,10 @@ use windows::Win32::{
 use windows::core::{BOOL, PCWSTR};
 
 pub(crate) fn secure_file(path: &Path) -> io::Result<()> {
-    let path_wide = wide_path(path)?;
+    crate::private_file::open(path, false, false).map(drop)
+}
+
+pub(crate) fn secure_handle(file: &File) -> io::Result<()> {
     let sddl: Vec<u16> = "D:P(A;;FA;;;OW)(A;;FA;;;SY)(A;;FA;;;BA)\0"
         .encode_utf16()
         .collect();
@@ -47,10 +50,10 @@ pub(crate) fn secure_file(path: &Path) -> io::Result<()> {
         ));
     }
     let security_info = DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION;
-    // SAFETY: `path_wide` and `dacl` stay live for the call; DACL grants owner, SYSTEM, and administrators.
+    // SAFETY: the file handle and `dacl` stay live; DACL grants owner, SYSTEM, and administrators.
     let code = unsafe {
-        SetNamedSecurityInfoW(
-            PCWSTR(path_wide.as_ptr()),
+        SetSecurityInfo(
+            HANDLE(file.as_raw_handle()),
             SE_FILE_OBJECT,
             security_info,
             None,
@@ -63,17 +66,6 @@ pub(crate) fn secure_file(path: &Path) -> io::Result<()> {
         return Err(io::Error::from_raw_os_error(code.0 as i32));
     }
     Ok(())
-}
-
-fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
-    let wide: Vec<u16> = path.as_os_str().encode_wide().collect();
-    if wide.contains(&0) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "credentials path contains a NUL character",
-        ));
-    }
-    Ok(wide.into_iter().chain(Some(0)).collect())
 }
 
 struct SecurityDescriptor(PSECURITY_DESCRIPTOR);

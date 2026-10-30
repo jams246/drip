@@ -1,5 +1,5 @@
 use std::{
-    fs, io,
+    io,
     path::{Path, PathBuf},
 };
 
@@ -31,7 +31,7 @@ impl CredentialStore {
 
     /// Loads and validates the current user's encrypted pairing envelope.
     pub fn load(&self) -> Result<Pairing, CredentialError> {
-        let ciphertext = match fs::read(&self.path) {
+        let ciphertext = match crate::private_file::read(&self.path, 64 * 1024) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return Err(CredentialError::NotPaired);

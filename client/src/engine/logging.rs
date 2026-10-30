@@ -1,6 +1,5 @@
 use std::{
     collections::VecDeque,
-    fs::{self, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::Mutex,
@@ -10,6 +9,9 @@ use std::{
 use drip_core::Timestamp;
 
 use super::lifecycle::{EventKind, LifecycleEvent};
+
+mod storage;
+use storage::{open_log, read_log, rotate};
 
 const MAX_BYTES: u64 = 5 * 1024 * 1024;
 const MAX_EVENT_TEXT_BYTES: usize = 4096;
@@ -45,21 +47,29 @@ impl ActivityLog {
             ));
         }
 
-        let size = file_size(&self.path)?;
+        let _parents = crate::private_file::parents(&self.path)?;
+        let mut file = open_log(&self.path)?;
+        let size = file.metadata()?.len();
         if size > MAX_BYTES {
             return Err(io::Error::other("activity log exceeds its size limit"));
         }
-        let incomplete = has_incomplete_tail(&self.path, size)?;
+        let incomplete = if size == 0 {
+            false
+        } else {
+            file.seek(SeekFrom::End(-1))?;
+            let mut last = [0];
+            file.read_exact(&mut last)?;
+            last[0] != b'\n'
+        };
         let rotated = self.path.with_file_name("drip.log.1");
         let extra = line.len() as u64 + u64::from(incomplete);
         let should_rotate = size.saturating_add(extra) > MAX_BYTES;
         if should_rotate {
+            drop(file);
             rotate(&self.path, &rotated)?;
+            file = open_log(&self.path)?;
         }
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)?;
+        file.seek(SeekFrom::End(0))?;
         if incomplete && !should_rotate {
             file.write_all(b"\n")?;
         }
@@ -170,54 +180,6 @@ fn current_timestamp() -> io::Result<Timestamp> {
         .map_err(io::Error::other)?;
     let seconds = i64::try_from(elapsed.as_secs()).map_err(io::Error::other)?;
     Timestamp::new(seconds, elapsed.subsec_nanos()).map_err(io::Error::other)
-}
-
-fn file_size(path: &Path) -> io::Result<u64> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_file() => Ok(metadata.len()),
-        Ok(_) => Err(io::Error::other("activity log is not a regular file")),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(0),
-        Err(error) => Err(error),
-    }
-}
-
-fn has_incomplete_tail(path: &Path, size: u64) -> io::Result<bool> {
-    if size == 0 {
-        return Ok(false);
-    }
-    let mut file = fs::File::open(path)?;
-    file.seek(SeekFrom::End(-1))?;
-    let mut last = [0];
-    file.read_exact(&mut last)?;
-    Ok(last[0] != b'\n')
-}
-
-fn rotate(current: &Path, rotated: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(rotated) {
-        Ok(metadata) if metadata.file_type().is_file() => fs::remove_file(rotated)?,
-        Ok(_) => {
-            return Err(io::Error::other(
-                "rotated activity log is not a regular file",
-            ));
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    fs::rename(current, rotated)
-}
-
-fn read_log(path: &Path) -> io::Result<Option<Vec<u8>>> {
-    let file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(io::Error::other("activity log exceeds its size limit"));
-    }
-    Ok(Some(bytes))
 }
 
 fn complete_records(bytes: &[u8]) -> (&[u8], bool) {

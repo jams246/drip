@@ -1,10 +1,9 @@
 #![expect(unsafe_code, reason = "Windows atomic replacement uses native APIs")]
 
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     io::{self, Write},
     os::windows::ffi::OsStrExt,
-    os::windows::fs::MetadataExt,
     path::{Path, PathBuf},
     process,
     sync::atomic::{AtomicU64, Ordering},
@@ -14,10 +13,7 @@ use std::{
 
 use windows::{
     Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION},
-    Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_REPARSE_POINT, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-        MoveFileExW,
-    },
+    Win32::Storage::FileSystem::{MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW},
     core::PCWSTR,
 };
 
@@ -28,16 +24,16 @@ const REPLACE_RETRY_COUNT: u8 = 20;
 const REPLACE_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 pub(super) fn replace_with(destination: &Path, bytes: &[u8]) -> Result<(), SettingsError> {
+    if bytes.len() > 4 * 1024 * 1024 {
+        return Err(SettingsError::InvalidState(
+            "settings exceed the 4 MiB size limit",
+        ));
+    }
+    let _parents = crate::private_file::parents(destination)
+        .map_err(|source| path_error("inspect directory", destination, source))?;
     let temporary = write_temporary(destination, bytes)?;
-    match fs::symlink_metadata(destination) {
-        Ok(metadata)
-            if metadata.file_type().is_file()
-                && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 == 0 =>
-        {
-            crate::credentials::acl::secure_file(destination)
-                .map_err(|source| path_error("protect permissions on", destination, source))?;
-        }
-        Ok(_) => return Err(SettingsError::InvalidTarget(destination.to_owned())),
+    match crate::private_file::open(destination, false, false) {
+        Ok(file) => drop(file),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(source) => return Err(path_error("inspect", destination, source)),
     }
@@ -51,12 +47,9 @@ fn write_temporary(destination: &Path, bytes: &[u8]) -> Result<TemporaryFile, Se
     for _ in 0..32 {
         let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = parent.join(format!(".drip.json.{}.{}.tmp", process::id(), counter));
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
+        match crate::private_file::open(&path, true, true) {
             Ok(mut file) => {
                 let temporary = TemporaryFile { path };
-                crate::credentials::acl::secure_file(&temporary.path).map_err(|source| {
-                    path_error("protect permissions on", &temporary.path, source)
-                })?;
                 file.write_all(bytes)
                     .map_err(|source| path_error("write", &temporary.path, source))?;
                 file.flush()

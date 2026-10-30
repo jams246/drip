@@ -4,7 +4,7 @@
 )]
 
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     io::{self, Write},
     os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
@@ -17,7 +17,7 @@ use windows::{
     core::PCWSTR,
 };
 
-use super::{CredentialError, acl, path_error};
+use super::{CredentialError, path_error};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -26,13 +26,11 @@ pub(super) fn replace_with(
     ciphertext: &[u8],
     mut checkpoint: impl FnMut(Stage),
 ) -> Result<(), CredentialError> {
+    let _parents = crate::private_file::parents(path)
+        .map_err(|source| path_error("inspect directory", path, source))?;
     let temporary = write_temporary(path, ciphertext)?;
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_file() => {
-            acl::secure_file(path)
-                .map_err(|source| path_error("protect permissions on", path, source))?;
-        }
-        Ok(_) => return Err(CredentialError::InvalidTarget(path.to_owned())),
+    match crate::private_file::open(path, false, false) {
+        Ok(file) => drop(file),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(source) => return Err(path_error("inspect", path, source)),
     }
@@ -56,12 +54,9 @@ fn write_temporary(
             process::id(),
             counter
         ));
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
+        match crate::private_file::open(&path, true, true) {
             Ok(mut file) => {
                 let temporary = TemporaryFile { path };
-                acl::secure_file(&temporary.path).map_err(|source| {
-                    path_error("protect permissions on", &temporary.path, source)
-                })?;
                 file.write_all(ciphertext)
                     .map_err(|source| path_error("write", &temporary.path, source))?;
                 file.flush()

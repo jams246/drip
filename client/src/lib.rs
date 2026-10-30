@@ -6,6 +6,9 @@ pub mod transport;
 pub mod credentials;
 
 #[cfg(windows)]
+mod private_file;
+
+#[cfg(windows)]
 mod engine;
 
 #[cfg(windows)]
