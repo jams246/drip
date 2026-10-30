@@ -158,8 +158,11 @@ fn ensure(root: &Dir) -> StoreResult<Dir> {
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(crate::database::io_error(error)),
     }
-    root.open_dir_nofollow(STAGING_NAME)
-        .map_err(crate::database::io_error)
+    let directory = root
+        .open_dir_nofollow(STAGING_NAME)
+        .map_err(crate::database::io_error)?;
+    crate::store::security::private_directory(&directory)?;
+    Ok(directory)
 }
 
 fn map_error(error: io::Error) -> StoreError {

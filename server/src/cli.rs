@@ -46,8 +46,12 @@ enum DevicesCommand {
 
 pub async fn run() -> Result<()> {
     let arguments = Arguments::parse();
-    let store = Store::open(&arguments.state_dir, &arguments.mirror_dir)
-        .context("open server state and mirror directories")?;
+    let store = if matches!(arguments.command, Command::Serve { .. }) {
+        Store::open_for_daemon(&arguments.state_dir, &arguments.mirror_dir)
+    } else {
+        Store::open(&arguments.state_dir, &arguments.mirror_dir)
+    }
+    .context("open server state and mirror directories")?;
     match arguments.command {
         Command::Serve { listen } => {
             let listener = TcpListener::bind(listen)

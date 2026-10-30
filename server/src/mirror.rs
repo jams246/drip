@@ -1,11 +1,20 @@
 use std::path::Path;
 
+use cap_fs_ext::DirExt;
 use cap_std::{ambient_authority, fs::Dir};
 
 use crate::{StoreError, StoreResult, database};
 
 pub(crate) fn open_root(path: &Path) -> StoreResult<Dir> {
-    Dir::open_ambient_dir(path, ambient_authority()).map_err(database::io_error)
+    let name = path.file_name().ok_or(StoreError::InvalidInput)?;
+    let parent = path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    Dir::open_ambient_dir(parent, ambient_authority())
+        .map_err(database::io_error)?
+        .open_dir_nofollow(name)
+        .map_err(database::io_error)
 }
 
 pub(crate) fn create_device_directory(root: &Dir, name: &str) -> StoreResult<bool> {

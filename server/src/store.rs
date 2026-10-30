@@ -8,9 +8,11 @@ use cap_std::fs::Dir;
 use drip_core::protocol::Selection;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
-use crate::{database, mirror};
+use crate::database;
 
+mod daemon;
 mod error;
+pub(crate) mod security;
 pub use error::{StoreError, StoreResult};
 
 /// Authenticated identity passed to a mutation held under SQLite's writer lock.
@@ -36,6 +38,8 @@ pub struct DeviceRecord {
 #[derive(Clone)]
 pub struct Store {
     pub(crate) database_path: Arc<PathBuf>,
+    state_directory: Arc<Dir>,
+    daemon_lease: Arc<std::sync::Mutex<Option<daemon::DaemonLease>>>,
     pub(crate) mirror: Arc<Dir>,
     pub(crate) exchange_supported: bool,
     pub(crate) clock: Arc<dyn Fn() -> StoreResult<i64> + Send + Sync>,
@@ -50,16 +54,17 @@ impl Store {
     ) -> StoreResult<Self> {
         let state_directory = state_directory.as_ref();
         let mirror_directory = mirror_directory.as_ref();
-        std::fs::create_dir_all(state_directory).map_err(database::io_error)?;
-        std::fs::create_dir_all(mirror_directory).map_err(database::io_error)?;
+        let state = Arc::new(security::root(state_directory)?);
         let database_path = state_directory.join("drip.sqlite3");
-        let mirror = Arc::new(mirror::open_root(mirror_directory)?);
+        let mirror = Arc::new(security::root(mirror_directory)?);
         let exchange_supported = crate::upload_exchange::probe(&mirror)?;
         let uploads = Arc::new(crate::upload_sessions::UploadSessions::new(Arc::clone(
             &mirror,
         )));
         let store = Self {
             database_path: Arc::new(database_path),
+            state_directory: state,
+            daemon_lease: Arc::new(std::sync::Mutex::new(None)),
             mirror,
             exchange_supported,
             clock: Arc::new(system_unix_seconds),
@@ -85,6 +90,7 @@ impl Store {
     }
 
     pub(crate) fn connect(&self) -> StoreResult<Connection> {
+        security::database_files(&self.state_directory)?;
         database::connect(&self.database_path)
     }
 
@@ -143,9 +149,12 @@ impl Store {
     }
 
     pub(crate) fn open_device_directory(&self, device: &DeviceIdentity) -> StoreResult<Dir> {
-        self.mirror
+        let directory = self
+            .mirror
             .open_dir_nofollow(&device.mirror_directory)
-            .map_err(database::io_error)
+            .map_err(database::io_error)?;
+        security::private_directory(&directory)?;
+        Ok(directory)
     }
 
     pub(crate) fn prepare_daemon(&self) -> StoreResult<()> {
