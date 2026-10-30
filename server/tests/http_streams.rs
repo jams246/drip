@@ -1,4 +1,6 @@
 mod common;
+#[path = "http_streams/lifecycle.rs"]
+mod lifecycle;
 
 use std::{convert::Infallible, process::Command, time::Duration};
 
