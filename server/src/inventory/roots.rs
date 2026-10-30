@@ -2,9 +2,17 @@ use cap_fs_ext::DirExt;
 use cap_std::fs::Dir;
 use drip_core::SourcePath;
 
-use crate::{StoreError, StoreResult, database};
+use crate::{
+    StoreError, StoreResult, database,
+    directory_scan::{Budget, MAX_ALIASES},
+};
 
-pub(crate) fn resolve(root: &Dir, source: &SourcePath) -> StoreResult<Vec<SourcePath>> {
+pub(crate) fn resolve(
+    root: &Dir,
+    source: &SourcePath,
+    budget: &mut Budget,
+) -> StoreResult<Vec<SourcePath>> {
+    budget.path(source)?;
     let drive = source.drive().to_string();
     let drive = match root.open_dir_nofollow(&drive) {
         Ok(drive) => drive,
@@ -19,8 +27,10 @@ pub(crate) fn resolve(root: &Dir, source: &SourcePath) -> StoreResult<Vec<Source
         .iter()
         .enumerate()
         .map(|(index, _)| {
-            SourcePath::new(source.drive(), source.components()[..=index].to_vec())
-                .map_err(|_| StoreError::Conflict)
+            let prefix = SourcePath::new(source.drive(), source.components()[..=index].to_vec())
+                .map_err(|_| StoreError::Conflict)?;
+            budget.path(&prefix)?;
+            Ok(prefix)
         })
         .collect::<StoreResult<Vec<_>>>()?;
     let mut directories = vec![(drive, Vec::new())];
@@ -30,7 +40,8 @@ pub(crate) fn resolve(root: &Dir, source: &SourcePath) -> StoreResult<Vec<Source
         let mut next = Vec::new();
         let mut roots = Vec::new();
         for (directory, components) in directories {
-            for name in names(&directory)? {
+            for name in budget.names(&directory, true)? {
+                budget.child_payload(&components, &name)?;
                 let mut actual_components = components.clone();
                 actual_components.push(name.clone());
                 let Ok(actual) = SourcePath::new(source.drive(), actual_components.clone()) else {
@@ -38,6 +49,10 @@ pub(crate) fn resolve(root: &Dir, source: &SourcePath) -> StoreResult<Vec<Source
                 };
                 if !actual.has_windows_prefix(prefix) {
                     continue;
+                }
+                budget.path(&actual)?;
+                if roots.len() >= MAX_ALIASES || next.len() >= MAX_ALIASES {
+                    return Err(StoreError::UnsupportedEntry);
                 }
                 let metadata = match directory.symlink_metadata(&name) {
                     Ok(metadata) => metadata,
@@ -69,21 +84,4 @@ pub(crate) fn resolve(root: &Dir, source: &SourcePath) -> StoreResult<Vec<Source
         directories = next;
     }
     Ok(Vec::new())
-}
-
-fn names(directory: &Dir) -> StoreResult<Vec<String>> {
-    let mut names = directory
-        .read_dir(".")
-        .map_err(database::io_error)?
-        .map(|entry| {
-            entry
-                .map(|entry| entry.file_name().into_string().ok())
-                .map_err(database::io_error)
-        })
-        .collect::<StoreResult<Vec<_>>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    names.sort_unstable();
-    Ok(names)
 }

@@ -5,6 +5,7 @@ mod api_error;
 mod auth;
 mod database;
 mod directories;
+mod directory_scan;
 mod enrollment;
 mod entries;
 mod entry_files;

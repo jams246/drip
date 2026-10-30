@@ -5,8 +5,12 @@ use cap_std::fs::Dir;
 use drip_core::{SourcePath, protocol::EntryKind};
 
 use crate::{
-    StoreError, StoreResult, database, upload_files, upload_files::FileSnapshot, upload_paths,
+    StoreError, StoreResult, database, directory_scan::Budget, upload_files,
+    upload_files::FileSnapshot, upload_paths,
 };
+
+#[cfg(not(unix))]
+mod fingerprint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DirectorySnapshot {
@@ -33,6 +37,15 @@ impl EntrySnapshot {
 }
 
 pub(crate) fn read_entry(root: &Dir, source: &SourcePath) -> StoreResult<Option<EntrySnapshot>> {
+    read_entry_with_budget(root, source, &mut Budget::default())
+}
+
+pub(crate) fn read_entry_with_budget(
+    root: &Dir,
+    source: &SourcePath,
+    budget: &mut Budget,
+) -> StoreResult<Option<EntrySnapshot>> {
+    budget.path(source)?;
     let Some((parent, name)) = open_parent(root, source)? else {
         return Ok(None);
     };
@@ -45,9 +58,9 @@ pub(crate) fn read_entry(root: &Dir, source: &SourcePath) -> StoreResult<Option<
         let directory = parent
             .open_dir_nofollow(&name)
             .map_err(database::io_error)?;
-        Ok(Some(EntrySnapshot::Directory(snapshot_directory(
-            &directory,
-        )?)))
+        Ok(Some(EntrySnapshot::Directory(
+            snapshot_directory_with_budget(&directory, budget)?,
+        )))
     } else if metadata.is_file() {
         let file = upload_paths::open_file(&parent, &name)?.ok_or(StoreError::Conflict)?;
         Ok(Some(EntrySnapshot::File(upload_files::hash_file(file)?)))
@@ -107,6 +120,13 @@ pub(crate) fn check_directory(
 }
 
 pub(crate) fn snapshot_directory(directory: &Dir) -> StoreResult<DirectorySnapshot> {
+    snapshot_directory_with_budget(directory, &mut Budget::default())
+}
+
+pub(crate) fn snapshot_directory_with_budget(
+    directory: &Dir,
+    _budget: &mut Budget,
+) -> StoreResult<DirectorySnapshot> {
     let metadata = directory
         .symlink_metadata(".")
         .map_err(database::io_error)?;
@@ -116,7 +136,8 @@ pub(crate) fn snapshot_directory(directory: &Dir) -> StoreResult<DirectorySnapsh
     #[cfg(unix)]
     let (change_seconds, change_nanos) = upload_files::change_time(&metadata);
     #[cfg(not(unix))]
-    let (change_seconds, change_nanos) = directory_membership_stamp(directory)?;
+    let (change_seconds, change_nanos) =
+        fingerprint::directory_membership_stamp(directory, _budget)?;
     Ok(DirectorySnapshot {
         device: metadata.dev(),
         inode: metadata.ino(),
@@ -146,56 +167,6 @@ pub(crate) fn check_directory_after_exchange(
         return Err(StoreError::Conflict);
     }
     Ok(())
-}
-
-#[cfg(not(unix))]
-fn directory_membership_stamp(directory: &Dir) -> StoreResult<(i64, i64)> {
-    // Windows does not reliably advance a directory timestamp after a child is created.
-    let mut names = directory
-        .read_dir(".")
-        .map_err(database::io_error)?
-        .map(|entry| {
-            entry
-                .map(|entry| entry.file_name().into_string())
-                .map_err(database::io_error)?
-                .map_err(|_| StoreError::UnsupportedEntry)
-        })
-        .collect::<StoreResult<Vec<_>>>()?;
-    names.sort_unstable();
-
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"drip-directory-membership-v1\0");
-    for name in names {
-        let metadata = directory
-            .symlink_metadata(&name)
-            .map_err(database::io_error)?;
-        let kind = if metadata.is_dir() {
-            1
-        } else if metadata.is_file() {
-            2
-        } else {
-            return Err(StoreError::UnsupportedEntry);
-        };
-        let length = u64::try_from(name.len()).map_err(|_| StoreError::Conflict)?;
-        hasher.update(&length.to_le_bytes());
-        hasher.update(name.as_bytes());
-        hasher.update(&[kind]);
-        hasher.update(&metadata.dev().to_le_bytes());
-        hasher.update(&metadata.ino().to_le_bytes());
-        hasher.update(&metadata.len().to_le_bytes());
-        let modified = crate::upload_times::metadata_timestamp(&metadata)?;
-        hasher.update(&modified.unix_seconds().to_le_bytes());
-        hasher.update(&modified.nanos().to_le_bytes());
-    }
-    let digest = hasher.finalize();
-    let mut seconds = [0; 8];
-    seconds.copy_from_slice(&digest.as_bytes()[..8]);
-    let mut nanos = [0; 4];
-    nanos.copy_from_slice(&digest.as_bytes()[8..12]);
-    Ok((
-        i64::from_le_bytes(seconds),
-        i64::from(u32::from_le_bytes(nanos) % 1_000_000_000),
-    ))
 }
 
 pub(crate) fn check_absent(root: &Dir, source: &SourcePath) -> StoreResult<()> {

@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 
 use crate::{
     StoreError, StoreResult, database,
+    directory_scan::Budget,
     entry_files::{self, EntrySnapshot},
     upload_files, upload_paths,
 };
@@ -28,13 +29,15 @@ pub(crate) fn page(
     source: &SourcePath,
     after: Option<&CursorAnchor>,
 ) -> StoreResult<EntryPageScan> {
+    let mut budget = Budget::default();
+    let roots = super::roots::resolve(root, source, &mut budget)?;
     let mut scan = Scan {
         after,
         entries: Vec::with_capacity(PAGE_SIZE),
         has_more: false,
         anchor_found: false,
+        budget,
     };
-    let roots = super::roots::resolve(root, source)?;
     if roots.is_empty() {
         if matches!(after, Some(CursorAnchor::Digest(_))) {
             return Err(StoreError::Conflict);
@@ -45,7 +48,8 @@ pub(crate) fn page(
         });
     }
     for source in roots {
-        let snapshot = entry_files::read_entry(root, &source)?.ok_or(StoreError::Conflict)?;
+        let snapshot = entry_files::read_entry_with_budget(root, &source, &mut scan.budget)?
+            .ok_or(StoreError::Conflict)?;
         let kind = snapshot.kind();
         scan.push(source.clone(), snapshot)?;
         if kind == EntryKind::Directory && !scan.has_more {
@@ -71,29 +75,17 @@ struct Scan<'a> {
     entries: Vec<ScannedEntry>,
     has_more: bool,
     anchor_found: bool,
+    budget: Budget,
 }
 
 impl Scan<'_> {
     fn children(&mut self, source: &SourcePath, directory: &Dir) -> StoreResult<()> {
-        let mut names = directory
-            .read_dir(".")
-            .map_err(database::io_error)?
-            .map(|entry| entry.map_err(database::io_error))
-            .collect::<StoreResult<Vec<_>>>()?
-            .into_iter()
-            .map(|entry| {
-                entry
-                    .file_name()
-                    .into_string()
-                    .map_err(|_| StoreError::UnsupportedEntry)
-            })
-            .collect::<StoreResult<Vec<_>>>()?;
-        names.sort_unstable();
+        let names = self.budget.names(directory, false)?;
         for name in names {
             if self.has_more {
                 break;
             }
-            let path = child_path(source, &name).map_err(|_| StoreError::UnsupportedEntry)?;
+            let path = self.budget.child(source, &name)?;
             let metadata = match directory.symlink_metadata(&name) {
                 Ok(metadata) => metadata,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -119,9 +111,9 @@ impl Scan<'_> {
                 if in_page {
                     self.entries.push(ScannedEntry {
                         source_path: path.clone(),
-                        snapshot: EntrySnapshot::Directory(entry_files::snapshot_directory(
-                            &child,
-                        )?),
+                        snapshot: EntrySnapshot::Directory(
+                            entry_files::snapshot_directory_with_budget(&child, &mut self.budget)?,
+                        ),
                     });
                 }
                 self.children(&path, &child)?;
@@ -176,10 +168,4 @@ fn compare_paths(left: &SourcePath, right: &SourcePath) -> Ordering {
     left.drive()
         .cmp(&right.drive())
         .then_with(|| left.components().cmp(right.components()))
-}
-
-fn child_path(parent: &SourcePath, name: &str) -> Result<SourcePath, drip_core::SourcePathError> {
-    let mut components = parent.components().to_vec();
-    components.push(name.to_owned());
-    SourcePath::new(parent.drive(), components)
 }
