@@ -138,7 +138,10 @@ impl Fixture {
                 return events;
             }
         }
-        panic!("synthetic fixture did not settle");
+        panic!(
+            "synthetic fixture did not settle: {}",
+            self.failure_summary(&events)
+        );
     }
 
     pub async fn changed(&self, id: &str, epoch: ChangeEpoch) {

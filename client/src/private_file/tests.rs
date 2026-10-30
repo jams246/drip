@@ -152,3 +152,37 @@ fn newly_created_private_state_stays_exclusive_until_initialization_finishes() {
     assert_private(&path);
     assert_eq!(read(&path, 7).unwrap(), b"private");
 }
+
+#[test]
+fn reading_private_state_preserves_its_change_time() {
+    let path = directory().join("state");
+    let mut file = open(&path, true, true).unwrap();
+    file.write_all(b"private").unwrap();
+    drop(file);
+    let before = native_change_time(&path);
+    for _ in 0..3 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert_eq!(read(&path, 7).unwrap(), b"private");
+        assert_eq!(native_change_time(&path), before);
+    }
+    assert_private(&path);
+}
+
+fn native_change_time(path: &Path) -> i64 {
+    use windows::Win32::Storage::FileSystem::{
+        FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
+    };
+    let file = File::open(path).unwrap();
+    let mut basic = FILE_BASIC_INFO::default();
+    // SAFETY: the live file handle and correctly sized writable output remain valid.
+    unsafe {
+        GetFileInformationByHandleEx(
+            HANDLE(file.as_raw_handle()),
+            FileBasicInfo,
+            (&mut basic as *mut FILE_BASIC_INFO).cast(),
+            u32::try_from(std::mem::size_of::<FILE_BASIC_INFO>()).unwrap(),
+        )
+        .unwrap();
+    }
+    basic.ChangeTime
+}

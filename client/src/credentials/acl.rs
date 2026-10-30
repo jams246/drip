@@ -12,8 +12,9 @@ use windows::Win32::{
         GetSecurityInfo, SDDL_REVISION_1, SE_FILE_OBJECT, SetSecurityInfo,
     },
     Security::{
-        ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, OWNER_SECURITY_INFORMATION,
-        PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+        ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorControl, GetSecurityDescriptorDacl,
+        OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+        PSID, SE_DACL_PROTECTED,
     },
 };
 use windows::core::{BOOL, PCWSTR, PWSTR};
@@ -50,6 +51,9 @@ pub(crate) fn secure_handle(file: &File) -> io::Result<()> {
             "Windows returned an empty credentials DACL",
         ));
     }
+    if has_private_dacl(file, dacl)? {
+        return Ok(());
+    }
     let security_info = DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION;
     // SAFETY: the file handle and `dacl` stay live; DACL grants owner, SYSTEM, and administrators.
     let code = unsafe {
@@ -67,6 +71,39 @@ pub(crate) fn secure_handle(file: &File) -> io::Result<()> {
         return Err(io::Error::from_raw_os_error(code.0 as i32));
     }
     Ok(())
+}
+
+fn has_private_dacl(file: &File, expected: *const ACL) -> io::Result<bool> {
+    let mut descriptor = SecurityDescriptor(PSECURITY_DESCRIPTOR::default());
+    let mut actual = ptr::null_mut();
+    // SAFETY: the live file handle and writable outputs remain valid during the call.
+    unsafe {
+        GetSecurityInfo(
+            HANDLE(file.as_raw_handle()),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            Some(&mut actual),
+            None,
+            Some(&mut descriptor.0),
+        )
+    }
+    .ok()
+    .map_err(io::Error::other)?;
+    let mut control = 0;
+    let mut revision = 0;
+    // SAFETY: Windows returned a valid descriptor owned by this scope.
+    unsafe { GetSecurityDescriptorControl(descriptor.0, &mut control, &mut revision) }
+        .map_err(io::Error::other)?;
+    if control & SE_DACL_PROTECTED.0 == 0 || actual.is_null() {
+        return Ok(false);
+    }
+    // SAFETY: both ACLs came from live Windows descriptors and include their allocated size.
+    Ok(unsafe {
+        std::slice::from_raw_parts(actual.cast::<u8>(), usize::from((*actual).AclSize))
+            == std::slice::from_raw_parts(expected.cast::<u8>(), usize::from((*expected).AclSize))
+    })
 }
 
 fn validate_owner(file: &File) -> io::Result<()> {
