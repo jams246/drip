@@ -51,7 +51,7 @@ async fn control_admission_is_bounded_and_disconnects_release_capacity() {
     let app = drip_server::router(fixture.store.clone());
     let (started, mut ready) = tokio::sync::mpsc::unbounded_channel();
     let mut requests = Vec::new();
-    for _ in 0..32 {
+    for _ in 0..4 {
         let started = started.clone();
         let mut announced = false;
         let body = Body::from_stream(futures_util::stream::poll_fn(move |_| {
@@ -66,7 +66,7 @@ async fn control_admission_is_bounded_and_disconnects_release_capacity() {
                 .oneshot(Request::post("/v1/enroll").body(body).unwrap()),
         ));
     }
-    for _ in 0..32 {
+    for _ in 0..4 {
         ready.recv().await.unwrap();
     }
     let response = app

@@ -47,3 +47,73 @@ async fn disconnected_control_keeps_admission_until_blocking_work_finishes() {
     assert_eq!(retained, (31, 7));
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test(start_paused = true)]
+async fn unauthenticated_routes_cannot_exhaust_device_admission() {
+    use axum::{
+        body::{Body, Bytes},
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    let parent = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../.verification/security-audit/http-workers");
+    let root =
+        crate::upload_test_support::create_test_dir(&parent, "unauthenticated", &AtomicU64::new(0));
+    let store = crate::Store::open(root.join("state"), root.join("mirror")).unwrap();
+    let token = store.create_enrollment_token().unwrap();
+    let device = store
+        .enroll(drip_core::protocol::EnrollmentRequest {
+            token: drip_core::SensitiveString::new(token),
+            label: "device".to_owned(),
+        })
+        .unwrap();
+    let app = crate::router(store.clone());
+    let (started, mut ready) = tokio::sync::mpsc::unbounded_channel();
+    let mut stalled = Vec::new();
+    for _ in 0..4 {
+        let started = started.clone();
+        let mut announced = false;
+        let body = Body::from_stream(futures_util::stream::poll_fn(move |_| {
+            if !announced {
+                announced = true;
+                started.send(()).unwrap();
+            }
+            std::task::Poll::<Option<Result<Bytes, std::convert::Infallible>>>::Pending
+        }));
+        stalled.push(tokio::spawn(
+            app.clone()
+                .oneshot(Request::post("/v1/enroll").body(body).unwrap()),
+        ));
+    }
+    for _ in 0..4 {
+        ready.recv().await.unwrap();
+    }
+    let rejected = app
+        .clone()
+        .oneshot(Request::post("/v1/enroll").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let selections = app
+        .clone()
+        .oneshot(
+            Request::get("/v1/selections")
+                .header(
+                    "authorization",
+                    format!("Bearer {}", device.device_credential.expose_secret()),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(selections.status(), StatusCode::OK);
+    for request in stalled {
+        request.abort();
+        let _ = request.await;
+    }
+    drop((app, store));
+    // Aborted stalled requests may still hold store clones for a moment.
+    let _ = std::fs::remove_dir_all(root);
+}

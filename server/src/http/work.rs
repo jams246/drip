@@ -58,7 +58,14 @@ async fn control_request(
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiFailure> {
-    let admission = Arc::clone(&state.controls)
+    // Unauthenticated routes get their own small pool so they cannot starve enrolled devices.
+    let authenticated = !matches!(request.uri().path(), "/healthz" | "/v1/enroll");
+    let (pool, body_deadline) = if authenticated {
+        (&state.controls, Duration::from_secs(15))
+    } else {
+        (&state.unauthenticated, Duration::from_secs(5))
+    };
+    let admission = Arc::clone(pool)
         .try_acquire_owned()
         .map_err(|_| StoreError::CapacityExhausted)?;
     let work = ControlWork {
@@ -67,14 +74,14 @@ async fn control_request(
         admission: Arc::new(admission),
         lease: state.lease,
     };
-    if !matches!(request.uri().path(), "/healthz" | "/v1/enroll") {
+    if authenticated {
         let credential = crate::auth::credential(request.headers())?.to_owned();
         work.run(move |store| crate::upload_store::authenticated_device(&store, &credential))
             .await?;
     }
     request.extensions_mut().insert(work);
     let (parts, body) = request.into_parts();
-    let result = tokio::time::timeout(Duration::from_secs(15), to_bytes(body, CONTROL_LIMIT))
+    let result = tokio::time::timeout(body_deadline, to_bytes(body, CONTROL_LIMIT))
         .await
         .map_err(|_| ApiFailure::request_timeout())?;
     match result {

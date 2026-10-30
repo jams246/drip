@@ -29,6 +29,7 @@ struct HttpState {
     store: Store,
     lease: Option<Arc<crate::store::DaemonLease>>,
     controls: Arc<Semaphore>,
+    unauthenticated: Arc<Semaphore>,
     workers: Arc<Semaphore>,
     streams: Arc<Semaphore>,
 }
@@ -39,6 +40,7 @@ impl HttpState {
             store,
             lease: None,
             controls: Arc::new(Semaphore::new(32)),
+            unauthenticated: Arc::new(Semaphore::new(4)),
             workers: Arc::new(Semaphore::new(8)),
             streams: Arc::new(Semaphore::new(8)),
         }
@@ -46,6 +48,7 @@ impl HttpState {
 
     async fn drain(&self) {
         let _controls = self.controls.acquire_many(32).await;
+        let _unauthenticated = self.unauthenticated.acquire_many(4).await;
         let _streams = self.streams.acquire_many(8).await;
     }
 }
