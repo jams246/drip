@@ -106,9 +106,18 @@ fn create_identity(mirror: &cap_std::fs::Dir, label: &str) -> StoreResult<(Strin
     Err(StoreError::Conflict)
 }
 
+/// Rejects control characters and invisible bidi or zero-width format characters.
+fn spoofing(character: char) -> bool {
+    character.is_control()
+        || matches!(
+            character,
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+        )
+}
+
 fn validate_label(label: &str) -> StoreResult<&str> {
     let label = label.trim();
-    if label.is_empty() || label.len() > 128 || label.chars().any(char::is_control) {
+    if label.is_empty() || label.len() > 128 || label.chars().any(spoofing) {
         return Err(StoreError::InvalidInput);
     }
     Ok(label)
@@ -160,5 +169,6 @@ mod tests {
     fn blank_or_control_labels_are_rejected() {
         assert!(validate_label(" \n ").is_err());
         assert!(validate_label("desktop\u{7}").is_err());
+        assert!(validate_label("desktop\u{202E}exe").is_err());
     }
 }
